@@ -1,0 +1,7 @@
+{
+  "name": "Copy of Ridex Admin Dashboard",
+  "description": "A modern, yellow-themed admin dashboard for the Ridex ride-sharing service. It provides a comprehensive overview of operations, including real-time monitoring of rides and drivers, revenue tracking, user management, and detailed reporting with interactive charts.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
