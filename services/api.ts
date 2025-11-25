@@ -126,6 +126,51 @@ export interface DriverContractedJob {
     clientId?: string;
 }
 
+// --- PAYMENT FLOW INTERFACES ---
+export interface DriverPayoutDetails {
+    driverId: string;
+    driverName: string;
+    payoutMethod: 'Bank' | 'Airtel Money' | 'Mpamba';
+    payoutAccountNumber?: string; // For Bank
+    payoutMobileNumber?: string; // For Airtel Money / Mpamba
+    bankName?: string;
+    accountHolderName?: string;
+}
+
+export interface MobileMoneyOperator {
+    id: string;
+    name: string;
+    code: string;
+    ref_id: string;
+}
+
+export interface PaymentInitiationRequest {
+    rideId: number;
+    amount: number;
+    mobileNumber: string;
+    providerRefId: string;
+}
+
+export interface PaymentInitiationResponse {
+    status: 'success' | 'error';
+    message: string;
+    data?: {
+        charge_id: string;
+        status: string;
+        amount: number;
+    };
+}
+
+export interface PaymentVerificationResponse {
+    status: 'success' | 'pending' | 'failed';
+    data?: {
+        charge_id: string;
+        status: string;
+        amount: number;
+    };
+}
+
+
 // --- MAPBOX SPECIFIC TYPES ---
 export interface MapBoxRouteResponse {
     routes: {
@@ -166,10 +211,10 @@ export const MapService = {
         // Simulation Logic
         const baseLng = -73.9851;
         const baseLat = 40.7589;
-        
-        const offset1 = 0.01; 
+
+        const offset1 = 0.01;
         const offset2 = 0.02;
-        
+
         const start: [number, number] = [baseLng + offset1, baseLat + offset1];
         const end: [number, number] = [baseLng - offset2, baseLat - offset2];
 
@@ -188,17 +233,17 @@ export const ApiService = {
         { id: 'pricing', label: 'Pricing', subLabel: 'Settings', view: 'pricing', keywords: ['rates', 'surge'] },
     ],
     getDashboardData: () => ({
-        weekly: [{name: 'Mon', value: 1000}, {name: 'Tue', value: 2000}, {name: 'Wed', value: 1500}, {name: 'Thu', value: 2500}, {name: 'Fri', value: 3000}, {name: 'Sat', value: 3500}, {name: 'Sun', value: 2000}],
-        lastWeek: [{name: 'Mon', value: 800}, {name: 'Tue', value: 1800}, {name: 'Wed', value: 1300}, {name: 'Thu', value: 2300}, {name: 'Fri', value: 2800}, {name: 'Sat', value: 3300}, {name: 'Sun', value: 1800}],
-        monthly: [{name: 'Week 1', value: 10000}, {name: 'Week 2', value: 12000}, {name: 'Week 3', value: 11000}, {name: 'Week 4', value: 14000}],
+        weekly: [{ name: 'Mon', value: 1000 }, { name: 'Tue', value: 2000 }, { name: 'Wed', value: 1500 }, { name: 'Thu', value: 2500 }, { name: 'Fri', value: 3000 }, { name: 'Sat', value: 3500 }, { name: 'Sun', value: 2000 }],
+        lastWeek: [{ name: 'Mon', value: 800 }, { name: 'Tue', value: 1800 }, { name: 'Wed', value: 1300 }, { name: 'Thu', value: 2300 }, { name: 'Fri', value: 2800 }, { name: 'Sat', value: 3300 }, { name: 'Sun', value: 1800 }],
+        monthly: [{ name: 'Week 1', value: 10000 }, { name: 'Week 2', value: 12000 }, { name: 'Week 3', value: 11000 }, { name: 'Week 4', value: 14000 }],
         mapVehicles: [
             { id: 1, lat: 40.7589, lng: -73.9851, type: 'share' },
             { id: 2, lat: 40.7489, lng: -73.9951, type: 'hire' }
         ]
     }),
     getRides: (): Ride[] => [
-         { id: 'R-101', rider: { name: 'John Doe', avatar: 'https://ui-avatars.com/api/?name=John+Doe' }, driver: { name: 'Jane Smith', avatar: 'https://ui-avatars.com/api/?name=Jane+Smith' }, type: 'Ride Share', origin: 'Downtown', destination: 'Airport', fare: 25500, date: '2023-10-27', status: 'Completed' },
-         { id: 'R-102', rider: { name: 'Alice Cooper', avatar: 'https://ui-avatars.com/api/?name=Alice+Cooper' }, driver: { name: 'Bob Brown', avatar: 'https://ui-avatars.com/api/?name=Bob+Brown' }, type: 'For Hire', origin: 'Uptown', destination: 'Suburbs', fare: 45000, date: '2023-10-28', status: 'In Progress' },
+        { id: 'R-101', rider: { name: 'John Doe', avatar: 'https://ui-avatars.com/api/?name=John+Doe' }, driver: { name: 'Jane Smith', avatar: 'https://ui-avatars.com/api/?name=Jane+Smith' }, type: 'Ride Share', origin: 'Downtown', destination: 'Airport', fare: 25500, date: '2023-10-27', status: 'Completed' },
+        { id: 'R-102', rider: { name: 'Alice Cooper', avatar: 'https://ui-avatars.com/api/?name=Alice+Cooper' }, driver: { name: 'Bob Brown', avatar: 'https://ui-avatars.com/api/?name=Bob+Brown' }, type: 'For Hire', origin: 'Uptown', destination: 'Suburbs', fare: 45000, date: '2023-10-28', status: 'In Progress' },
     ],
     getDrivers: (): Driver[] => [
         { id: 'D-001', name: 'Jane Smith', avatar: 'https://ui-avatars.com/api/?name=Jane+Smith', vehicle: 'Toyota Camry', licensePlate: 'ABC-123', totalRides: 1540, rating: 4.8, status: 'Approved', joinDate: '2022-01-15' },
@@ -208,7 +253,7 @@ export const ApiService = {
         { id: 'U-001', name: 'John Doe', avatar: 'https://ui-avatars.com/api/?name=John+Doe', totalRides: 45, memberSince: '2023-01-10', status: 'Active' },
     ],
     getRevenueData: () => ({
-        annual: [{name: 'Jan', value: 50000}, {name: 'Feb', value: 60000}, {name: 'Mar', value: 55000}, {name: 'Apr', value: 70000}, {name: 'May', value: 80000}, {name: 'Jun', value: 90000}],
+        annual: [{ name: 'Jan', value: 50000 }, { name: 'Feb', value: 60000 }, { name: 'Mar', value: 55000 }, { name: 'Apr', value: 70000 }, { name: 'May', value: 80000 }, { name: 'Jun', value: 90000 }],
         transactions: [
             { id: 'TX-001', source: 'Ride #R-101', date: '2023-10-27', amount: 25500, status: 'Completed' },
             { id: 'TX-002', source: 'Ride #R-102', date: '2023-10-28', amount: 45000, status: 'Pending' },
@@ -218,21 +263,21 @@ export const ApiService = {
         { id: 1, name: 'Downtown Zone', multiplier: 1.5, color: '#ef4444', coordinates: [[-73.99, 40.75], [-73.98, 40.76]] },
     ],
     getTotalRidesData: () => ({
-        weekly: [{name: 'Mon', rides: 120, cancelled: 5}, {name: 'Tue', rides: 140, cancelled: 8}, {name: 'Wed', rides: 160, cancelled: 6}, {name: 'Thu', rides: 180, cancelled: 10}, {name: 'Fri', rides: 220, cancelled: 12}, {name: 'Sat', rides: 250, cancelled: 15}, {name: 'Sun', rides: 150, cancelled: 4}],
-        monthly: [{name: 'Jan', rides: 500, cancelled: 20}, {name: 'Feb', rides: 600, cancelled: 25}],
-        yearly: [{name: '2022', rides: 6000, cancelled: 300}, {name: '2023', rides: 7500, cancelled: 350}],
+        weekly: [{ name: 'Mon', rides: 120, cancelled: 5 }, { name: 'Tue', rides: 140, cancelled: 8 }, { name: 'Wed', rides: 160, cancelled: 6 }, { name: 'Thu', rides: 180, cancelled: 10 }, { name: 'Fri', rides: 220, cancelled: 12 }, { name: 'Sat', rides: 250, cancelled: 15 }, { name: 'Sun', rides: 150, cancelled: 4 }],
+        monthly: [{ name: 'Jan', rides: 500, cancelled: 20 }, { name: 'Feb', rides: 600, cancelled: 25 }],
+        yearly: [{ name: '2022', rides: 6000, cancelled: 300 }, { name: '2023', rides: 7500, cancelled: 350 }],
     }),
     getRideShareData: () => ({
-        weekly: [{name: 'Mon', rides: 80}, {name: 'Tue', rides: 90}, {name: 'Wed', rides: 110}, {name: 'Thu', rides: 130}, {name: 'Fri', rides: 150}, {name: 'Sat', rides: 180}, {name: 'Sun', rides: 100}],
-        monthly: [{name: 'Jan', rides: 300}, {name: 'Feb', rides: 350}],
+        weekly: [{ name: 'Mon', rides: 80 }, { name: 'Tue', rides: 90 }, { name: 'Wed', rides: 110 }, { name: 'Thu', rides: 130 }, { name: 'Fri', rides: 150 }, { name: 'Sat', rides: 180 }, { name: 'Sun', rides: 100 }],
+        monthly: [{ name: 'Jan', rides: 300 }, { name: 'Feb', rides: 350 }],
     }),
     getForHireData: () => ({
-        weekly: [{name: 'Mon', scheduled: 10, immediate: 5}, {name: 'Tue', scheduled: 12, immediate: 6}],
-        monthly: [{name: 'Jan', scheduled: 40, immediate: 20}, {name: 'Feb', scheduled: 50, immediate: 25}],
+        weekly: [{ name: 'Mon', scheduled: 10, immediate: 5 }, { name: 'Tue', scheduled: 12, immediate: 6 }],
+        monthly: [{ name: 'Jan', scheduled: 40, immediate: 20 }, { name: 'Feb', scheduled: 50, immediate: 25 }],
         categories: [
             {
                 title: "Small Cars", icon: "🚗", count: 120, available: 85, examples: ["Toyota Corolla", "Honda Civic"],
-                stats: { activeRentals: 35, growth: 5.2, revenue: 1250000, avgRate: 25000, chartData: [{day: 'Mon', value: 20}, {day: 'Tue', value: 25}] }
+                stats: { activeRentals: 35, growth: 5.2, revenue: 1250000, avgRate: 25000, chartData: [{ day: 'Mon', value: 20 }, { day: 'Tue', value: 25 }] }
             } as VehicleCategory
         ]
     }),
@@ -275,7 +320,7 @@ export const ApiService = {
         name: "Rider User", avatar: "https://ui-avatars.com/api/?name=Rider+User", rating: 4.8
     }),
     getRiderStats: () => ({
-        totalSpend: 458500, totalRides: 24, totalDistance: 1407, chartData: [{name: 'Jan', value: 50000}, {name: 'Feb', value: 80000}], rideTypes: [{ name: 'Share', value: 70, color: '#FACC15' }, { name: 'Hire', value: 30, color: '#3b82f6' }]
+        totalSpend: 458500, totalRides: 24, totalDistance: 1407, chartData: [{ name: 'Jan', value: 50000 }, { name: 'Feb', value: 80000 }], rideTypes: [{ name: 'Share', value: 70, color: '#FACC15' }, { name: 'Hire', value: 30, color: '#3b82f6' }]
     }),
     getRiderHistory: () => [
         { id: 1, date: 'Oct 25, 2023', time: '14:30', origin: 'Home', destination: 'Office', price: 15000, status: 'Completed', driver: 'Alex Driver', rating: 5 },
@@ -286,5 +331,108 @@ export const ApiService = {
     ],
     getAllForHirePosts: (): DriverHirePost[] => [
         { id: 201, title: '5-Ton Truck', category: 'Trucks', location: 'Lilongwe', rate: 'MWK 200,000/day', status: 'Active', driverName: 'Big Movers', driverRating: 4.7 },
-    ]
+    ],
+
+    // --- PAYMENT FLOW API FUNCTIONS ---
+    /**
+     * Fetch driver payout details from backend
+     */
+    getDriverPayoutDetails: async (driverId: string): Promise<DriverPayoutDetails | null> => {
+        try {
+            const response = await fetch(`/api/drivers/${driverId}/payout-details`, {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch driver payout details');
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.error('Error fetching driver payout details:', error);
+            return null;
+        }
+    },
+
+    /**
+     * Get available mobile money operators from PayChangu
+     */
+    getMobileMoneyOperators: async (): Promise<MobileMoneyOperator[]> => {
+        try {
+            const response = await fetch('/api/payments/operators', {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch mobile money operators');
+            }
+
+            const data = await response.json();
+            return data.operators || [];
+        } catch (error) {
+            console.error('Error fetching mobile money operators:', error);
+            return [];
+        }
+    },
+
+    /**
+     * Initiate payment via PayChangu
+     */
+    initiatePayment: async (paymentData: PaymentInitiationRequest): Promise<PaymentInitiationResponse> => {
+        try {
+            const response = await fetch('/api/payments/initiate', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(paymentData)
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Payment initiation failed');
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.error('Error initiating payment:', error);
+            return {
+                status: 'error',
+                message: error instanceof Error ? error.message : 'Payment initiation failed'
+            };
+        }
+    },
+
+    /**
+     * Verify payment status
+     */
+    verifyPayment: async (chargeId: string): Promise<PaymentVerificationResponse> => {
+        try {
+            const response = await fetch(`/api/payments/verify/${chargeId}`, {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error('Payment verification failed');
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.error('Error verifying payment:', error);
+            return {
+                status: 'failed'
+            };
+        }
+    }
+
 };

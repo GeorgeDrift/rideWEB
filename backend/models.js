@@ -26,26 +26,36 @@ const User = sequelize.define('User', {
     avatar: { type: DataTypes.STRING },
     rating: { type: DataTypes.FLOAT, defaultValue: 5.0 },
     walletBalance: { type: DataTypes.FLOAT, defaultValue: 0.0 },
-    
+
     // Account Status for Admin Management
-    accountStatus: { 
-        type: DataTypes.ENUM('pending', 'active', 'suspended'), 
-        defaultValue: 'active' 
+    accountStatus: {
+        type: DataTypes.ENUM('pending', 'active', 'suspended'),
+        defaultValue: 'active'
     },
 
     // Driver Specific (Flattened for SQL)
     vehicleModel: { type: DataTypes.STRING },
     vehiclePlate: { type: DataTypes.STRING },
-    
+
+    // Driver License
+    driverLicenseUrl: { type: DataTypes.STRING },
+
+    // Payment Details
+    airtelMoneyNumber: { type: DataTypes.STRING },
+    mpambaNumber: { type: DataTypes.STRING },
+    bankName: { type: DataTypes.STRING },
+    bankAccountNumber: { type: DataTypes.STRING },
+    bankAccountName: { type: DataTypes.STRING },
+
     isOnline: { type: DataTypes.BOOLEAN, defaultValue: false },
     // Location stored as separate columns in SQL
     currentLat: { type: DataTypes.FLOAT },
     currentLng: { type: DataTypes.FLOAT },
     currentHeading: { type: DataTypes.FLOAT },
-    
+
     subscriptionStatus: { type: DataTypes.ENUM('active', 'inactive', 'expired'), defaultValue: 'inactive' },
     subscriptionExpiry: { type: DataTypes.DATE },
-    
+
     permissions: { type: DataTypes.JSON }, // Store array as JSON
 });
 
@@ -65,13 +75,13 @@ const Vehicle = sequelize.define('Vehicle', {
 const Ride = sequelize.define('Ride', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
     type: { type: DataTypes.ENUM('share', 'hire'), allowNull: false },
-    
+
     origin: { type: DataTypes.STRING, allowNull: false },
     destination: { type: DataTypes.STRING, allowNull: false },
-    
+
     // Coordinates stored as JSON or separate fields. JSON is easier for objects.
-    coordinates: { type: DataTypes.JSON }, 
-    
+    coordinates: { type: DataTypes.JSON },
+
     date: { type: DataTypes.STRING },
     time: { type: DataTypes.STRING },
     isImmediate: { type: DataTypes.BOOLEAN, defaultValue: false },
@@ -79,15 +89,15 @@ const Ride = sequelize.define('Ride', {
     price: { type: DataTypes.FLOAT, allowNull: false },
     platformFee: { type: DataTypes.FLOAT, defaultValue: 0 },
     driverEarnings: { type: DataTypes.FLOAT, defaultValue: 0 },
-    
+
     seats: { type: DataTypes.INTEGER },
     duration: { type: DataTypes.STRING },
 
-    status: { 
-        type: DataTypes.ENUM('Pending', 'Scheduled', 'Inbound', 'Arrived', 'Boarded', 'In Progress', 'Payment Due', 'Completed', 'Cancelled'), 
-        defaultValue: 'Pending' 
+    status: {
+        type: DataTypes.ENUM('Pending', 'Scheduled', 'Inbound', 'Arrived', 'Boarded', 'In Progress', 'Payment Due', 'Completed', 'Cancelled'),
+        defaultValue: 'Pending'
     },
-    
+
     paymentStatus: { type: DataTypes.ENUM('pending', 'paid', 'failed', 'refunded'), defaultValue: 'pending' },
     paymentMethod: { type: DataTypes.STRING },
     transactionRef: { type: DataTypes.STRING },

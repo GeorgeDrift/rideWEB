@@ -12,4 +12,7 @@ router.get('/vehicles', authenticateToken, authorizeRole(['driver']), driverCont
 router.post('/vehicles', authenticateToken, authorizeRole(['driver']), driverController.addVehicle);
 router.get('/stats', authenticateToken, authorizeRole(['driver']), driverController.getStats);
 
+// Route for fetching driver payout details (accessible by authenticated users for payment processing)
+router.get('/:driverId/payout-details', authenticateToken, driverController.getDriverPayoutDetails);
+
 module.exports = router;

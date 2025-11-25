@@ -1,16 +1,25 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-    CarIcon, MapIcon, CloseIcon, MenuIcon, 
+import {
+    CarIcon, MapIcon, CloseIcon, MenuIcon,
     SteeringWheelIcon, SearchIcon, TagIcon,
     BriefcaseIcon, StarIcon, CreditCardIcon,
     BankIcon, WalletIcon, CheckCircleIcon,
     ChatBubbleIcon, SendIcon, PencilIcon, NavigationIcon, PhoneIcon, HandshakeIcon
 } from './Icons';
-import { 
-    AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, BarChart, Bar 
+import {
+    AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, BarChart, Bar
 } from 'recharts';
-import { ApiService, DriverRidePost, DriverHirePost, Conversation, Message } from '../services/api';
+import {
+    ApiService,
+    DriverRidePost,
+    DriverHirePost,
+    Conversation,
+    Message,
+    DriverPayoutDetails,
+    MobileMoneyOperator,
+    PaymentInitiationRequest
+} from '../services/api';
 
 // --- Local Icons ---
 const HomeIcon = ({ className }: { className?: string }) => (
@@ -57,47 +66,47 @@ interface RiderDashboardProps {
 const MockMap = ({ status }: { status?: string }) => (
     <div className="w-full h-full bg-[#1a1a1a] relative overflow-hidden">
         {/* Map Background Pattern */}
-        <div className="absolute inset-0 opacity-10" 
-             style={{ 
-                 backgroundImage: 'linear-gradient(#333 1px, transparent 1px), linear-gradient(90deg, #333 1px, transparent 1px)', 
-                 backgroundSize: '40px 40px' 
-             }}>
+        <div className="absolute inset-0 opacity-10"
+            style={{
+                backgroundImage: 'linear-gradient(#333 1px, transparent 1px), linear-gradient(90deg, #333 1px, transparent 1px)',
+                backgroundSize: '40px 40px'
+            }}>
         </div>
-        
+
         {/* Mock Roads */}
         <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-50">
             <path d="M-100 200 L 300 250 L 500 150 L 800 400 L 1200 350" stroke="#2a2a2a" strokeWidth="40" fill="none" strokeLinecap="round" strokeLinejoin="round" />
             <path d="M400 -50 L 450 300 L 400 800" stroke="#2a2a2a" strokeWidth="35" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-            
+
             {/* Active Route Line */}
             <path d="M300 250 L 500 150 L 800 400" stroke="#FACC15" strokeWidth="6" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="10 5" className="animate-pulse" />
         </svg>
 
         {/* Markers */}
         <div className="absolute top-[250px] left-[300px] transform -translate-x-1/2 -translate-y-1/2 group cursor-pointer">
-             <div className="w-4 h-4 bg-blue-500 rounded-full border-2 border-white shadow-[0_0_15px_rgba(59,130,246,0.5)]"></div>
-             <div className="absolute top-5 left-1/2 transform -translate-x-1/2 bg-[#1E1E1E] px-2 py-1 rounded text-[10px] text-white font-bold shadow-lg whitespace-nowrap border border-[#333] opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="w-4 h-4 bg-blue-500 rounded-full border-2 border-white shadow-[0_0_15px_rgba(59,130,246,0.5)]"></div>
+            <div className="absolute top-5 left-1/2 transform -translate-x-1/2 bg-[#1E1E1E] px-2 py-1 rounded text-[10px] text-white font-bold shadow-lg whitespace-nowrap border border-[#333] opacity-0 group-hover:opacity-100 transition-opacity">
                 Pickup Location
-             </div>
+            </div>
         </div>
 
         <div className="absolute top-[400px] left-[800px] transform -translate-x-1/2 -translate-y-1/2 group cursor-pointer">
-             <div className="w-4 h-4 bg-red-500 rounded-full border-2 border-white shadow-[0_0_15px_rgba(239,68,68,0.5)]"></div>
-             <div className="absolute top-5 left-1/2 transform -translate-x-1/2 bg-[#1E1E1E] px-2 py-1 rounded text-[10px] text-white font-bold shadow-lg whitespace-nowrap border border-[#333] opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="w-4 h-4 bg-red-500 rounded-full border-2 border-white shadow-[0_0_15px_rgba(239,68,68,0.5)]"></div>
+            <div className="absolute top-5 left-1/2 transform -translate-x-1/2 bg-[#1E1E1E] px-2 py-1 rounded text-[10px] text-white font-bold shadow-lg whitespace-nowrap border border-[#333] opacity-0 group-hover:opacity-100 transition-opacity">
                 Destination
-             </div>
+            </div>
         </div>
 
         {/* Driver Car (Animated) */}
         <div className={`absolute top-[200px] left-[400px] transform -translate-x-1/2 -translate-y-1/2 transition-all duration-[5000ms] ease-linear ${status === 'Arrived' ? 'translate-x-[-100px] translate-y-[50px]' : ''}`}>
-             <div className="w-16 h-16 bg-[#FACC15]/10 rounded-full animate-ping absolute inset-0"></div>
-             <div className="relative w-12 h-12 bg-[#FACC15] rounded-full border-2 border-black flex items-center justify-center shadow-2xl z-10">
+            <div className="w-16 h-16 bg-[#FACC15]/10 rounded-full animate-ping absolute inset-0"></div>
+            <div className="relative w-12 h-12 bg-[#FACC15] rounded-full border-2 border-black flex items-center justify-center shadow-2xl z-10">
                 <CarIcon className="w-6 h-6 text-black" />
-             </div>
-             <div className="absolute -top-12 left-1/2 transform -translate-x-1/2 bg-white text-black text-xs font-bold px-3 py-1.5 rounded-lg shadow-xl whitespace-nowrap flex items-center gap-1">
+            </div>
+            <div className="absolute -top-12 left-1/2 transform -translate-x-1/2 bg-white text-black text-xs font-bold px-3 py-1.5 rounded-lg shadow-xl whitespace-nowrap flex items-center gap-1">
                 <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
                 {status === 'Arrived' ? 'Driver Here' : 'Driver • 2 min away'}
-             </div>
+            </div>
         </div>
 
         {/* Overlay Info */}
@@ -130,7 +139,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
     const [activeTab, setActiveTab] = useState<'overview' | 'market' | 'trips' | 'active-trip' | 'financials' | 'distance' | 'messages'>('overview');
     const [marketTab, setMarketTab] = useState<'share' | 'hire'>('share');
     const [searchTerm, setSearchTerm] = useState('');
-    
+
     // Request Modal State (No payment yet)
     const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
     const [selectedBooking, setSelectedBooking] = useState<any>(null);
@@ -143,6 +152,13 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
     const [paymentMethod, setPaymentMethod] = useState<'mobile'>('mobile'); // Default to mobile for API flow
     const [mobileProvider, setMobileProvider] = useState<'airtel' | 'mpamba'>('airtel');
     const [passengerPhone, setPassengerPhone] = useState(''); // Passenger's number for PUSH request
+
+    // Payment Flow State (NEW)
+    const [driverPayoutDetails, setDriverPayoutDetails] = useState<DriverPayoutDetails | null>(null);
+    const [mobileMoneyOperators, setMobileMoneyOperators] = useState<MobileMoneyOperator[]>([]);
+    const [isLoadingDriverDetails, setIsLoadingDriverDetails] = useState(false);
+    const [paymentError, setPaymentError] = useState<string | null>(null);
+    const [currentChargeId, setCurrentChargeId] = useState<string | null>(null);
 
     // Negotiation State
     const [bookingMode, setBookingMode] = useState<'fixed' | 'negotiate'>('fixed');
@@ -163,24 +179,24 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
     // Data
     const [profile] = useState(ApiService.getRiderProfile());
     const [stats] = useState(ApiService.getRiderStats());
-    
+
     // Initialize history
     const [history, setHistory] = useState<any[]>([
-        ...ApiService.getRiderHistory(), 
-        { 
-            id: 99, 
-            date: new Date().toLocaleDateString(), 
-            time: '10:00', 
-            origin: 'Zomba', 
-            destination: 'Blantyre', 
-            price: 20000, 
-            status: 'Completed', 
-            driver: 'Mike Ross', 
+        ...ApiService.getRiderHistory(),
+        {
+            id: 99,
+            date: new Date().toLocaleDateString(),
+            time: '10:00',
+            origin: 'Zomba',
+            destination: 'Blantyre',
+            price: 20000,
+            status: 'Completed',
+            driver: 'Mike Ross',
             rating: 4,
             timestamp: Date.now() - 10000000
         }
     ]);
-    
+
     // Listings Data
     const [rideShareListings] = useState<DriverRidePost[]>(ApiService.getAllRideSharePosts());
     const [forHireListings] = useState<DriverHirePost[]>(ApiService.getAllForHirePosts());
@@ -198,7 +214,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                 let hasChanges = false;
                 const updatedHistory = currentHistory.map(trip => {
                     const timeDiff = Date.now() - (trip.timestamp || 0);
-                    
+
                     // 1. Pending -> Inbound (Approved) after 3s
                     if (trip.status === 'Pending' && timeDiff > 3000) {
                         hasChanges = true;
@@ -231,20 +247,62 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
         }
     }, [currentActiveTrip?.status]);
 
+    // Fetch Driver Payout Details when Payment Modal Opens
+    useEffect(() => {
+        const fetchPaymentData = async () => {
+            if (isPaymentModalOpen && currentActiveTrip) {
+                setIsLoadingDriverDetails(true);
+                setPaymentError(null);
+
+                try {
+                    // Fetch driver payout details
+                    // For demo purposes, we'll use a mock driver ID based on driver name
+                    // In production, you'd get the actual driver ID from the trip data
+                    const driverIdMap: Record<string, string> = {
+                        'Alex Driver': 'D-001',
+                        'Mike Ross': 'D-002',
+                        'John Doe': 'D-003'
+                    };
+                    const driverId = driverIdMap[currentActiveTrip.driver] || 'D-001';
+
+                    const payoutDetails = await ApiService.getDriverPayoutDetails(driverId);
+
+                    if (payoutDetails) {
+                        setDriverPayoutDetails(payoutDetails);
+                    } else {
+                        setPaymentError("Driver hasn't configured payout details yet.");
+                    }
+
+                    // Fetch mobile money operators
+                    const operators = await ApiService.getMobileMoneyOperators();
+                    setMobileMoneyOperators(operators);
+
+                } catch (error) {
+                    console.error('Error fetching payment data:', error);
+                    setPaymentError('Failed to load payment information. Please try again.');
+                } finally {
+                    setIsLoadingDriverDetails(false);
+                }
+            }
+        };
+
+        fetchPaymentData();
+    }, [isPaymentModalOpen, currentActiveTrip]);
+
     // Filtered Listings
-    const filteredRideShares = rideShareListings.filter(post => 
+    const filteredRideShares = rideShareListings.filter(post =>
         post.destination.toLowerCase().includes(searchTerm.toLowerCase()) ||
         post.origin.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
-    const filteredHireListings = forHireListings.filter(post => 
+    const filteredHireListings = forHireListings.filter(post =>
         post.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
         post.category.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
     // UI Components
     const StatCard = ({ title, value, subValue, icon: Icon, onClick }: any) => (
-        <div 
+        <div
             onClick={onClick}
             className={`bg-[#1E1E1E] p-6 rounded-3xl border border-[#2A2A2A] shadow-lg transition-all duration-300 group flex flex-col justify-between h-36
             ${onClick ? 'cursor-pointer hover:border-[#FACC15] hover:translate-y-[-4px] hover:shadow-[0_10px_30px_rgba(250,204,21,0.2)]' : ''}`}
@@ -267,12 +325,12 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
         setBookingType(type);
         setRequestStep('review');
         setPassengerPhone('');
-        
+
         // Reset negotiation state
         setBookingMode('fixed');
         const basePrice = type === 'share' ? post.price : parseFloat(post.rate.replace(/[^0-9.]/g, ''));
         setOfferPrice(basePrice.toString());
-        
+
         setIsRequestModalOpen(true);
     };
 
@@ -282,10 +340,10 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
         const newTrip = {
             id: Date.now(),
             date: selectedBooking.date || new Date().toLocaleDateString(),
-            time: selectedBooking.time || new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
+            time: selectedBooking.time || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             origin: bookingType === 'share' ? selectedBooking.origin : selectedBooking.location,
             destination: bookingType === 'share' ? selectedBooking.destination : 'Requested Site',
-            price: bookingMode === 'fixed' 
+            price: bookingMode === 'fixed'
                 ? (bookingType === 'share' ? selectedBooking.price : parseFloat(selectedBooking.rate.replace(/[^0-9.]/g, '') || 0))
                 : parseFloat(offerPrice),
             status: 'Pending',
@@ -295,7 +353,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
 
         setHistory(prev => [newTrip, ...prev]);
         setRequestStep('success');
-        
+
         setTimeout(() => {
             setIsRequestModalOpen(false);
             setRequestStep('review');
@@ -321,37 +379,120 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
         }
     };
 
-    // Logic using Simulated PayChangu API
-    const handleCompletePayment = () => {
+    // Payment handler with PayChangu API Integration
+    const handleCompletePayment = async () => {
         if (!passengerPhone) {
             alert("Please enter your mobile money number.");
             return;
         }
 
-        setPaymentStep('processing');
-        
-        // Simulate API Call to PayChangu
-        // Arguments: Recipient (Driver), Sender (Passenger), Amount, Provider
-        const driverPhone = getDriverPhone(currentActiveTrip?.driver || 'default');
-        const amount = currentActiveTrip?.price || 0;
-        
-        console.log(`Initiating PayChangu Payment...`);
-        console.log(`Recipient (Driver): ${currentActiveTrip?.driver} (${driverPhone})`);
-        console.log(`Sender (You): ${passengerPhone}`);
-        console.log(`Amount: ${amount}`);
-        console.log(`Provider: ${mobileProvider}`);
+        if (!currentActiveTrip) {
+            alert("No active trip found.");
+            return;
+        }
 
-        // Simulate Webhook Response Delay
-        setTimeout(() => {
-            setPaymentStep('success');
-            setTimeout(() => {
-                if (currentActiveTrip) {
-                    const updatedHistory = history.map(h => h.id === currentActiveTrip.id ? { ...h, status: 'Completed' } : h);
-                    setHistory(updatedHistory);
+        // Validate driver payout details
+        if (!driverPayoutDetails) {
+            alert("Driver payout details are not available. Please contact support.");
+            return;
+        }
+
+        setPaymentStep('processing');
+        setPaymentError(null);
+
+        try {
+            // Get the provider ref ID based on selected mobile provider
+            const providerRefId = mobileProvider === 'airtel' ? 'airtel_mw' : 'tnm_mpamba_mw';
+
+            // Prepare payment data
+            const paymentData: PaymentInitiationRequest = {
+                rideId: currentActiveTrip.id,
+                amount: currentActiveTrip.price,
+                mobileNumber: passengerPhone,
+                providerRefId: providerRefId
+            };
+
+            console.log(`Initiating PayChangu Payment...`);
+            console.log(`Recipient (Driver): ${currentActiveTrip.driver}`, driverPayoutDetails);
+            console.log(`Sender (You): ${passengerPhone}`);
+            console.log(`Amount: MWK ${currentActiveTrip.price.toLocaleString()}`);
+            console.log(`Provider: ${mobileProvider}`);
+
+            // Call PayChangu API
+            const response = await ApiService.initiatePayment(paymentData);
+
+            if (response.status === 'error') {
+                throw new Error(response.message);
+            }
+
+            // Store charge ID for verification
+            if (response.data?.charge_id) {
+                setCurrentChargeId(response.data.charge_id);
+
+                // Start polling for payment verification
+                pollPaymentStatus(response.data.charge_id);
+            } else {
+                // Fallback to simulated success for demo
+                setTimeout(() => {
+                    setPaymentStep('success');
+                    completeTrip();
+                }, 3000);
+            }
+
+        } catch (error) {
+            console.error('Payment error:', error);
+            setPaymentError(error instanceof Error ? error.message : 'Payment failed. Please try again.');
+            setPaymentStep('method');
+        }
+    };
+
+    // Poll payment status
+    const pollPaymentStatus = async (chargeId: string) => {
+        let attempts = 0;
+        const maxAttempts = 20; // Poll for up to 60 seconds (3s intervals)
+
+        const poll = setInterval(async () => {
+            attempts++;
+
+            try {
+                const verification = await ApiService.verifyPayment(chargeId);
+
+                if (verification.status === 'success') {
+                    clearInterval(poll);
+                    setPaymentStep('success');
+                    setTimeout(() => {
+                        completeTrip();
+                    }, 2500);
+                } else if (verification.status === 'failed') {
+                    clearInterval(poll);
+                    setPaymentError('Payment failed. Please try again.');
+                    setPaymentStep('method');
+                } else if (attempts >= maxAttempts) {
+                    clearInterval(poll);
+                    setPaymentError('Payment verification timeout. Please check your transaction history.');
+                    setPaymentStep('method');
                 }
-                setIsPaymentModalOpen(false);
-            }, 2500);
+            } catch (error) {
+                console.error('Verification error:', error);
+                if (attempts >= maxAttempts) {
+                    clearInterval(poll);
+                    setPaymentError('Unable to verify payment. Please contact support.');
+                    setPaymentStep('method');
+                }
+            }
         }, 3000);
+    };
+
+    // Helper function to complete trip
+    const completeTrip = () => {
+        if (currentActiveTrip) {
+            const updatedHistory = history.map(h => h.id === currentActiveTrip.id ? { ...h, status: 'Completed' } : h);
+            setHistory(updatedHistory);
+        }
+        setIsPaymentModalOpen(false);
+        setPaymentStep('method');
+        setPassengerPhone('');
+        setCurrentChargeId(null);
     };
 
     const openRatingModal = (trip: any) => {
@@ -402,10 +543,10 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
 
     const getCalculatedTotal = () => {
         if (!selectedBooking && !currentActiveTrip) return 0;
-        
+
         if (currentActiveTrip) return currentActiveTrip.price;
 
-        const base = bookingMode === 'fixed' 
+        const base = bookingMode === 'fixed'
             ? (bookingType === 'share' ? selectedBooking.price : parseFloat(selectedBooking.rate.replace(/[^0-9.]/g, '') || 0))
             : parseFloat(offerPrice) || 0;
         return base + 500; // Service fee MWK 500
@@ -413,7 +554,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
 
     return (
         <div className="flex h-screen bg-[#121212] text-white font-sans overflow-hidden selection:bg-[#FACC15] selection:text-black">
-            
+
             {/* Mobile Sidebar Overlay */}
             {sidebarOpen && (
                 <div className="fixed inset-0 bg-black/80 z-40 lg:hidden" onClick={() => setSidebarOpen(false)}></div>
@@ -448,12 +589,12 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                     <button onClick={() => setActiveTab('overview')} className={`flex items-center w-full px-4 py-3 rounded-xl font-bold transition-transform hover:scale-105 ${activeTab === 'overview' ? 'text-black bg-[#FACC15]' : 'text-gray-400 hover:text-white hover:bg-[#2A2A2A]'}`}>
                         <DashboardIcon className="w-5 h-5 mr-3" /> Overview
                     </button>
-                    
-                    <button 
-                        onClick={() => setActiveTab('active-trip')} 
+
+                    <button
+                        onClick={() => setActiveTab('active-trip')}
                         className={`flex items-center w-full px-4 py-3 rounded-xl font-medium transition-colors ${activeTab === 'active-trip' ? 'text-white bg-[#2A2A2A] border border-[#FACC15]/30' : 'text-gray-400 hover:text-white hover:bg-[#2A2A2A]'}`}
                     >
-                        <NavigationIcon className={`w-5 h-5 mr-3 ${activeTab === 'active-trip' ? 'text-[#FACC15]' : ''}`} /> 
+                        <NavigationIcon className={`w-5 h-5 mr-3 ${activeTab === 'active-trip' ? 'text-[#FACC15]' : ''}`} />
                         Active Trip
                         {activeTrips.length > 0 && <span className="ml-auto w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>}
                     </button>
@@ -477,37 +618,37 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
 
                 <div className="p-4 border-t border-[#2A2A2A]">
                     <button onClick={onLogout} className="flex items-center w-full px-4 py-3 text-gray-400 hover:text-[#FACC15] hover:bg-[#2A2A2A] rounded-xl font-medium transition-colors">
-                         <span className="mr-3">Log Out</span>
+                        <span className="mr-3">Log Out</span>
                     </button>
                 </div>
             </aside>
 
             {/* Main Content */}
             <main className="flex-1 flex flex-col h-full overflow-hidden relative">
-                
+
                 {/* Header */}
                 <header className="h-20 flex items-center justify-between px-6 lg:px-10 bg-[#121212] border-b border-[#2A2A2A] shrink-0 z-30">
-                     <div className="flex items-center">
+                    <div className="flex items-center">
                         <button className="lg:hidden mr-4 text-gray-400" onClick={() => setSidebarOpen(true)}>
                             <MenuIcon className="w-6 h-6" />
                         </button>
                         <h1 className="text-2xl font-bold text-white hidden md:block">
-                            {activeTab === 'overview' ? 'Dashboard' : 
-                             activeTab === 'messages' ? 'Messages' :
-                             activeTab === 'market' ? 'Ride Market' : 
-                             activeTab === 'trips' ? 'My Trips' : 
-                             activeTab === 'active-trip' ? 'Active Trip' :
-                             activeTab === 'financials' ? 'Total Spent' : 
-                             'Distance Analytics'}
+                            {activeTab === 'overview' ? 'Dashboard' :
+                                activeTab === 'messages' ? 'Messages' :
+                                    activeTab === 'market' ? 'Ride Market' :
+                                        activeTab === 'trips' ? 'My Trips' :
+                                            activeTab === 'active-trip' ? 'Active Trip' :
+                                                activeTab === 'financials' ? 'Total Spent' :
+                                                    'Distance Analytics'}
                         </h1>
                     </div>
-                    
+
                     <div className="flex items-center gap-4">
                         {/* Search Bar for Market */}
                         {activeTab === 'market' && (
                             <div className="relative hidden md:block">
-                                <input 
-                                    type="text" 
+                                <input
+                                    type="text"
                                     placeholder={marketTab === 'share' ? "Search destinations..." : "Search vehicle types..."}
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
@@ -516,18 +657,18 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                 <SearchIcon className="w-4 h-4 text-gray-500 absolute left-3 top-2.5" />
                             </div>
                         )}
-                        
+
                         <div className="flex items-center gap-3">
-                             <div className="w-10 h-10 bg-[#252525] rounded-full flex items-center justify-center border border-[#333]">
+                            <div className="w-10 h-10 bg-[#252525] rounded-full flex items-center justify-center border border-[#333]">
                                 <UserIcon className="w-5 h-5 text-gray-400" />
-                             </div>
+                            </div>
                         </div>
                     </div>
                 </header>
 
                 {/* Content Area */}
                 <div className={`flex-1 overflow-y-auto ${activeTab === 'active-trip' ? 'p-0' : 'p-6 lg:p-8'}`}>
-                    
+
                     {/* --- ACTIVE TRIP TAB --- */}
                     {activeTab === 'active-trip' && (
                         <div className="h-full w-full flex flex-col md:flex-row relative">
@@ -544,7 +685,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                 <p className="text-gray-400 mb-8">
                                                     Your driver is waiting at the pickup location. Please confirm when you have boarded the vehicle.
                                                 </p>
-                                                <button 
+                                                <button
                                                     onClick={handleConfirmBoarding}
                                                     className="w-full py-4 bg-[#FACC15] text-black font-bold text-lg rounded-xl hover:bg-[#EAB308] transition-transform transform hover:scale-105 shadow-lg"
                                                 >
@@ -572,19 +713,19 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                 <div className="text-xs text-gray-500 uppercase font-bold mb-2">Status</div>
                                                 <div className="flex items-center gap-3">
                                                     <span className="relative flex h-3 w-3">
-                                                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                                                      <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                                        <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
                                                     </span>
                                                     <span className="text-green-400 font-bold text-lg leading-tight">
                                                         {currentActiveTrip.status}
                                                     </span>
                                                 </div>
                                                 <p className="text-xs text-gray-400 mt-2">
-                                                    {currentActiveTrip.status === 'Inbound' ? 'Driver is on the way.' : 
-                                                     currentActiveTrip.status === 'Arrived' ? 'Driver is waiting for you.' :
-                                                     currentActiveTrip.status === 'In Progress' ? 'Trip is in progress.' :
-                                                     currentActiveTrip.status === 'Payment Due' ? 'Trip complete. Please pay.' :
-                                                     'Waiting for driver update.'}
+                                                    {currentActiveTrip.status === 'Inbound' ? 'Driver is on the way.' :
+                                                        currentActiveTrip.status === 'Arrived' ? 'Driver is waiting for you.' :
+                                                            currentActiveTrip.status === 'In Progress' ? 'Trip is in progress.' :
+                                                                currentActiveTrip.status === 'Payment Due' ? 'Trip complete. Please pay.' :
+                                                                    'Waiting for driver update.'}
                                                 </p>
                                             </div>
 
@@ -606,9 +747,9 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                         <div className="p-6 flex-1 overflow-y-auto">
                                             <h3 className="text-sm font-bold text-gray-400 uppercase mb-4">Driver Details</h3>
                                             <div className="flex items-center gap-4 mb-6 bg-[#252525] p-4 rounded-xl border border-[#333]">
-                                                <img 
-                                                    src={`https://ui-avatars.com/api/?name=${currentActiveTrip.driver}&background=random`} 
-                                                    alt="Driver" 
+                                                <img
+                                                    src={`https://ui-avatars.com/api/?name=${currentActiveTrip.driver}&background=random`}
+                                                    alt="Driver"
                                                     className="w-12 h-12 rounded-full border-2 border-[#FACC15]"
                                                 />
                                                 <div>
@@ -624,7 +765,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                 <button className="flex-1 py-3 bg-[#252525] text-white rounded-xl font-bold text-sm hover:bg-[#333] transition-colors flex items-center justify-center gap-2 border border-[#333]">
                                                     <PhoneIcon className="w-4 h-4" /> Call
                                                 </button>
-                                                <button 
+                                                <button
                                                     onClick={() => setActiveTab('messages')}
                                                     className="flex-1 py-3 bg-[#FACC15] text-black rounded-xl font-bold text-sm hover:bg-[#EAB308] transition-colors flex items-center justify-center gap-2"
                                                 >
@@ -637,7 +778,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                 <div className="pt-6 border-t border-[#2A2A2A]">
                                                     <h3 className="text-sm font-bold text-gray-400 uppercase mb-3">Trip Actions</h3>
                                                     {currentActiveTrip.status === 'In Progress' && (
-                                                        <button 
+                                                        <button
                                                             onClick={handleManualEndTrip}
                                                             className="w-full py-3 border-2 border-red-500/30 text-red-400 rounded-xl font-bold text-sm hover:bg-red-500/10 hover:border-red-500/50 transition-colors"
                                                         >
@@ -645,7 +786,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                         </button>
                                                     )}
                                                     {currentActiveTrip.status === 'Payment Due' && (
-                                                        <button 
+                                                        <button
                                                             onClick={() => {
                                                                 setIsPaymentModalOpen(true);
                                                                 setPaymentStep('method');
@@ -674,7 +815,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                     <p className="text-gray-400 max-w-md">
                                         You don't have any trips in progress. Book a ride from the marketplace to see it here.
                                     </p>
-                                    <button 
+                                    <button
                                         onClick={() => setActiveTab('market')}
                                         className="px-8 py-3 bg-[#FACC15] text-black font-bold rounded-xl hover:bg-[#EAB308] transition-colors"
                                     >
@@ -690,15 +831,15 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                         <div className="space-y-8 animate-fadeIn">
                             {/* Quick Active Trip View if available */}
                             {currentActiveTrip && (
-                                <div 
+                                <div
                                     onClick={() => setActiveTab('active-trip')}
                                     className="bg-gradient-to-r from-[#FACC15]/10 to-transparent p-6 rounded-3xl border border-[#FACC15]/30 cursor-pointer hover:border-[#FACC15]/60 transition-all group"
                                 >
                                     <div className="flex justify-between items-center mb-4">
                                         <h3 className="text-lg font-bold text-white flex items-center gap-2">
                                             <span className="relative flex h-3 w-3">
-                                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#FACC15] opacity-75"></span>
-                                              <span className="relative inline-flex rounded-full h-3 w-3 bg-[#FACC15]"></span>
+                                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#FACC15] opacity-75"></span>
+                                                <span className="relative inline-flex rounded-full h-3 w-3 bg-[#FACC15]"></span>
                                             </span>
                                             Active Trip
                                         </h3>
@@ -722,25 +863,25 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                             )}
 
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                <StatCard 
-                                    title="Total Spent" 
-                                    value={`MWK ${stats.totalSpend.toLocaleString()}`} 
-                                    subValue="Lifetime spending" 
-                                    icon={WalletIcon} 
+                                <StatCard
+                                    title="Total Spent"
+                                    value={`MWK ${stats.totalSpend.toLocaleString()}`}
+                                    subValue="Lifetime spending"
+                                    icon={WalletIcon}
                                     onClick={() => setActiveTab('financials')}
                                 />
-                                <StatCard 
-                                    title="Total Trips" 
-                                    value={stats.totalRides} 
-                                    subValue="Completed rides" 
-                                    icon={CarIcon} 
+                                <StatCard
+                                    title="Total Trips"
+                                    value={stats.totalRides}
+                                    subValue="Completed rides"
+                                    icon={CarIcon}
                                     onClick={() => setActiveTab('trips')}
                                 />
-                                <StatCard 
-                                    title="Distance" 
-                                    value={`${stats.totalDistance} km`} 
-                                    subValue="Traveled with Ridex" 
-                                    icon={MapIcon} 
+                                <StatCard
+                                    title="Distance"
+                                    value={`${stats.totalDistance} km`}
+                                    subValue="Traveled with Ridex"
+                                    icon={MapIcon}
                                     onClick={() => setActiveTab('distance')}
                                 />
                             </div>
@@ -754,14 +895,14 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                             <AreaChart data={stats.chartData}>
                                                 <defs>
                                                     <linearGradient id="colorSpend" x1="0" y1="0" x2="0" y2="1">
-                                                        <stop offset="5%" stopColor="#FACC15" stopOpacity={0.3}/>
-                                                        <stop offset="95%" stopColor="#FACC15" stopOpacity={0}/>
+                                                        <stop offset="5%" stopColor="#FACC15" stopOpacity={0.3} />
+                                                        <stop offset="95%" stopColor="#FACC15" stopOpacity={0} />
                                                     </linearGradient>
                                                 </defs>
                                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#333" opacity={0.5} />
                                                 <XAxis dataKey="name" stroke="#666" fontSize={12} tickLine={false} axisLine={false} />
                                                 <YAxis stroke="#666" fontSize={12} tickLine={false} axisLine={false} />
-                                                <Tooltip 
+                                                <Tooltip
                                                     contentStyle={{ backgroundColor: '#1E1E1E', borderColor: '#333', borderRadius: '8px', color: '#fff' }}
                                                     cursor={{ stroke: '#333' }}
                                                     formatter={(value: number) => [`MWK ${value.toLocaleString()}`, 'Spent']}
@@ -792,7 +933,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                     ))}
                                                 </Pie>
                                                 <Tooltip contentStyle={{ backgroundColor: '#1E1E1E', borderColor: '#333', borderRadius: '8px', color: '#fff' }} />
-                                                <Legend verticalAlign="bottom" height={36}/>
+                                                <Legend verticalAlign="bottom" height={36} />
                                             </PieChart>
                                         </ResponsiveContainer>
                                     </div>
@@ -808,9 +949,9 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                             <div className="bg-[#1E1E1E] rounded-3xl border border-[#2A2A2A] overflow-hidden flex flex-col">
                                 <div className="p-4 border-b border-[#333]">
                                     <div className="relative">
-                                        <input 
-                                            type="text" 
-                                            placeholder="Search messages..." 
+                                        <input
+                                            type="text"
+                                            placeholder="Search messages..."
                                             className="w-full bg-[#252525] border border-[#333] rounded-xl pl-10 pr-4 py-2 text-sm text-white outline-none focus:border-[#FACC15]"
                                         />
                                         <SearchIcon className="w-4 h-4 text-gray-500 absolute left-3 top-2.5" />
@@ -818,7 +959,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                 </div>
                                 <div className="flex-1 overflow-y-auto no-scrollbar">
                                     {conversations.map(chat => (
-                                        <div 
+                                        <div
                                             key={chat.id}
                                             onClick={() => setActiveChatId(chat.id)}
                                             className={`p-4 border-b border-[#333] cursor-pointer hover:bg-[#252525] transition-colors ${activeChatId === chat.id ? 'bg-[#252525] border-l-4 border-l-[#FACC15]' : ''}`}
@@ -874,15 +1015,15 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
 
                                         <div className="p-4 border-t border-[#333] bg-[#252525]">
                                             <form onSubmit={handleSendMessage} className="flex gap-2">
-                                                <input 
-                                                    type="text" 
+                                                <input
+                                                    type="text"
                                                     value={messageInput}
                                                     onChange={(e) => setMessageInput(e.target.value)}
-                                                    placeholder="Type a message..." 
+                                                    placeholder="Type a message..."
                                                     className="flex-1 bg-[#1E1E1E] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]"
                                                 />
-                                                <button 
-                                                    type="submit" 
+                                                <button
+                                                    type="submit"
                                                     disabled={!messageInput.trim()}
                                                     className="p-3 bg-[#FACC15] text-black rounded-xl hover:bg-[#EAB308] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                                 >
@@ -904,15 +1045,15 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                     {/* --- MARKET TAB (DRIVER POSTS) --- */}
                     {activeTab === 'market' && (
                         <div className="animate-fadeIn">
-                             <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+                            <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
                                 <div className="bg-[#1E1E1E] p-1 rounded-xl border border-[#2A2A2A] flex">
-                                    <button 
+                                    <button
                                         onClick={() => setMarketTab('share')}
                                         className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${marketTab === 'share' ? 'bg-[#FACC15] text-black' : 'text-gray-400 hover:text-white'}`}
                                     >
                                         Ride Share
                                     </button>
-                                    <button 
+                                    <button
                                         onClick={() => setMarketTab('hire')}
                                         className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${marketTab === 'hire' ? 'bg-[#FACC15] text-black' : 'text-gray-400 hover:text-white'}`}
                                     >
@@ -922,9 +1063,9 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                 <p className="text-gray-500 text-sm">
                                     Browse listings posted directly by drivers.
                                 </p>
-                             </div>
+                            </div>
 
-                             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                                 {marketTab === 'share' ? (
                                     filteredRideShares.length > 0 ? (
                                         filteredRideShares.map(post => (
@@ -945,7 +1086,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                         MWK {post.price.toLocaleString()}
                                                     </div>
                                                 </div>
-                                                
+
                                                 <div className="space-y-3 mb-6">
                                                     <div className="flex items-center justify-between p-3 bg-[#252525] rounded-xl">
                                                         <div>
@@ -974,7 +1115,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                     </div>
                                                 </div>
 
-                                                <button 
+                                                <button
                                                     onClick={() => initiateRequest(post, 'share')}
                                                     className="w-full py-3 bg-[#FACC15] text-black font-bold rounded-xl hover:bg-[#EAB308] transition-colors"
                                                 >
@@ -998,7 +1139,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                         <BriefcaseIcon className="w-4 h-4" />
                                                     </div>
                                                 </div>
-                                                
+
                                                 <div className="space-y-2 mb-6 text-sm">
                                                     <div className="flex justify-between border-b border-[#333] pb-2">
                                                         <span className="text-gray-500">Location</span>
@@ -1014,7 +1155,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                     </div>
                                                 </div>
 
-                                                <button 
+                                                <button
                                                     onClick={() => initiateRequest(post, 'hire')}
                                                     className="w-full py-3 bg-[#252525] text-white border border-[#333] font-bold rounded-xl hover:bg-[#FACC15] hover:text-black hover:border-[#FACC15] transition-all"
                                                 >
@@ -1026,14 +1167,14 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                         <div className="col-span-full text-center py-10 text-gray-500">No vehicle listings found.</div>
                                     )
                                 )}
-                             </div>
+                            </div>
                         </div>
                     )}
 
                     {/* --- FINANCIALS TAB (REVENUE/SPENDING) --- */}
                     {activeTab === 'financials' && (
                         <div className="max-w-6xl mx-auto animate-fadeIn space-y-8">
-                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                 <div className="bg-[#1E1E1E] p-6 rounded-3xl border border-[#2A2A2A] flex flex-col justify-between h-40">
                                     <h3 className="text-gray-400 text-sm font-medium">Total Spent</h3>
                                     <div className="text-3xl font-bold text-white">MWK {stats.totalSpend.toLocaleString()}</div>
@@ -1052,9 +1193,9 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                     </div>
                                     <div className="text-xs text-gray-500 mt-auto">2 Active Methods</div>
                                 </div>
-                             </div>
+                            </div>
 
-                             <div className="bg-[#1E1E1E] rounded-3xl p-8 border border-[#2A2A2A]">
+                            <div className="bg-[#1E1E1E] rounded-3xl p-8 border border-[#2A2A2A]">
                                 <h3 className="text-lg font-bold text-white mb-6">Recent Transactions</h3>
                                 <div className="overflow-hidden rounded-xl border border-[#333]">
                                     <table className="w-full text-left text-sm text-gray-400">
@@ -1086,28 +1227,27 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                     </td>
                                                     <td className="px-6 py-4 text-right font-bold text-white">MWK {tx.amount.toLocaleString()}</td>
                                                     <td className="px-6 py-4 text-center">
-                                                        <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${
-                                                            tx.status === 'Completed' ? 'bg-green-500/20 text-green-400' :
+                                                        <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${tx.status === 'Completed' ? 'bg-green-500/20 text-green-400' :
                                                             tx.status === 'Pending' ? 'bg-yellow-500/20 text-yellow-400' :
-                                                            'bg-gray-500/20 text-gray-400'
-                                                        }`}>{tx.status}</span>
+                                                                'bg-gray-500/20 text-gray-400'
+                                                            }`}>{tx.status}</span>
                                                     </td>
                                                 </tr>
                                             ))}
                                         </tbody>
                                     </table>
                                 </div>
-                             </div>
+                            </div>
                         </div>
                     )}
 
                     {/* --- TRIPS TAB (HISTORY) --- */}
                     {activeTab === 'trips' && (
                         <div className="max-w-4xl mx-auto animate-fadeIn">
-                            
+
                             {/* Active Trips Link / Teaser */}
                             {activeTrips.length > 0 && (
-                                <button 
+                                <button
                                     onClick={() => setActiveTab('active-trip')}
                                     className="w-full mb-8 bg-gradient-to-r from-[#1E1E1E] to-[#252525] border border-[#FACC15]/30 rounded-2xl p-6 shadow-[0_0_20px_rgba(250,204,21,0.05)] hover:border-[#FACC15] transition-all group text-left"
                                 >
@@ -1115,8 +1255,8 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                         <div>
                                             <h3 className="text-lg font-bold text-white flex items-center gap-2">
                                                 <span className="relative flex h-3 w-3">
-                                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#FACC15] opacity-75"></span>
-                                                  <span className="relative inline-flex rounded-full h-3 w-3 bg-[#FACC15]"></span>
+                                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#FACC15] opacity-75"></span>
+                                                    <span className="relative inline-flex rounded-full h-3 w-3 bg-[#FACC15]"></span>
                                                 </span>
                                                 Go to Active Trip
                                             </h3>
@@ -1149,7 +1289,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                             {trip.status}
                                                         </div>
                                                     </div>
-                                                    
+
                                                     <div className="relative pl-4 border-l-2 border-[#333] space-y-6 ml-1">
                                                         <div className="relative">
                                                             <div className="absolute -left-[21px] top-1 w-3 h-3 bg-gray-600 rounded-full border-2 border-[#1E1E1E]"></div>
@@ -1164,26 +1304,26 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
 
                                                 <div className="md:w-48 flex flex-col justify-between border-t md:border-t-0 md:border-l border-[#333] pt-4 md:pt-0 md:pl-6">
                                                     <div className="flex items-center gap-3 mb-4 md:mb-0">
-                                                        <img 
-                                                            src={`https://ui-avatars.com/api/?name=${trip.driver}&background=random`} 
-                                                            alt={trip.driver} 
+                                                        <img
+                                                            src={`https://ui-avatars.com/api/?name=${trip.driver}&background=random`}
+                                                            alt={trip.driver}
                                                             className="w-10 h-10 rounded-full border border-[#333]"
                                                         />
                                                         <div>
                                                             <div className="text-sm font-bold text-white">{trip.driver}</div>
                                                             <div className="flex items-center text-[#FACC15] text-xs">
-                                                                {Array.from({length: trip.rating || 0}).map((_, i) => <span key={i}>★</span>)}
+                                                                {Array.from({ length: trip.rating || 0 }).map((_, i) => <span key={i}>★</span>)}
                                                             </div>
                                                         </div>
                                                     </div>
-                                                    
+
                                                     <div className="text-right">
                                                         <div className="text-gray-500 text-xs">Total Fare</div>
                                                         <div className="text-2xl font-bold text-white">MWK {trip.price.toLocaleString()}</div>
                                                     </div>
 
                                                     {trip.status === 'Completed' && !trip.rating && (
-                                                        <button 
+                                                        <button
                                                             onClick={() => openRatingModal(trip)}
                                                             className="mt-2 w-full py-1.5 bg-[#252525] text-[#FACC15] text-xs font-bold rounded-lg border border-[#333] hover:bg-[#333] transition-colors"
                                                         >
@@ -1221,17 +1361,17 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                 <h3 className="text-lg font-bold text-white mb-6">Distance Traveled History (km)</h3>
                                 <div className="h-80 w-full">
                                     <ResponsiveContainer width="100%" height="100%">
-                                        <AreaChart data={stats.chartData.map(d => ({...d, value: d.value * 1.5}))}> {/* Mock scaling for distance demo */}
+                                        <AreaChart data={stats.chartData.map(d => ({ ...d, value: d.value * 1.5 }))}> {/* Mock scaling for distance demo */}
                                             <defs>
                                                 <linearGradient id="colorDistance" x1="0" y1="0" x2="0" y2="1">
-                                                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                                                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                                                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+                                                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
                                                 </linearGradient>
                                             </defs>
                                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#333" opacity={0.5} />
                                             <XAxis dataKey="name" stroke="#666" fontSize={12} tickLine={false} axisLine={false} />
                                             <YAxis stroke="#666" fontSize={12} tickLine={false} axisLine={false} />
-                                            <Tooltip 
+                                            <Tooltip
                                                 contentStyle={{ backgroundColor: '#1E1E1E', borderColor: '#333', borderRadius: '8px', color: '#fff' }}
                                                 cursor={{ stroke: '#333' }}
                                                 formatter={(value: any) => [`${value} km`, 'Distance']}
@@ -1250,7 +1390,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
             {isRequestModalOpen && (
                 <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center p-4 animate-fadeIn" onClick={() => setIsRequestModalOpen(false)}>
                     <div className="bg-[#1E1E1E] rounded-3xl max-w-md w-full border border-[#333] shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
-                        
+
                         {requestStep === 'success' ? (
                             <div className="p-8 flex flex-col items-center justify-center text-center h-80">
                                 <div className="w-20 h-20 bg-[#FACC15]/20 rounded-full flex items-center justify-center mb-6 animate-pulse">
@@ -1258,8 +1398,8 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                 </div>
                                 <h2 className="text-2xl font-bold text-white mb-2">{bookingMode === 'negotiate' ? 'Offer Sent!' : 'Request Sent!'}</h2>
                                 <p className="text-gray-400">
-                                    {bookingMode === 'negotiate' 
-                                        ? 'Your offer has been sent to the driver for approval.' 
+                                    {bookingMode === 'negotiate'
+                                        ? 'Your offer has been sent to the driver for approval.'
                                         : 'Your booking request has been sent to the driver.'}
                                 </p>
                                 <p className="text-sm text-gray-500 mt-4">
@@ -1288,21 +1428,21 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                         <span className="font-bold text-white">{selectedBooking.destination}</span>
                                                     </div>
                                                 ) : (
-                                                     <div className="font-bold text-white">{selectedBooking.title}</div>
+                                                    <div className="font-bold text-white">{selectedBooking.title}</div>
                                                 )}
                                                 <div className="mt-2 text-xs text-gray-500">
                                                     {bookingType === 'share' ? `${selectedBooking.date} at ${selectedBooking.time}` : `Category: ${selectedBooking.category}`}
                                                 </div>
                                             </div>
-                                            
+
                                             <div className="bg-[#252525] p-1 rounded-xl flex border border-[#333]">
-                                                <button 
+                                                <button
                                                     onClick={() => setBookingMode('fixed')}
                                                     className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${bookingMode === 'fixed' ? 'bg-[#FACC15] text-black' : 'text-gray-400 hover:text-white'}`}
                                                 >
                                                     Listed Price
                                                 </button>
-                                                <button 
+                                                <button
                                                     onClick={() => setBookingMode('negotiate')}
                                                     className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${bookingMode === 'negotiate' ? 'bg-[#FACC15] text-black' : 'text-gray-400 hover:text-white'}`}
                                                 >
@@ -1321,8 +1461,8 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                 ) : (
                                                     <div className="flex items-center bg-[#121212] border border-[#333] rounded-lg px-2 w-32 focus-within:border-[#FACC15]">
                                                         <span className="text-[#FACC15] text-xs mr-1">MWK</span>
-                                                        <input 
-                                                            type="number" 
+                                                        <input
+                                                            type="number"
                                                             value={offerPrice}
                                                             onChange={(e) => setOfferPrice(e.target.value)}
                                                             className="bg-transparent text-white font-bold text-right w-full py-1 outline-none"
@@ -1338,12 +1478,12 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                     MWK {getCalculatedTotal().toLocaleString()}
                                                 </span>
                                             </div>
-                                            
+
                                             <p className="text-xs text-gray-500 text-center mt-2">
                                                 Payment will be collected after the trip is completed.
                                             </p>
 
-                                            <button 
+                                            <button
                                                 onClick={handleRequestSubmit}
                                                 className="w-full py-4 bg-[#FACC15] text-black font-bold rounded-xl hover:bg-[#EAB308] transition-all shadow-lg shadow-[#FACC15]/20 mt-4"
                                             >
@@ -1360,9 +1500,9 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
 
             {/* PAYMENT MODAL (Post-Trip) */}
             {isPaymentModalOpen && (
-                <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center p-4 animate-fadeIn" onClick={() => {}}>
+                <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center p-4 animate-fadeIn" onClick={() => { }}>
                     <div className="bg-[#1E1E1E] rounded-3xl max-w-md w-full border border-[#333] shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
-                        
+
                         {paymentStep === 'processing' ? (
                             <div className="p-8 flex flex-col items-center justify-center text-center h-96">
                                 <div className="w-20 h-20 border-4 border-[#252525] border-t-[#FACC15] rounded-full animate-spin mb-6"></div>
@@ -1392,22 +1532,63 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                 </div>
 
                                 <div className="p-6">
-                                    <div className="mb-6 bg-[#121212] p-4 rounded-xl border border-[#333]">
-                                        <div className="flex justify-between mb-2">
-                                            <span className="text-gray-500 text-xs uppercase font-bold">Recipient (Driver)</span>
+                                    {/* Loading State */}
+                                    {isLoadingDriverDetails ? (
+                                        <div className="mb-6 bg-[#121212] p-6 rounded-xl border border-[#333] flex items-center justify-center">
+                                            <div className="w-6 h-6 border-2 border-[#252525] border-t-[#FACC15] rounded-full animate-spin mr-3"></div>
+                                            <span className="text-gray-400 text-sm">Loading driver details...</span>
                                         </div>
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 bg-[#252525] rounded-full flex items-center justify-center">
-                                                <UserIcon className="w-4 h-4 text-gray-400" />
+                                    ) : paymentError ? (
+                                        <div className="mb-6 bg-red-500/10 border border-red-500/30 p-4 rounded-xl">
+                                            <p className="text-red-400 text-sm">{paymentError}</p>
+                                        </div>
+                                    ) : driverPayoutDetails ? (
+                                        <div className="mb-6 bg-[#121212] p-4 rounded-xl border border-[#333]">
+                                            <div className="flex justify-between mb-3">
+                                                <span className="text-gray-500 text-xs uppercase font-bold">Recipient (Driver)</span>
+                                                <span className="text-xs text-[#FACC15] font-bold">{driverPayoutDetails.payoutMethod}</span>
                                             </div>
-                                            <div>
-                                                <div className="text-white font-bold text-sm">{currentActiveTrip?.driver || 'Unknown Driver'}</div>
-                                                <div className="text-xs text-[#FACC15] font-mono">
-                                                    {getDriverPhone(currentActiveTrip?.driver || 'default')}
+                                            <div className="flex items-center gap-3 mb-3">
+                                                <div className="w-10 h-10 bg-[#252525] rounded-full flex items-center justify-center">
+                                                    {driverPayoutDetails.payoutMethod === 'Bank' ? (
+                                                        <BankIcon className="w-5 h-5 text-blue-400" />
+                                                    ) : (
+                                                        <PhoneIcon className="w-5 h-5 text-[#FACC15]" />
+                                                    )}
+                                                </div>
+                                                <div className="flex-1">
+                                                    <div className="text-white font-bold text-sm">{driverPayoutDetails.driverName}</div>
+                                                    {driverPayoutDetails.payoutMethod === 'Bank' ? (
+                                                        <>
+                                                            <div className="text-xs text-gray-400">{driverPayoutDetails.bankName}</div>
+                                                            <div className="text-xs text-[#FACC15] font-mono">
+                                                                {driverPayoutDetails.payoutAccountNumber}
+                                                            </div>
+                                                        </>
+                                                    ) : (
+                                                        <div className="text-xs text-[#FACC15] font-mono">
+                                                            {driverPayoutDetails.payoutMobileNumber}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
                                         </div>
-                                    </div>
+                                    ) : (
+                                        <div className="mb-6 bg-[#121212] p-4 rounded-xl border border-[#333]">
+                                            <div className="flex justify-between mb-2">
+                                                <span className="text-gray-500 text-xs uppercase font-bold">Recipient (Driver)</span>
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 bg-[#252525] rounded-full flex items-center justify-center">
+                                                    <UserIcon className="w-4 h-4 text-gray-400" />
+                                                </div>
+                                                <div>
+                                                    <div className="text-white font-bold text-sm">{currentActiveTrip?.driver || 'Unknown Driver'}</div>
+                                                    <div className="text-xs text-gray-500">Payout details not available</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
 
                                     <div className="mb-6 text-center">
                                         <p className="text-gray-400 text-xs uppercase font-bold mb-1">Total Amount Due</p>
@@ -1423,18 +1604,18 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                 </div>
                                                 <div className="font-bold text-white">Mobile Money Checkout</div>
                                             </div>
-                                            
+
                                             <div className="space-y-3">
                                                 <div>
                                                     <label className="text-xs text-gray-500 block mb-1">Select Network</label>
                                                     <div className="flex gap-2">
-                                                        <button 
+                                                        <button
                                                             onClick={() => setMobileProvider('airtel')}
                                                             className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${mobileProvider === 'airtel' ? 'bg-red-600 text-white border-red-600' : 'bg-[#121212] border-[#333] text-gray-500 hover:border-gray-500'}`}
                                                         >
                                                             Airtel Money
                                                         </button>
-                                                        <button 
+                                                        <button
                                                             onClick={() => setMobileProvider('mpamba')}
                                                             className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${mobileProvider === 'mpamba' ? 'bg-green-600 text-white border-green-600' : 'bg-[#121212] border-[#333] text-gray-500 hover:border-gray-500'}`}
                                                         >
@@ -1442,12 +1623,12 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                         </button>
                                                     </div>
                                                 </div>
-                                                
+
                                                 <div>
                                                     <label className="text-xs text-gray-500 block mb-1">Your Mobile Number (Payer)</label>
-                                                    <input 
-                                                        type="text" 
-                                                        placeholder="+265..." 
+                                                    <input
+                                                        type="text"
+                                                        placeholder="+265..."
                                                         value={passengerPhone}
                                                         onChange={(e) => setPassengerPhone(e.target.value)}
                                                         className="w-full bg-[#121212] border border-[#333] rounded-lg px-4 py-3 text-sm text-white focus:border-[#FACC15] outline-none transition-colors"
@@ -1457,7 +1638,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                         </div>
                                     </div>
 
-                                    <button 
+                                    <button
                                         onClick={handleCompletePayment}
                                         className="w-full py-4 bg-[#FACC15] text-black font-bold rounded-xl hover:bg-[#EAB308] transition-all shadow-lg shadow-[#FACC15]/20 mt-6 flex items-center justify-center gap-2"
                                     >
@@ -1500,14 +1681,14 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                             ))}
                         </div>
 
-                        <textarea 
+                        <textarea
                             placeholder="Leave a comment (optional)..."
                             value={ratingComment}
                             onChange={(e) => setRatingComment(e.target.value)}
                             className="w-full bg-[#252525] border border-[#333] rounded-xl p-3 text-sm text-white outline-none focus:border-[#FACC15] mb-6 h-24 resize-none"
                         ></textarea>
 
-                        <button 
+                        <button
                             onClick={submitRating}
                             disabled={selectedRating === 0}
                             className="w-full py-3 bg-[#FACC15] text-black font-bold rounded-xl hover:bg-[#EAB308] transition-all disabled:opacity-50 disabled:cursor-not-allowed"

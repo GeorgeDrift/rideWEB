@@ -3,6 +3,7 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const cors = require('cors');
+const path = require('path');
 const { Server } = require('socket.io');
 
 // Import Routes
@@ -37,6 +38,9 @@ app.use(express.json({
         req.rawBody = buf;
     }
 }));
+
+// Serve static files from uploads directory
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // --- Routes ---
 app.use('/api/auth', authRoutes);
