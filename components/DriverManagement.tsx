@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Driver, DriverStatus } from '../types';
 import { ApiService } from '../services/api';
-
+//new cahnges //
 const DriverStatusBadge: React.FC<{ status: DriverStatus }> = ({ status }) => {
     const baseClasses = "px-3 py-1 text-xs font-medium rounded-full inline-block border";
     const statusClasses = {
@@ -16,7 +16,7 @@ export const DriverManagement: React.FC = () => {
     const [drivers, setDrivers] = useState<Driver[]>(ApiService.getDrivers());
 
     return (
-         <div className="bg-white dark:bg-dark-800 p-4 sm:p-6 rounded-lg shadow-sm border border-gray-300 dark:border-dark-700">
+        <div className="bg-white dark:bg-dark-800 p-4 sm:p-6 rounded-lg shadow-sm border border-gray-300 dark:border-dark-700">
             <div className="flex flex-col sm:flex-row justify-between items-center mb-6">
                 <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4 sm:mb-0">Driver Management</h2>
                 <div className="flex space-x-2">
