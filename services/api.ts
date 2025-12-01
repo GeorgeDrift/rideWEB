@@ -99,6 +99,9 @@ export interface DriverRidePost {
     seats: number;
     driverName?: string; // Added for Rider View
     driverRating?: number; // Added for Rider View
+    negotiable?: boolean;
+    minPrice?: number;
+    maxPrice?: number;
 }
 
 export interface DriverHirePost {
@@ -224,6 +227,23 @@ export const MapService = {
 
 // --- ApiService ---
 export const ApiService = {
+    login: async (email, password) => {
+        const response = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password }),
+        });
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Login failed');
+        }
+        const data = await response.json();
+        if (data.token) {
+            localStorage.setItem('token', data.token);
+        }
+        return data.user;
+    },
+
     getSearchItems: (): SearchResult[] => [
         { id: 'dash', label: 'Dashboard', subLabel: 'Overview', view: 'dashboard', keywords: ['analytics', 'home'] },
         { id: 'rides', label: 'Rides', subLabel: 'Manage Rides', view: 'rides', keywords: ['trips', 'history'] },
@@ -233,7 +253,11 @@ export const ApiService = {
         { id: 'pricing', label: 'Pricing', subLabel: 'Settings', view: 'pricing', keywords: ['rates', 'surge'] },
     ],
 
-    getDashboardData: async () => {
+    searchVehicles: async (query: string): Promise<any[]> => {
+        return [];
+    },
+
+    getDashboardData: async (): Promise<any> => {
         try {
             const response = await fetch('/api/admin/dashboard', {
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
@@ -241,7 +265,7 @@ export const ApiService = {
             if (!response.ok) throw new Error('Failed to fetch dashboard data');
             return await response.json();
         } catch (error) {
-            console.error("API Error:", error);
+            console.error('API Error:', error);
             return { weekly: [], lastWeek: [], monthly: [], mapVehicles: [] };
         }
     },
@@ -395,23 +419,12 @@ export const ApiService = {
             if (!response.ok) throw new Error('Failed to fetch notifications');
             return await response.json();
         } catch (error) {
-            console.error("API Error:", error);
-            return [];
-        }
-    },
-    getDriverTransactions: async (): Promise<DriverTransaction[]> => {
-        try {
-            const response = await fetch('/api/driver/transactions', {
-                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-            });
-            if (!response.ok) throw new Error('Failed to fetch transactions');
-            return await response.json();
-        } catch (error) {
-            console.error("API Error:", error);
+            console.error('API Error:', error);
             return [];
         }
     },
 
+    // Driver helpers
     getDriverVehicles: async (): Promise<DriverVehicle[]> => {
         try {
             const response = await fetch('/api/driver/vehicles', {
@@ -420,7 +433,7 @@ export const ApiService = {
             if (!response.ok) throw new Error('Failed to fetch vehicles');
             return await response.json();
         } catch (error) {
-            console.error("API Error:", error);
+            console.error('API Error:', error);
             return [];
         }
     },
@@ -433,7 +446,7 @@ export const ApiService = {
             if (!response.ok) throw new Error('Failed to fetch driver conversations');
             return await response.json();
         } catch (error) {
-            console.error("API Error:", error);
+            console.error('API Error:', error);
             return [];
         }
     },
@@ -446,7 +459,7 @@ export const ApiService = {
             if (!response.ok) throw new Error('Failed to fetch active posts');
             return await response.json();
         } catch (error) {
-            console.error("API Error:", error);
+            console.error('API Error:', error);
             return [];
         }
     },
@@ -459,7 +472,7 @@ export const ApiService = {
             if (!response.ok) throw new Error('Failed to fetch hire posts');
             return await response.json();
         } catch (error) {
-            console.error("API Error:", error);
+            console.error('API Error:', error);
             return [];
         }
     },
@@ -472,9 +485,48 @@ export const ApiService = {
             if (!response.ok) throw new Error('Failed to fetch contracted jobs');
             return await response.json();
         } catch (error) {
-            console.error("API Error:", error);
+            console.error('API Error:', error);
             return [];
         }
+    },
+
+    addDriverSharePost: async (postData: any) => {
+        const response = await fetch('/api/driver/posts/share', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(postData)
+        });
+        if (!response.ok) throw new Error('Failed to create share post');
+        return await response.json();
+    },
+
+    addDriverHirePost: async (postData: any) => {
+        const response = await fetch('/api/driver/posts/hire', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(postData)
+        });
+        if (!response.ok) throw new Error('Failed to create hire post');
+        return await response.json();
+    },
+
+    addVehicle: async (vehicleData: any) => {
+        const response = await fetch('/api/driver/vehicles', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(vehicleData)
+        });
+        if (!response.ok) throw new Error('Failed to add vehicle');
+        return await response.json();
     },
 
     // --- DRIVER ANALYTICS ---
@@ -486,7 +538,7 @@ export const ApiService = {
             if (!response.ok) throw new Error('Failed to fetch profit stats');
             return await response.json();
         } catch (error) {
-            console.error("API Error:", error);
+            console.error('API Error:', error);
             return { Weekly: [], Monthly: [], Yearly: [] };
         }
     },
@@ -499,7 +551,7 @@ export const ApiService = {
             if (!response.ok) throw new Error('Failed to fetch trip history stats');
             return await response.json();
         } catch (error) {
-            console.error("API Error:", error);
+            console.error('API Error:', error);
             return [];
         }
     },
@@ -512,7 +564,7 @@ export const ApiService = {
             if (!response.ok) throw new Error('Failed to fetch distance stats');
             return await response.json();
         } catch (error) {
-            console.error("API Error:", error);
+            console.error('API Error:', error);
             return [];
         }
     },
@@ -525,7 +577,7 @@ export const ApiService = {
             if (!response.ok) throw new Error('Failed to fetch hours stats');
             return await response.json();
         } catch (error) {
-            console.error("API Error:", error);
+            console.error('API Error:', error);
             return [];
         }
     },
@@ -538,20 +590,21 @@ export const ApiService = {
             if (!response.ok) throw new Error('Failed to fetch on-time stats');
             return await response.json();
         } catch (error) {
-            console.error("API Error:", error);
+            console.error('API Error:', error);
             return [];
         }
     },
-    getRiderConversations: async (): Promise<Conversation[]> => {
+
+    getDriverStats: async () => {
         try {
-            const response = await fetch('/api/chat/conversations', {
+            const response = await fetch('/api/driver/stats', {
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
             });
-            if (!response.ok) throw new Error('Failed to fetch rider conversations');
+            if (!response.ok) throw new Error('Failed to fetch driver stats');
             return await response.json();
         } catch (error) {
-            console.error("API Error:", error);
-            return [];
+            console.error('API Error:', error);
+            return { totalEarnings: 0, count: 0, avgRating: 5 };
         }
     },
 
@@ -720,6 +773,161 @@ export const ApiService = {
                 status: 'failed'
             };
         }
-    }
+    },
 
+    getRiderConversations: async (): Promise<Conversation[]> => {
+        try {
+            const response = await fetch('/api/chat/conversations', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch rider conversations');
+            return await response.json();
+        } catch (error) {
+            console.error('API Error:', error);
+            return [];
+        }
+    },
+
+    getRiderTransactions: async (): Promise<Transaction[]> => {
+        try {
+            const response = await fetch('/api/rider/transactions', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch rider transactions');
+            return await response.json();
+        } catch (error) {
+            console.error('API Error:', error);
+            return [];
+        }
+    },
+
+    getDriverTransactions: async (): Promise<DriverTransaction[]> => {
+        try {
+            const response = await fetch('/api/driver/transactions', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch driver transactions');
+            return await response.json();
+        } catch (error) {
+            console.error('API Error:', error);
+            return [];
+        }
+    },
+
+    // --- Negotiation Workflow APIs ---
+    searchRideShareVehicles: async (pickupLocation: string, destination: string): Promise<SearchResult[] | any> => {
+        const response = await fetch(
+            `/api/rider/rideshare/search?pickupLocation=${encodeURIComponent(pickupLocation)}&destination=${encodeURIComponent(destination)}`,
+            { headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` } }
+        );
+        if (!response.ok) throw new Error('Failed to search vehicles');
+        return await response.json();
+    },
+
+    submitRideRequest: async (requestData: any) => {
+        const response = await fetch('/api/rider/rideshare/request', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(requestData)
+        });
+        if (!response.ok) throw new Error('Failed to submit ride request');
+        return await response.json();
+    },
+
+    submitHireRequest: async (requestData: any) => {
+        const response = await fetch('/api/rider/hire/request', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(requestData)
+        });
+        if (!response.ok) throw new Error('Failed to submit hire request');
+        return await response.json();
+    },
+
+    makeCounterOffer: async (rideId: string, offerData: { offeredPrice: number; message: string }) => {
+        const response = await fetch(`/api/rider/rides/${rideId}/negotiate`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(offerData)
+        });
+        if (!response.ok) throw new Error('Failed to make counter offer');
+        return await response.json();
+    },
+
+    getPendingRequests: async () => {
+        const response = await fetch('/api/rider/requests/pending', {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+        });
+        if (!response.ok) throw new Error('Failed to fetch pending requests');
+        return await response.json();
+    },
+
+    // --- Driver Approval APIs ---
+    getDriverPendingApprovals: async () => {
+        const response = await fetch('/api/driver/requests/pending', {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+        });
+        if (!response.ok) throw new Error('Failed to fetch pending approvals');
+        return await response.json();
+    },
+
+    approveRequest: async (requestId: string, approvalData: { approved: boolean; counterOffer?: number; message?: string }) => {
+        const response = await fetch(`/api/driver/requests/${requestId}/approve`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(approvalData)
+        });
+        if (!response.ok) throw new Error('Failed to approve/reject request');
+        return await response.json();
+    },
+
+    makeDriverCounterOffer: async (requestId: string, offerData: { counterPrice: number; message: string }) => {
+        const response = await fetch(`/api/driver/requests/${requestId}/counter-offer`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(offerData)
+        });
+        if (!response.ok) throw new Error('Failed to make counter offer');
+        return await response.json();
+    },
+
+    selectPaymentMethod: async (rideId: string, paymentType: 'online' | 'physical') => {
+        const response = await fetch(`/api/rides/${rideId}/payment-method`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ paymentType })
+        });
+        if (!response.ok) throw new Error('Failed to select payment method');
+        return await response.json();
+    },
+
+    confirmPickup: async (rideId: string) => {
+        const response = await fetch(`/api/rides/${rideId}/confirm-pickup`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        if (!response.ok) throw new Error('Failed to confirm pickup');
+        return await response.json();
+    }
 };

@@ -12,8 +12,12 @@ import {
 } from 'recharts';
 import { ApiService, Conversation, Message } from '../services/api';
 import { socketService } from '../services/socket';
-import { MapboxMap } from './MapboxMap';
+
+import { MapboxMap, LocationInfo } from './MapboxMap';
+import { geocodeAddress, calculateDistance } from '../services/mapUtils';
 import { SubscriptionModal } from './SubscriptionModal';
+import { VEHICLE_CATEGORIES, POPULAR_MAKES, POPULAR_MODELS, VehicleCategory } from '../types/vehicle';
+import RequestApprovalCard from './RequestApprovalCard';
 
 // --- Local Icon Definitions ---
 
@@ -77,19 +81,11 @@ interface DriverDashboardProps {
     onLogout: () => void;
 }
 
-const hireCategories = [
-    "Small Cars (Sedans & Hatchbacks)",
-    "Standard & Executive Cars",
-    "SUVs & 4x4s",
-    "Minibuses & Vans",
-    "Pickups & Utilities",
-    "Trucks & Logistics",
-    "Buses & Coaches",
-    "Construction & Heavy Machinery",
-    "Agricultural & Farm Equipment",
-    "Special Purpose",
-    "Light Vehicles"
-];
+// Using global vehicle categories from types/vehicle.ts
+// This ensures consistency across the application and supports all vehicle types
+const hireCategories = VEHICLE_CATEGORIES;
+
+import { ThemeToggle } from './ThemeToggle';
 
 const subscriptionPlans = {
     '1m': { id: '1m', label: 'Monthly', price: 49900, discount: 0, billing: 'Billed monthly' },
@@ -101,9 +97,16 @@ const subscriptionPlans = {
 export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) => {
     // Global State
     const [sidebarOpen, setSidebarOpen] = useState(false);
-    const [activeTab, setActiveTab] = useState<'overview' | 'jobs' | 'tracking' | 'history' | 'subscription' | 'trips' | 'distance' | 'hours' | 'ontime' | 'inventory' | 'messages' | 'documents'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'jobs' | 'tracking' | 'history' | 'subscription' | 'trips' | 'distance' | 'hours' | 'ontime' | 'inventory' | 'messages' | 'documents' | 'requests'>('overview');
     const [driverProfile, setDriverProfile] = useState<any>(null);
+    const [pendingApprovals, setPendingApprovals] = useState<any[]>([]);
     const [driverLocation, setDriverLocation] = useState<[number, number]>([33.7741, -13.9626]);
+    const [mapStyle, setMapStyle] = useState<'street' | 'satellite'>('street');
+    const [locationInfo, setLocationInfo] = useState<LocationInfo | null>(null);
+    const [isMapExpanded, setIsMapExpanded] = useState(false);
+    const [currentTrip, setCurrentTrip] = useState<{ destination: [number, number], status: string } | null>(null);
+    const [tripCoordinates, setTripCoordinates] = useState<{ origin: [number, number] | null, destination: [number, number] | null }>({ origin: null, destination: null });
+    const [tripDistance, setTripDistance] = useState<number | null>(null);
 
     // Load driver profile
     useEffect(() => {
@@ -129,21 +132,28 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
 
         socketService.connect(userId, 'driver');
 
-        // Simulate sending location updates (in a real app, this would use navigator.geolocation)
-        const interval = setInterval(() => {
-            // For demo purposes, we might just listen, but usually drivers emit. 
-            // If we want to see the map move, we can listen to 'driver_location' if the server echoes it, 
-            // or just update local state from geolocation.
-            // For this task, we'll listen to 'driver_location' as requested.
-        }, 5000);
+        socketService.on('notification', (data) => {
+            setNotifications(prev => [data, ...prev]);
+            // Refresh pending approvals if it's a new request or update
+            if (data.relatedType === 'ride') {
+                ApiService.getDriverPendingApprovals().then(setPendingApprovals);
+            }
+        });
 
-        socketService.on('driver_location', (location: { lng: number; lat: number }) => {
-            setDriverLocation([location.lng, location.lat]);
+        socketService.on('new_ride_request', (ride) => {
+            setPendingApprovals(prev => [ride, ...prev]);
+            setNotifications(prev => [{
+                title: 'New Ride Request',
+                message: `New ${ride.type} request received`,
+                time: 'Just now',
+                unread: true,
+                type: 'info'
+            }, ...prev]);
         });
 
         return () => {
-            clearInterval(interval);
-            socketService.off('driver_location');
+            socketService.off('notification');
+            socketService.off('new_ride_request');
             socketService.disconnect();
         };
     }, []);
@@ -151,6 +161,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     // Interactive Features State
     const [isOnline, setIsOnline] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const [searchResults, setSearchResults] = useState<any[]>([]);
     const [isSearchOpen, setIsSearchOpen] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
     const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -187,6 +198,10 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     const [newVehicle, setNewVehicle] = useState({
         name: '',
         plate: '',
+        make: '',
+        model: '',
+        customMake: '',
+        customModel: '',
         category: hireCategories[0],
         rate: '',
         status: 'Available'
@@ -241,7 +256,42 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
-    const handleJobAction = (jobId: number, currentStatus: string) => {
+    // Search Debounce Effect
+    useEffect(() => {
+        const delayDebounceFn = setTimeout(async () => {
+            if (searchQuery.length > 2) {
+                try {
+                    const results = await ApiService.searchVehicles(searchQuery);
+                    setSearchResults(results);
+                } catch (error) {
+                    console.error("Search error:", error);
+                    setSearchResults([]);
+                }
+            } else {
+                setSearchResults([]);
+            }
+        }, 300);
+
+        return () => clearTimeout(delayDebounceFn);
+    }, [searchQuery]);
+
+    // Geocoding Helper
+    const geocodeAddress = async (address: string): Promise<[number, number] | null> => {
+        try {
+            const token = (import.meta as any).env?.VITE_MAPBOX_TOKEN || 'pk.eyJ1IjoicGF0cmljay0xIiwiYSI6ImNtaTh0cGR2ajBmbmUybnNlZTk1dGV1NGEifQ.UCC5FLCAdiDj0EL93gnekg';
+            const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(address)}.json?access_token=${token}`);
+            const data = await response.json();
+            if (data.features && data.features.length > 0) {
+                return data.features[0].center;
+            }
+            return null;
+        } catch (error) {
+            console.error("Geocoding error:", error);
+            return null;
+        }
+    };
+
+    const handleJobAction = async (jobId: number, currentStatus: string) => {
         let nextStatus = currentStatus;
         if (currentStatus === 'Scheduled') nextStatus = 'Inbound';
         else if (currentStatus === 'Inbound') nextStatus = 'Arrived';
@@ -250,9 +300,36 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
         else if (currentStatus === 'In Progress') nextStatus = 'Payment Due';
         else if (currentStatus === 'Payment Due') nextStatus = 'Completed';
 
-        setContractedJobs(contractedJobs.map(j =>
+        setContractedJobs(prev => prev.map(j =>
             j.id === jobId ? { ...j, status: nextStatus } : j
         ));
+
+        // Handle Trip Tracking
+        if (nextStatus === 'Inbound' || nextStatus === 'In Progress') {
+            const job = contractedJobs.find(j => j.id === jobId);
+            if (job && job.destination) {
+                const destCoords = await geocodeAddress(job.destination);
+                const originCoords = job.origin ? await geocodeAddress(job.origin) : null;
+
+                if (destCoords) {
+                    setCurrentTrip({ destination: destCoords, status: nextStatus });
+                    setTripCoordinates({ origin: originCoords, destination: destCoords });
+
+                    if (originCoords) {
+                        const dist = calculateDistance(originCoords, destCoords);
+                        setTripDistance(dist);
+                    }
+
+                    setIsMapExpanded(true);
+                    setActiveTab('overview');
+                }
+            }
+        } else if (nextStatus === 'Completed') {
+            setCurrentTrip(null);
+            setTripCoordinates({ origin: null, destination: null });
+            setTripDistance(null);
+            setIsMapExpanded(false);
+        }
     };
 
     // Filtered Transactions based on Search
@@ -296,12 +373,12 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
         setSelectedTimeRange(ranges[nextIndex]);
     };
 
-    const handlePostRide = (e: React.FormEvent) => {
+    const handlePostRide = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!newRide.origin || !newRide.destination) return;
 
         if (editingId) {
-            // Update existing ride
+            // Update existing ride locally
             setActivePosts(activePosts.map(p => p.id === editingId ? {
                 ...p,
                 origin: newRide.origin,
@@ -313,9 +390,8 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
             } : p));
             setEditingId(null);
         } else {
-            // Create new ride
-            const post = {
-                id: Date.now(), // Note: ApiService types might use string ID if stricter, but number is fine here for React state
+            // Try to persist to backend, fallback to local state
+            const payload = {
                 origin: newRide.origin,
                 destination: newRide.destination,
                 date: newRide.date || new Date().toISOString().split('T')[0],
@@ -323,18 +399,26 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                 price: Number(newRide.price) || 0,
                 seats: Number(newRide.seats) || 1
             };
-            // @ts-ignore: simple ID mismatch for demo
-            setActivePosts([post, ...activePosts]);
+            try {
+                const created = await ApiService.addDriverSharePost(payload);
+                // @ts-ignore
+                setActivePosts([created, ...activePosts]);
+            } catch (err) {
+                console.warn('Add share post failed, falling back to local state', err);
+                const post = { id: Date.now(), ...payload };
+                // @ts-ignore
+                setActivePosts([post, ...activePosts]);
+            }
         }
         setNewRide({ origin: '', destination: '', date: '', time: '', price: '', seats: '' });
     };
 
-    const handlePostHireJob = (e: React.FormEvent) => {
+    const handlePostHireJob = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!newHireJob.title || !newHireJob.location) return;
 
         if (editingId) {
-            // Update existing listing
+            // Update existing listing locally
             setMyHirePosts(myHirePosts.map(p => p.id === editingId ? {
                 ...p,
                 title: newHireJob.title,
@@ -344,17 +428,21 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
             } : p));
             setEditingId(null);
         } else {
-            // Create new listing
-            const post = {
-                id: Date.now(),
+            const payload = {
                 title: newHireJob.title,
                 category: newHireJob.category,
                 location: newHireJob.location,
                 rate: newHireJob.rate,
                 status: 'Active'
             };
-            // @ts-ignore: simple ID mismatch for demo
-            setMyHirePosts([post, ...myHirePosts]);
+            try {
+                const created = await ApiService.addDriverHirePost(payload);
+                setMyHirePosts([created, ...myHirePosts]);
+            } catch (err) {
+                console.warn('Add hire post failed, falling back to local state', err);
+                const post = { id: Date.now(), ...payload };
+                setMyHirePosts([post, ...myHirePosts]);
+            }
         }
         setNewHireJob({ title: '', category: hireCategories[0], location: '', rate: '' });
     }
@@ -439,31 +527,48 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
         setBookingItem(null);
     };
 
-    const handleApproveRequest = (id: number) => {
-        // Logic to move to contracted jobs
-        const req = incomingRequests.find(r => r.id === id);
-        if (req) {
-            const newJob = {
-                id: Date.now(),
-                title: req.title,
-                origin: req.type === 'share' ? (req.route?.split(' → ')[0] ?? '') : req.location,
-                destination: req.type === 'share' ? (req.route?.split(' → ')[1] ?? 'Client Site') : 'Client Site',
-                date: req.date || 'ASAP',
-                payout: req.price,
-                status: 'Scheduled',
-                type: req.type,
-                clientName: req.user,
-                clientId: 'REQ-' + req.id
+    // Fetch pending approvals when tab is active
+    useEffect(() => {
+        if (activeTab === 'requests') {
+            const fetchApprovals = async () => {
+                try {
+                    const approvals = await ApiService.getDriverPendingApprovals();
+                    setPendingApprovals(approvals);
+                } catch (error) {
+                    console.error("Failed to fetch approvals", error);
+                }
             };
-            // @ts-ignore
-            setContractedJobs([newJob, ...contractedJobs]);
-            setIncomingRequests(incomingRequests.filter(r => r.id !== id));
-            alert('Request Approved! Added to your jobs.');
+            fetchApprovals();
+        }
+    }, [activeTab]);
+
+    const handleApproveRequest = async (requestId: string) => {
+        try {
+            await ApiService.approveRequest(requestId, { approved: true });
+            setPendingApprovals(prev => prev.filter(r => r.id !== requestId));
+            alert('Request Approved!');
+        } catch (error) {
+            console.error("Approval failed", error);
         }
     };
 
-    const handleDeclineRequest = (id: number) => {
-        setIncomingRequests(incomingRequests.filter(r => r.id !== id));
+    const handleRejectRequest = async (requestId: string) => {
+        try {
+            await ApiService.approveRequest(requestId, { approved: false });
+            setPendingApprovals(prev => prev.filter(r => r.id !== requestId));
+        } catch (error) {
+            console.error("Rejection failed", error);
+        }
+    };
+
+    const handleDriverCounterOffer = async (requestId: string, amount: number, message: string) => {
+        try {
+            await ApiService.makeDriverCounterOffer(requestId, { counterPrice: amount, message });
+            setPendingApprovals(prev => prev.filter(r => r.id !== requestId));
+            alert('Counter offer sent!');
+        } catch (error) {
+            console.error("Counter offer failed", error);
+        }
     };
 
     const handleSelectInventory = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -480,23 +585,30 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
         }
     };
 
-    const handleAddVehicle = (e: React.FormEvent) => {
+    const handleAddVehicle = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!newVehicle.name || !newVehicle.plate) return;
 
-        const newItem = {
-            id: Date.now(),
+        // Build payload matching backend allowed fields (backend sanitizes extras)
+        const payload: any = {
             name: newVehicle.name,
             plate: newVehicle.plate,
-            status: newVehicle.status,
             category: newVehicle.category,
-            rate: newVehicle.rate
+            rate: newVehicle.rate,
+            status: newVehicle.status
         };
 
-        // @ts-ignore
-        setMyVehicles([...myVehicles, newItem]);
-        setNewVehicle({ name: '', plate: '', category: hireCategories[0], rate: '', status: 'Available' });
-        setIsAddVehicleOpen(false);
+        try {
+            // Use ApiService addVehicle to persist to backend
+            const created = await ApiService.addVehicle(payload as any);
+            // Prepend to vehicles list
+            setMyVehicles(prev => [created, ...prev]);
+            setNewVehicle({ name: '', plate: '', make: '', model: '', customMake: '', customModel: '', category: hireCategories[0], rate: '', status: 'Available' });
+            setIsAddVehicleOpen(false);
+        } catch (err) {
+            console.error('Failed to add vehicle:', err);
+            alert('Failed to add vehicle. Please try again.');
+        }
     };
 
     const handleDeleteVehicle = (id: number) => {
@@ -596,6 +708,9 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     const [drivingHoursData, setDrivingHoursData] = useState<any[]>([]);
     const [onTimeData, setOnTimeData] = useState<any[]>([]);
 
+    // Summary stats fetched from backend (/api/driver/stats)
+    const [summaryStats, setSummaryStats] = useState<{ totalEarnings: number; count: number; avgRating: number }>({ totalEarnings: 0, count: 0, avgRating: 5 });
+
     useEffect(() => {
         const fetchAnalytics = async () => {
             const [profit, trips, distance, hours, onTime] = await Promise.all([
@@ -610,6 +725,11 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
             setDistanceData(distance);
             setDrivingHoursData(hours);
             setOnTimeData(onTime);
+            // also load summary counts
+            try {
+                const stats = await ApiService.getDriverStats();
+                setSummaryStats(stats || { totalEarnings: 0, count: 0, avgRating: 5 });
+            } catch (e) { console.warn('Failed to load driver summary stats', e); }
         };
         fetchAnalytics();
     }, []);
@@ -637,6 +757,20 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
         };
         fetchDriverData();
     }, []);
+
+    // Realtime updates: listen for new vehicles added by this driver
+    useEffect(() => {
+        const handler = (vehicle: any) => {
+            try {
+                if (vehicle.driverId === driverProfile?.id) {
+                    setMyVehicles(prev => [vehicle, ...prev]);
+                }
+            } catch (e) { console.warn('vehicle_added handler error', e); }
+        };
+
+        socketService.on('vehicle_added', handler);
+        return () => { socketService.off('vehicle_added'); };
+    }, [driverProfile]);
 
     // Load subscription status
     useEffect(() => {
@@ -731,7 +865,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                         <UsersIcon className="w-5 h-5 mr-2" />
                         {activeJob.clientName || 'Client'}
                     </div>
-                    <span className="text-white font-bold">MWK {activeJob.payout.toLocaleString()}</span>
+                    <span className="text-white font-bold">MWK {(activeJob.payout ?? 0).toLocaleString()}</span>
                 </div>
             </div>
         );
@@ -757,11 +891,16 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                     <button onClick={() => setActiveTab('overview')} className={`flex items-center w-full px-4 py-3 rounded-xl font-bold transition-transform hover:scale-105 ${activeTab === 'overview' ? 'text-black bg-[#FACC15]' : 'text-gray-400 hover:text-white hover:bg-[#2A2A2A]'}`}>
                         <DashboardIcon className="w-5 h-5 mr-3" /> Overview
                     </button>
-                    <button onClick={() => setActiveTab('messages')} className={`flex items-center w-full px-4 py-3 rounded-xl font-medium transition-colors ${activeTab === 'messages' ? 'text-white bg-[#2A2A2A]' : 'text-gray-400 hover:text-white hover:bg-[#2A2A2A]'}`}>
-                        <ChatIcon className="w-5 h-5 mr-3" /> Messages
+                    <button onClick={() => setActiveTab('requests')} className={`flex items-center w-full px-4 py-3 rounded-xl font-medium transition-colors ${activeTab === 'requests' ? 'text-white bg-[#2A2A2A] border border-[#FACC15]/30' : 'text-gray-400 hover:text-white hover:bg-[#2A2A2A]'}`}>
+                        <BellIcon className={`w-5 h-5 mr-3 ${activeTab === 'requests' ? 'text-[#FACC15]' : ''}`} />
+                        Requests
+                        {pendingApprovals.length > 0 && <span className="ml-auto bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">{pendingApprovals.length}</span>}
                     </button>
                     <button onClick={() => setActiveTab('jobs')} className={`flex items-center w-full px-4 py-3 rounded-xl font-medium transition-colors ${activeTab === 'jobs' ? 'text-white bg-[#2A2A2A]' : 'text-gray-400 hover:text-white hover:bg-[#2A2A2A]'}`}>
-                        <BriefcaseIcon className="w-5 h-5 mr-3" /> Jobs
+                        <BriefcaseIcon className="w-5 h-5 mr-3" /> My Jobs
+                    </button>
+                    <button onClick={() => setActiveTab('messages')} className={`flex items-center w-full px-4 py-3 rounded-xl font-medium transition-colors ${activeTab === 'messages' ? 'text-white bg-[#2A2A2A]' : 'text-gray-400 hover:text-white hover:bg-[#2A2A2A]'}`}>
+                        <ChatIcon className="w-5 h-5 mr-3" /> Messages
                     </button>
                     <button onClick={() => setActiveTab('inventory')} className={`flex items-center w-full px-4 py-3 rounded-xl font-medium transition-colors ${activeTab === 'inventory' ? 'text-white bg-[#2A2A2A]' : 'text-gray-400 hover:text-white hover:bg-[#2A2A2A]'}`}>
                         <TruckIcon className="w-5 h-5 mr-3" /> Inventory
@@ -788,17 +927,17 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
             </aside>
 
             <main className="flex-1 flex flex-col h-full overflow-hidden relative">
-                <header className="h-20 flex items-center justify-between px-6 lg:px-10 bg-[#121212] border-b border-[#2A2A2A] shrink-0 z-30">
+                <header className="bg-white dark:bg-dark-800 shadow-sm sticky top-0 z-20 px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between transition-colors duration-300">
                     <div className="flex items-center">
-                        <button className="lg:hidden mr-4 text-gray-400" onClick={() => setSidebarOpen(true)}>
-                            <MenuIcon className="w-6 h-6" />
+                        <button onClick={() => setSidebarOpen(true)} className="lg:hidden mr-4 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white">
+                            <MenuIcon className="h-6 w-6" />
                         </button>
                         <div className="hidden md:flex items-center space-x-4">
                             {['overview', 'jobs', 'messages', 'inventory', 'tracking', 'history'].map(tab => (
                                 <button
                                     key={tab}
                                     onClick={() => setActiveTab(tab as any)}
-                                    className={`${activeTab === tab ? 'bg-[#1E1E1E] text-white border border-[#383838]' : 'text-gray-500 hover:text-white'} px-5 py-2 rounded-full text-sm font-medium transition-colors capitalize`}
+                                    className={`${activeTab === tab ? 'bg-gray-900 dark:bg-white text-white dark:text-black' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'} px-4 py-2 rounded-full text-sm font-medium transition-colors capitalize`}
                                 >
                                     {tab}
                                 </button>
@@ -809,7 +948,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                     <div className="flex items-center space-x-4 lg:space-x-6">
                         {/* Interactive Search */}
                         <div className="relative flex items-center">
-                            <div className={`flex items-center transition-all duration-300 ${isSearchOpen ? 'w-64 bg-[#252525] border border-[#333] rounded-xl px-3 py-1.5' : 'w-8'}`}>
+                            <div className={`flex items-center transition-all duration-300 ${isSearchOpen ? 'w-64 bg-gray-100 dark:bg-[#252525] border border-transparent dark:border-[#333] rounded-xl px-3 py-1.5' : 'w-8'}`}>
                                 {isSearchOpen && (
                                     <input
                                         ref={searchInputRef}
@@ -817,7 +956,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                         value={searchQuery}
                                         onChange={(e) => setSearchQuery(e.target.value)}
                                         placeholder="Search jobs, transactions..."
-                                        className="bg-transparent border-none outline-none text-white text-sm w-full placeholder-gray-500"
+                                        className="bg-transparent border-none outline-none text-gray-900 dark:text-white text-sm w-full placeholder-gray-500"
                                         autoFocus
                                         onBlur={() => {
                                             if (!searchQuery) setIsSearchOpen(false);
@@ -829,32 +968,53 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                         setIsSearchOpen(true);
                                         setTimeout(() => searchInputRef.current?.focus(), 100);
                                     }}
-                                    className={`text-gray-400 hover:text-white transition-colors ${isSearchOpen ? '' : 'w-full'}`}
+                                    className={`text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors ${isSearchOpen ? '' : 'w-full'}`}
                                 >
                                     <SearchIcon className="w-5 h-5" />
                                 </button>
                             </div>
+
+                            {/* Search Results Dropdown */}
+                            {isSearchOpen && searchResults.length > 0 && (
+                                <div className="absolute top-full left-0 mt-2 w-64 bg-white dark:bg-[#1E1E1E] border border-gray-200 dark:border-[#333] rounded-xl shadow-xl overflow-hidden z-50">
+                                    {searchResults.map((result: any) => (
+                                        <div
+                                            key={result.id}
+                                            className="p-3 hover:bg-gray-50 dark:hover:bg-[#252525] cursor-pointer border-b border-gray-100 dark:border-[#333] last:border-0"
+                                            onClick={() => {
+                                                // Handle selection
+                                                console.log('Selected:', result);
+                                                setIsSearchOpen(false);
+                                                setSearchQuery('');
+                                            }}
+                                        >
+                                            <div className="font-bold text-gray-900 dark:text-white text-sm">{result.make} {result.model}</div>
+                                            <div className="text-xs text-gray-500">{result.year} • {result.color}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
 
                         {/* Interactive Notifications */}
                         <div className="relative" ref={notificationRef}>
                             <button
                                 onClick={() => setNotificationsOpen(!notificationsOpen)}
-                                className="text-gray-400 hover:text-white transition-colors relative p-1"
+                                className="text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors relative p-1"
                             >
                                 <BellIcon className="w-5 h-5" />
                                 {unreadCount > 0 && (
-                                    <span className="absolute top-0 right-0 w-2 h-2 bg-[#FACC15] rounded-full animate-pulse"></span>
+                                    <span className="absolute top-0 right-0 w-2 h-2 bg-primary-500 rounded-full animate-pulse"></span>
                                 )}
                             </button>
 
                             {/* Dropdown */}
                             {notificationsOpen && (
-                                <div className="absolute right-0 top-full mt-4 w-80 bg-[#1E1E1E] border border-[#333] rounded-xl shadow-2xl overflow-hidden z-50">
-                                    <div className="p-4 border-b border-[#333] flex justify-between items-center">
-                                        <h4 className="font-bold text-white text-sm">Notifications</h4>
+                                <div className="absolute right-0 top-full mt-4 w-80 bg-white dark:bg-[#1E1E1E] border border-gray-200 dark:border-[#333] rounded-xl shadow-2xl overflow-hidden z-50">
+                                    <div className="p-4 border-b border-gray-200 dark:border-[#333] flex justify-between items-center">
+                                        <h4 className="font-bold text-gray-900 dark:text-white text-sm">Notifications</h4>
                                         {unreadCount > 0 && (
-                                            <button onClick={markAllNotificationsRead} className="text-xs text-[#FACC15] hover:underline">Mark all read</button>
+                                            <button onClick={markAllNotificationsRead} className="text-xs text-primary-500 hover:underline">Mark all read</button>
                                         )}
                                     </div>
                                     <div className="max-h-64 overflow-y-auto no-scrollbar">
@@ -862,12 +1022,12 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                             <div className="p-4 text-center text-gray-500 text-xs">No notifications</div>
                                         ) : (
                                             notifications.map(n => (
-                                                <div key={n.id} className={`p-4 border-b border-[#333] hover:bg-[#252525] transition-colors ${n.unread ? 'bg-[#FACC15]/5' : ''}`}>
+                                                <div key={n.id} className={`p-4 border-b border-gray-200 dark:border-[#333] hover:bg-gray-50 dark:hover:bg-[#252525] transition-colors ${n.unread ? 'bg-primary-50 dark:bg-[#FACC15]/5' : ''}`}>
                                                     <div className="flex justify-between items-start mb-1">
-                                                        <span className={`text-sm font-bold ${n.unread ? 'text-white' : 'text-gray-400'}`}>{n.title}</span>
-                                                        <span className="text-[10px] text-gray-500">{n.time}</span>
+                                                        <span className={`text-sm font-bold ${n.unread ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}`}>{n.title}</span>
+                                                        <span className="text-[10px] text-gray-400 dark:text-gray-500">{n.time}</span>
                                                     </div>
-                                                    <p className="text-xs text-gray-400">{n.msg}</p>
+                                                    <p className="text-xs text-gray-500 dark:text-gray-400">{n.msg}</p>
                                                 </div>
                                             ))
                                         )}
@@ -876,15 +1036,17 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                             )}
                         </div>
 
-                        <div className="h-8 w-[1px] bg-[#2A2A2A]"></div>
+                        <ThemeToggle />
+
+                        <div className="h-8 w-[1px] bg-gray-200 dark:bg-[#2A2A2A]"></div>
                         <div className="flex items-center gap-3">
-                            <img src={driverProfile?.avatar || '/default-avatar.png'} alt="Driver" className="w-9 h-9 rounded-full border border-[#FACC15]" />
+                            <img src={driverProfile?.avatar || '/default-avatar.png'} alt="Driver" className="w-9 h-9 rounded-full border border-primary-500" />
                             <div className="hidden lg:block text-right">
-                                <div className="text-sm font-bold text-white">{driverProfile?.name || 'Driver'}</div>
+                                <div className="text-sm font-bold text-gray-900 dark:text-white">{driverProfile?.name || 'Driver'}</div>
                                 {/* DRIVER RATING IMPLEMENTATION */}
                                 <div className="flex items-center justify-end gap-1">
-                                    <StarIcon className="w-3 h-3 text-[#FACC15]" />
-                                    <span className="text-[#FACC15] text-xs font-bold">{driverProfile?.rating || '5.0'}</span>
+                                    <StarIcon className="w-3 h-3 text-primary-500" />
+                                    <span className="text-primary-500 text-xs font-bold">{driverProfile?.rating || '5.0'}</span>
                                     <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider ml-1">{driverProfile?.role || 'DRIVER'}</span>
                                 </div>
                             </div>
@@ -896,7 +1058,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                     <div className="max-w-8xl mx-auto space-y-8">
 
                         {/* Header Section (hidden on specific pages to avoid clutter) */}
-                        {!['subscription', 'trips', 'distance', 'hours', 'ontime', 'inventory', 'messages', 'documents'].includes(activeTab) && (
+                        {!['subscription', 'trips', 'distance', 'hours', 'ontime', 'inventory', 'messages', 'documents', 'requests'].includes(activeTab) && (
                             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                                 <div>
                                     <p className="text-gray-400 text-sm font-medium">Good morning,</p>
@@ -1084,7 +1246,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                             </div>
                                         </div>
                                         <div>
-                                            <div className="text-4xl font-bold text-white mb-2">99 <span className="text-sm font-medium text-gray-500">t</span></div>
+                                            <div className="text-4xl font-bold text-white mb-2">{summaryStats.count} <span className="text-sm font-medium text-gray-500">t</span></div>
                                             <div className="flex items-center gap-2">
                                                 <span className="bg-[#FACC15]/10 text-[#FACC15] text-xs font-bold px-2 py-0.5 rounded">+3.4%</span>
                                                 <span className="text-xs text-gray-500">in this period</span>
@@ -1108,7 +1270,9 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                             </div>
                                             Distance driven
                                         </div>
-                                        <div className="text-4xl font-bold text-white mt-auto mb-4">1407 <span className="text-sm font-medium text-gray-500">km</span></div>
+                                        <div className="text-4xl font-bold text-white mt-auto mb-4">{(() => {
+                                            try { return (distanceData || []).reduce((s: number, d: any) => s + (d.km || 0), 0); } catch (e) { return 0; }
+                                        })()} <span className="text-sm font-medium text-gray-500">km</span></div>
                                         <div className="flex items-end gap-1.5 h-10 mt-2">
                                             {[20, 40, 60, 80, 50, 30, 70].map((h, i) => (
                                                 <div key={i} className={`flex-1 rounded-t-md ${i > 3 ? 'bg-[#FACC15]' : 'bg-[#333]'}`} style={{ height: `${h}%` }}></div>
@@ -1130,6 +1294,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                         <div className="flex items-center justify-between mt-auto">
                                             <div>
                                                 <div className="flex items-center gap-2 mb-1">
+
                                                     <span className="w-2 h-2 rounded-full bg-[#FACC15]"></span>
                                                     <span className="text-xs text-gray-400">Day time</span>
                                                 </div>
@@ -1137,7 +1302,14 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                                     <span className="w-2 h-2 rounded-full bg-[#333]"></span>
                                                     <span className="text-xs text-gray-400">Night time</span>
                                                 </div>
-                                                <div className="text-3xl font-bold text-white mt-3">14<span className="text-xl text-gray-500">h</span> 56<span className="text-xl text-gray-500">m</span></div>
+                                                <div className="text-3xl font-bold text-white mt-3">{(() => {
+                                                    try {
+                                                        const total = (drivingHoursData || []).reduce((s: number, row: any) => s + ((row.day || 0) + (row.night || 0)), 0);
+                                                        const hours = Math.floor(total);
+                                                        const mins = Math.round((total - hours) * 60);
+                                                        return `${hours}h ${mins}m`;
+                                                    } catch (e) { return '0h 0m'; }
+                                                })()}</div>
                                             </div>
                                             <div className="relative w-16 h-16">
                                                 <svg className="w-full h-full" viewBox="0 0 36 36">
@@ -1160,7 +1332,14 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                             On-time rate
                                         </div>
                                         <div className="flex items-end justify-between mt-auto">
-                                            <div className="text-4xl font-bold text-white">47 <span className="text-sm font-medium text-gray-500">%</span></div>
+                                            <div className="text-4xl font-bold text-white">{(() => {
+                                                try {
+                                                    const data = onTimeData || [];
+                                                    if (!data.length) return `${summaryStats.count ? Math.round(summaryStats.count ? summaryStats.count : 0) : 100}%`;
+                                                    const avg = Math.round(data.reduce((s: number, r: any) => s + (r.value || 0), 0) / data.length);
+                                                    return `${avg}%`;
+                                                } catch (e) { return '100%'; }
+                                            })()}</div>
                                             <div className="w-24 h-12">
                                                 <svg className="w-full h-full overflow-visible" viewBox="0 0 100 50">
                                                     <defs>
@@ -1243,9 +1422,58 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                         </div>
                                     </div>
 
-                                    <div className="lg:col-span-6 h-full">
-                                        <div className="lg:col-span-6 h-full relative min-h-[400px]">
-                                            <MapboxMap center={driverLocation} zoom={13} />
+                                    <div className={`lg:col-span-6 h-full transition-all duration-500 ${isMapExpanded ? 'fixed inset-0 z-50 bg-[#1E1E1E] p-4' : ''}`}>
+                                        <div className={`bg-[#1E1E1E] rounded-3xl border border-[#2A2A2A] shadow-lg shadow-black/20 h-full relative min-h-[400px] overflow-hidden hover:shadow-[0_0_30px_rgba(250,204,21,0.1)] hover:border-[#FACC15]/30 transition-all duration-300 ${isMapExpanded ? 'border-none rounded-none' : ''}`}>
+                                            <MapboxMap
+                                                center={tripCoordinates.origin || driverLocation}
+                                                zoom={11}
+                                                mapStyle={mapStyle}
+                                                onLocationUpdate={setLocationInfo}
+                                                destination={currentTrip?.destination}
+                                                trackDevice={false}
+                                                onClick={() => !isMapExpanded && setIsMapExpanded(true)}
+                                            />
+
+                                            {isMapExpanded && (
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); setIsMapExpanded(false); }}
+                                                    className="absolute top-6 right-6 z-50 bg-black/50 backdrop-blur-md p-2 rounded-full text-white hover:bg-black/70 transition-colors"
+                                                >
+                                                    <CloseIcon className="w-6 h-6" />
+                                                </button>
+                                            )}
+
+                                            {/* Satellite/Street Toggle */}
+                                            <div className="absolute top-6 right-6 z-10">
+                                                <button
+                                                    onClick={() => setMapStyle(mapStyle === 'street' ? 'satellite' : 'street')}
+                                                    className="bg-[#1E1E1E]/95 backdrop-blur-sm border border-[#2A2A2A] rounded-lg px-3 py-2 text-xs font-bold text-white hover:border-[#FACC15]/50 hover:text-[#FACC15] transition-all duration-300 shadow-xl flex items-center gap-2"
+                                                >
+                                                    <MapIcon className="w-4 h-4" />
+                                                    {mapStyle === 'street' ? 'Satellite' : 'Street'}
+                                                </button>
+                                            </div>
+
+                                            {/* Current Location Tooltip Overlay */}
+                                            <div className="absolute top-6 left-6 bg-[#1E1E1E]/95 backdrop-blur-sm border border-[#2A2A2A] rounded-xl px-4 py-3 shadow-xl z-10 flex items-center gap-3 hover:border-[#FACC15]/50 transition-all duration-300 max-w-xs">
+                                                <div className="w-10 h-10 bg-[#FACC15] rounded-lg flex items-center justify-center flex-shrink-0">
+                                                    <LocationMarkerIcon className="w-6 h-6 text-black" />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <div className="text-xs font-bold text-[#FACC15] uppercase tracking-wider mb-0.5">Trip Info</div>
+                                                    {tripDistance ? (
+                                                        <>
+                                                            <div className="text-sm font-medium text-white truncate">Distance: {tripDistance} km</div>
+                                                            <div className="text-xs text-gray-400">Static Route</div>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <div className="text-sm font-medium text-white">No Active Trip</div>
+                                                            <div className="text-xs text-gray-400">Waiting for job</div>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -1350,10 +1578,67 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                                 </div>
                                                 <div>
                                                     <label className="text-xs text-gray-500 mb-1 block">Category</label>
-                                                    <select value={newVehicle.category} onChange={e => setNewVehicle({ ...newVehicle, category: e.target.value })} className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]">
+                                                    <select value={newVehicle.category} onChange={e => setNewVehicle({ ...newVehicle, category: e.target.value as VehicleCategory })} className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]">
                                                         {hireCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                                                     </select>
                                                 </div>
+                                                <div>
+                                                    <label className="text-xs text-gray-500 mb-1 block">Make/Brand</label>
+                                                    <select
+                                                        value={newVehicle.make}
+                                                        onChange={e => setNewVehicle({ ...newVehicle, make: e.target.value, model: '', customMake: '', customModel: '' })}
+                                                        className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]"
+                                                        required
+                                                    >
+                                                        <option value="">Select Make</option>
+                                                        {POPULAR_MAKES.map(make => <option key={make} value={make}>{make}</option>)}
+                                                        <option value="Other">Other (Enter Custom)</option>
+                                                    </select>
+                                                </div>
+                                                {newVehicle.make === 'Other' && (
+                                                    <div className="animate-fadeIn">
+                                                        <label className="text-xs text-gray-500 mb-1 block">Custom Make/Brand</label>
+                                                        <input
+                                                            type="text"
+                                                            value={newVehicle.customMake}
+                                                            onChange={e => setNewVehicle({ ...newVehicle, customMake: e.target.value })}
+                                                            className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]"
+                                                            placeholder="Enter make/brand name"
+                                                            required
+                                                        />
+                                                    </div>
+                                                )}
+                                                <div>
+                                                    <label className="text-xs text-gray-500 mb-1 block">Model</label>
+                                                    <select
+                                                        value={newVehicle.model}
+                                                        onChange={e => setNewVehicle({ ...newVehicle, model: e.target.value, customModel: '' })}
+                                                        className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]"
+                                                        disabled={!newVehicle.make || newVehicle.make === 'Other'}
+                                                        required={newVehicle.make !== 'Other'}
+                                                    >
+                                                        <option value="">Select Model</option>
+                                                        {newVehicle.make && newVehicle.make !== 'Other' && POPULAR_MODELS[newVehicle.make]?.map(model => (
+                                                            <option key={model} value={model}>{model}</option>
+                                                        ))}
+                                                        {newVehicle.make && newVehicle.make !== 'Other' && (
+                                                            <option value="Other">Other (Enter Custom)</option>
+                                                        )}
+                                                    </select>
+                                                </div>
+                                                {(newVehicle.model === 'Other' || newVehicle.make === 'Other') && (
+                                                    <div className="animate-fadeIn">
+                                                        <label className="text-xs text-gray-500 mb-1 block">Custom Model</label>
+                                                        <input
+                                                            type="text"
+                                                            value={newVehicle.customModel}
+                                                            onChange={e => setNewVehicle({ ...newVehicle, customModel: e.target.value })}
+                                                            className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]"
+                                                            placeholder="Enter model name"
+                                                            required
+                                                        />
+                                                    </div>
+                                                )}
                                                 <div className="grid grid-cols-2 gap-4">
                                                     <div>
                                                         <label className="text-xs text-gray-500 mb-1 block">Default Rate</label>
@@ -1585,31 +1870,60 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                         <div className="bg-[#1E1E1E] rounded-3xl p-6 border border-[#2A2A2A]">
                                             <h3 className="text-lg font-bold text-white mb-4">Summary</h3>
                                             <div className="space-y-4">
-                                                <div className="flex justify-between items-center">
-                                                    <span className="text-gray-400 text-sm">Total Trips</span>
-                                                    <span className="text-white font-bold text-xl">99</span>
-                                                </div>
-                                                <div className="flex justify-between items-center">
-                                                    <span className="text-gray-400 text-sm">Completed</span>
-                                                    <span className="text-green-400 font-bold">92</span>
-                                                </div>
-                                                <div className="flex justify-between items-center">
-                                                    <span className="text-gray-400 text-sm">Cancelled</span>
-                                                    <span className="text-red-400 font-bold">7</span>
-                                                </div>
+                                                {(() => {
+                                                    try {
+                                                        const totalTrips = (tripHistoryData || []).reduce((s: number, row: any) => s + (row.share || 0) + (row.hire || 0), 0) || summaryStats.count || 0;
+                                                        const completed = (contractedJobs || []).filter((j: any) => (j.status || '').toLowerCase() === 'completed').length;
+                                                        const cancelled = (contractedJobs || []).filter((j: any) => (j.status || '').toLowerCase().includes('cancel')).length;
+                                                        return (
+                                                            <>
+                                                                <div className="flex justify-between items-center">
+                                                                    <span className="text-gray-400 text-sm">Total Trips</span>
+                                                                    <span className="text-white font-bold text-xl">{totalTrips}</span>
+                                                                </div>
+                                                                <div className="flex justify-between items-center">
+                                                                    <span className="text-gray-400 text-sm">Completed</span>
+                                                                    <span className="text-green-400 font-bold">{completed}</span>
+                                                                </div>
+                                                                <div className="flex justify-between items-center">
+                                                                    <span className="text-gray-400 text-sm">Cancelled</span>
+                                                                    <span className="text-red-400 font-bold">{cancelled}</span>
+                                                                </div>
+                                                            </>
+                                                        );
+                                                    } catch (e) {
+                                                        return (
+                                                            <>
+                                                                <div className="flex justify-between items-center">
+                                                                    <span className="text-gray-400 text-sm">Total Trips</span>
+                                                                    <span className="text-white font-bold text-xl">{summaryStats.count}</span>
+                                                                </div>
+                                                                <div className="flex justify-between items-center">
+                                                                    <span className="text-gray-400 text-sm">Completed</span>
+                                                                    <span className="text-green-400 font-bold">0</span>
+                                                                </div>
+                                                                <div className="flex justify-between items-center">
+                                                                    <span className="text-gray-400 text-sm">Cancelled</span>
+                                                                    <span className="text-red-400 font-bold">0</span>
+                                                                </div>
+                                                            </>
+                                                        );
+                                                    }
+                                                })()}
                                             </div>
                                         </div>
                                         <div className="bg-[#1E1E1E] rounded-3xl p-6 border border-[#2A2A2A]">
                                             <h3 className="text-lg font-bold text-white mb-4">Recent Activity</h3>
                                             <div className="space-y-3 text-sm">
-                                                <div className="flex justify-between text-gray-300">
-                                                    <span>Share: Blantyre -&gt; Lilongwe</span>
-                                                    <span className="text-[#FACC15]">+MWK 25,000</span>
-                                                </div>
-                                                <div className="flex justify-between text-gray-300">
-                                                    <span>Hire: Ind. Transport</span>
-                                                    <span className="text-blue-400">+MWK 450,000</span>
-                                                </div>
+                                                {(transactions || []).slice(0, 2).map(tx => (
+                                                    <div key={tx.id} className="flex justify-between text-gray-300">
+                                                        <span>{tx.desc}</span>
+                                                        <span className="text-[#FACC15]">+MWK {(tx.amount ?? 0).toLocaleString()}</span>
+                                                    </div>
+                                                ))}
+                                                {(transactions || []).length === 0 && (
+                                                    <div className="text-gray-500">No recent activity</div>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -1660,7 +1974,12 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                     <div className="space-y-6">
                                         <div className="bg-[#1E1E1E] rounded-3xl p-6 border border-[#2A2A2A]">
                                             <h3 className="text-lg font-bold text-white mb-4">Odometer</h3>
-                                            <div className="text-4xl font-mono text-[#FACC15] mb-2">124,592 <span className="text-sm text-gray-500">km</span></div>
+                                            <div className="text-4xl font-mono text-[#FACC15] mb-2">{(() => {
+                                                try {
+                                                    const km = (distanceData || []).reduce((s: number, r: any) => s + (r.km || 0), 0);
+                                                    return km.toLocaleString();
+                                                } catch (e) { return '0'; }
+                                            })()} <span className="text-sm text-gray-500">km</span></div>
                                             <p className="text-xs text-gray-500">Total vehicle mileage recorded.</p>
                                         </div>
                                         <div className="bg-[#1E1E1E] rounded-3xl p-6 border border-[#2A2A2A]">
@@ -1914,7 +2233,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                                                 <h4 className={`font-bold ${selectedDuration === key ? 'text-[#FACC15]' : 'text-white'}`}>{plan.label}</h4>
                                                                 <div className="text-xs text-gray-500">{plan.billing}</div>
                                                             </div>
-                                                            <div className="ml-auto text-xl font-bold text-white">MWK {plan.price.toLocaleString()}</div>
+                                                            <div className="ml-auto text-xl font-bold text-white">MWK {(plan.price ?? 0).toLocaleString()}</div>
                                                         </div>
                                                     </div>
                                                 ))}
@@ -1946,7 +2265,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                                 </div>
                                                 <div className="flex justify-between items-center">
                                                     <span className="text-gray-400 text-sm">Total</span>
-                                                    <span className="text-[#FACC15] font-bold text-xl">MWK {subscriptionPlans[selectedDuration].price.toLocaleString()}</span>
+                                                    <span className="text-[#FACC15] font-bold text-xl">MWK {(subscriptionPlans[selectedDuration].price ?? 0).toLocaleString()}</span>
                                                 </div>
                                             </div>
 
@@ -2094,7 +2413,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                                             contentStyle={{ backgroundColor: '#1E1E1E', borderColor: '#333', borderRadius: '8px', color: '#fff', fontSize: '12px' }}
                                                             itemStyle={{ color: '#FACC15' }}
                                                             cursor={{ stroke: '#333', strokeWidth: 1 }}
-                                                            formatter={(value) => `MWK ${value.toLocaleString()}`}
+                                                            formatter={(value) => `MWK ${(value ?? 0).toLocaleString()}`}
                                                         />
                                                         <Area
                                                             type="monotone"
@@ -2158,7 +2477,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                                             </div>
                                                         </div>
                                                         <div className="text-right">
-                                                            <div className="text-[#FACC15] font-bold">+MWK {tx.amount.toLocaleString()}</div>
+                                                            <div className="text-[#FACC15] font-bold">+MWK {(tx.amount ?? 0).toLocaleString()}</div>
                                                             <div className="text-xs text-gray-500">{tx.method}</div>
                                                         </div>
                                                     </div>
@@ -2199,7 +2518,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                                                 </div>
                                                             </div>
                                                             <div className="text-right">
-                                                                <div className="text-lg font-bold text-white">MWK {req.price.toLocaleString()}</div>
+                                                                <div className="text-lg font-bold text-white">MWK {(req.price ?? 0).toLocaleString()}</div>
                                                                 <div className="text-[10px] text-gray-500 uppercase">{req.type === 'share' ? 'Trip Fare' : 'Total Rate'}</div>
                                                             </div>
                                                         </div>
@@ -2210,7 +2529,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                                         </div>
 
                                                         <div className="flex gap-2 mt-1">
-                                                            <button onClick={() => handleDeclineRequest(req.id)} className="flex-1 py-2 rounded-xl border border-[#333] text-gray-400 hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/30 transition-all text-xs font-bold">Decline</button>
+                                                            <button onClick={() => handleRejectRequest(req.id)} className="flex-1 py-2 rounded-xl border border-[#333] text-gray-400 hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/30 transition-all text-xs font-bold">Decline</button>
                                                             <button onClick={() => handleApproveRequest(req.id)} className="flex-1 py-2 rounded-xl bg-green-600 text-white hover:bg-green-500 transition-all text-xs font-bold shadow-lg shadow-green-600/20">Approve Request</button>
                                                         </div>
                                                     </div>
@@ -2341,7 +2660,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                                             <div className="text-xs text-gray-500">{post.date} @ {post.time} • {post.seats} seats</div>
                                                         </div>
                                                         <div className="flex items-center gap-2">
-                                                            <div className="text-[#FACC15] font-bold mr-2">MWK {post.price.toLocaleString()}</div>
+                                                            <div className="text-[#FACC15] font-bold mr-2">MWK {(post.price ?? 0).toLocaleString()}</div>
                                                             <div className="opacity-0 group-hover:opacity-100 flex gap-1 transition-opacity">
                                                                 <button onClick={() => startEditRide(post)} className="p-1.5 bg-[#333] rounded-lg text-gray-400 hover:text-white hover:bg-[#444]" title="Edit Listing">
                                                                     <PencilIcon className="w-4 h-4" />
@@ -2403,70 +2722,107 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                     </div>
 
                                     <div className="flex-1 overflow-y-auto space-y-4 pr-2 no-scrollbar">
-                                        {filteredContractedJobs.map(job => (
-                                            <div key={job.id} className="bg-[#252525] p-4 rounded-2xl border border-[#333] hover:border-[#FACC15]/30 transition-colors relative overflow-hidden">
-                                                <div className={`absolute top-0 left-0 w-1 h-full ${job.type === 'share' ? 'bg-[#FACC15]' : 'bg-purple-500'}`}></div>
-                                                <div className="flex justify-between items-start mb-3 pl-2">
-                                                    <div>
-                                                        <h3 className="font-bold text-white text-sm">{job.title}</h3>
-                                                        <p className="text-xs text-gray-400 mt-0.5">Client: {job.clientName || 'Direct Booking'} <span className="text-gray-600">({job.clientId || 'ID-99'})</span></p>
-                                                    </div>
-                                                    <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${job.status === 'In Progress' ? 'bg-blue-500/20 text-blue-400 animate-pulse' : 'bg-gray-700 text-gray-300'}`}>
-                                                        {job.status}
-                                                    </span>
-                                                </div>
-
-                                                <div className="flex items-center gap-2 mb-4 pl-2">
-                                                    <div className="flex-1 bg-[#1E1E1E] p-2 rounded-lg">
-                                                        <p className="text-[10px] text-gray-500 uppercase">From</p>
-                                                        <p className="text-xs text-white font-medium truncate" title={job.origin}>{job.origin}</p>
-                                                    </div>
-                                                    <div className="text-gray-500">→</div>
-                                                    <div className="flex-1 bg-[#1E1E1E] p-2 rounded-lg">
-                                                        <p className="text-[10px] text-gray-500 uppercase">To</p>
-                                                        <p className="text-xs text-white font-medium truncate" title={job.destination}>{job.destination}</p>
-                                                    </div>
-                                                </div>
-
-                                                <div className="flex justify-between items-center pl-2 pt-2 border-t border-[#333]">
-                                                    <div className="text-lg font-bold text-[#FACC15]">MWK {job.payout.toLocaleString()}</div>
-
-                                                    {/* Driver Action Buttons based on Status */}
-                                                    {job.status === 'Scheduled' && (
-                                                        <button onClick={() => handleJobAction(job.id, 'Scheduled')} className="px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-500">
-                                                            Start Pickup
-                                                        </button>
-                                                    )}
-                                                    {job.status === 'Inbound' && (
-                                                        <button onClick={() => handleJobAction(job.id, 'Inbound')} className="px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-500">
-                                                            Arrived
-                                                        </button>
-                                                    )}
-                                                    {job.status === 'Arrived' && (
-                                                        <button className="px-3 py-1.5 bg-gray-700 text-gray-300 text-xs font-bold rounded-lg cursor-not-allowed" disabled>
-                                                            Waiting for Rider...
-                                                        </button>
-                                                    )}
-                                                    {job.status === 'Boarded' && (
-                                                        <button onClick={() => handleJobAction(job.id, 'Boarded')} className="px-3 py-1.5 bg-[#FACC15] text-black text-xs font-bold rounded-lg hover:bg-[#EAB308] animate-pulse">
-                                                            Start Trip
-                                                        </button>
-                                                    )}
-                                                    {job.status === 'In Progress' && (
-                                                        <button onClick={() => handleJobAction(job.id, 'In Progress')} className="px-3 py-1.5 bg-red-600 text-white text-xs font-bold rounded-lg hover:bg-red-500">
-                                                            Complete Job
-                                                        </button>
-                                                    )}
-                                                    {job.status === 'Payment Due' && (
-                                                        <button onClick={() => handleJobAction(job.id, 'Payment Due')} className="px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-500">
-                                                            Confirm Payment
-                                                        </button>
-                                                    )}
-                                                </div>
+                                        {filteredContractedJobs.length === 0 ? (
+                                            <div className="text-gray-500 text-center p-4 border border-dashed border-[#333] rounded-xl">
+                                                No contracted jobs found.
                                             </div>
-                                        ))}
+                                        ) : (
+                                            <>
+                                                {filteredContractedJobs.map(job => (
+                                                    <div key={job.id} className="bg-[#252525] p-4 rounded-2xl border border-[#333] hover:border-[#FACC15]/30 transition-colors relative overflow-hidden">
+                                                        <div className={`absolute top-0 left-0 w-1 h-full ${job.type === 'share' ? 'bg-[#FACC15]' : 'bg-purple-500'}`}></div>
+                                                        <div className="flex justify-between items-start mb-3 pl-2">
+                                                            <div>
+                                                                <h3 className="font-bold text-white text-sm">{job.title}</h3>
+                                                                <p className="text-xs text-gray-400 mt-0.5">Client: {job.clientName || 'Direct Booking'} <span className="text-gray-600">({job.clientId || 'ID-99'})</span></p>
+                                                            </div>
+                                                            <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${job.status === 'In Progress' ? 'bg-blue-500/20 text-blue-400 animate-pulse' : 'bg-gray-700 text-gray-300'}`}>
+                                                                {job.status}
+                                                            </span>
+                                                        </div>
+
+                                                        <div className="flex items-center gap-2 mb-4 pl-2">
+                                                            <div className="flex-1 bg-[#1E1E1E] p-2 rounded-lg">
+                                                                <p className="text-[10px] text-gray-500 uppercase">From</p>
+                                                                <p className="text-xs text-white font-medium truncate" title={job.origin}>{job.origin}</p>
+                                                            </div>
+                                                            <div className="text-gray-500">→</div>
+                                                            <div className="flex-1 bg-[#1E1E1E] p-2 rounded-lg">
+                                                                <p className="text-[10px] text-gray-500 uppercase">To</p>
+                                                                <p className="text-xs text-white font-medium truncate" title={job.destination}>{job.destination}</p>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="flex justify-between items-center pl-2 pt-2 border-t border-[#333]">
+                                                            <div className="text-lg font-bold text-[#FACC15]">MWK {(job.payout ?? 0).toLocaleString()}</div>
+
+                                                            {/* Driver Action Buttons based on Status */}
+                                                            {job.status === 'Scheduled' && (
+                                                                <button onClick={() => handleJobAction(job.id, 'Scheduled')} className="px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-500">
+                                                                    Start Pickup
+                                                                </button>
+                                                            )}
+                                                            {job.status === 'Inbound' && (
+                                                                <button onClick={() => handleJobAction(job.id, 'Inbound')} className="px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-500">
+                                                                    Arrived
+                                                                </button>
+                                                            )}
+                                                            {job.status === 'Arrived' && (
+                                                                <button className="px-3 py-1.5 bg-gray-700 text-gray-300 text-xs font-bold rounded-lg cursor-not-allowed" disabled>
+                                                                    Waiting for Rider...
+                                                                </button>
+                                                            )}
+                                                            {job.status === 'Boarded' && (
+                                                                <button onClick={() => handleJobAction(job.id, 'Boarded')} className="px-3 py-1.5 bg-[#FACC15] text-black text-xs font-bold rounded-lg hover:bg-[#EAB308] animate-pulse">
+                                                                    Start Trip
+                                                                </button>
+                                                            )}
+                                                            {job.status === 'In Progress' && (
+                                                                <button onClick={() => handleJobAction(job.id, 'In Progress')} className="px-3 py-1.5 bg-red-600 text-white text-xs font-bold rounded-lg hover:bg-red-500">
+                                                                    Complete Job
+                                                                </button>
+                                                            )}
+                                                            {job.status === 'Payment Due' && (
+                                                                <button onClick={() => handleJobAction(job.id, 'Payment Due')} className="px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-500">
+                                                                    Confirm Payment
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </>
+                                        )}
                                     </div>
                                 </div>
+                            </div>
+
+                        )}
+
+                        {/* --- REQUESTS TAB --- */}
+                        {activeTab === 'requests' && (
+                            <div className="space-y-6 animate-fadeIn">
+                                <h2 className="text-2xl font-bold text-white mb-6">Pending Requests</h2>
+                                {pendingApprovals.length > 0 ? (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                        {pendingApprovals.map(request => (
+                                            <RequestApprovalCard
+                                                key={request.id}
+                                                request={request}
+                                                onApprove={() => handleApproveRequest(request.id)}
+                                                onReject={() => handleRejectRequest(request.id)}
+                                                onCounterOffer={(requestId: string, price: number, message: string) => handleDriverCounterOffer(requestId, price, message)}
+                                            />
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-12 bg-[#252525] rounded-3xl border border-[#333]">
+                                        <div className="w-20 h-20 bg-[#1E1E1E] rounded-full flex items-center justify-center mx-auto mb-4">
+                                            <CheckBadgeIcon className="w-10 h-10 text-gray-600" />
+                                        </div>
+                                        <h3 className="text-xl font-bold text-white mb-2">All Caught Up!</h3>
+                                        <p className="text-gray-400">You have no pending requests at the moment.</p>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>

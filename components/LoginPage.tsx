@@ -1,5 +1,6 @@
 
 import React, { useState } from 'react';
+import { ApiService } from '../services/api';
 import { SteeringWheelIcon, GlobeIcon, CarIcon, LockIcon, MailIcon } from './Icons';
 import { UserRole } from '../types';
 
@@ -32,24 +33,29 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (email && password) {
-            // Heuristic logic for role separation based on email content
-            if (email.toLowerCase().includes('driver')) {
-                onLogin('driver');
-            } else if (email.toLowerCase().includes('rider') || email.toLowerCase().includes('passenger')) {
-                onLogin('rider');
-            } else {
-                onLogin('admin');
-            }
+        setError('');
+        if (!email || !password) {
+            setError('Please enter both email and password');
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const user = await ApiService.login(email, password);
+            if (!user) throw new Error('Invalid login response');
+            // Use the role returned by the server
+            const role = (user.role || 'admin') as any;
+            onLogin(role);
+        } catch (err: any) {
+            setError(err.message || 'Login failed');
+        } finally {
+            setLoading(false);
         }
     };
 
-    const handleDemoLogin = (roleEmail: string) => {
-        setEmail(roleEmail);
-        setPassword('password');
-    };
+    // demo login removed — all logins now go through the server
 
     const handleGoogleLogin = () => {
         alert("Google Login provider not configured in this demo.");
@@ -125,7 +131,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
             };
 
             // Register user
-            const response = await fetch('http://localhost:5000/api/auth/register', {
+            const response = await fetch('/api/auth/register', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -144,7 +150,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                 const formData = new FormData();
                 formData.append('license', driverLicense);
 
-                const uploadResponse = await fetch('http://localhost:5000/api/auth/upload-license', {
+                const uploadResponse = await fetch('/api/auth/upload-license', {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${data.token}`,
@@ -157,7 +163,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                 }
             }
 
-            // Login user
+            // Save token (so user becomes authenticated) and login
+            if (data.token) localStorage.setItem('token', data.token);
             alert(data.message || 'Registration successful!');
             onLogin(selectedRole);
         } catch (err: any) {
@@ -510,9 +517,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
 
                                 <button
                                     type="submit"
-                                    className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-bold text-black bg-primary-500 hover:bg-primary-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition-colors"
+                                    disabled={loading}
+                                    className={`w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-bold text-black bg-primary-500 hover:bg-primary-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition-colors ${loading ? 'opacity-60 cursor-wait' : ''}`}
                                 >
-                                    Sign In
+                                    {loading ? 'Signing in...' : 'Sign In'}
                                 </button>
                             </form>
                         ) : (
@@ -551,33 +559,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                                     </div>
                                 </div>
 
-                                {/* Demo Credentials */}
-                                <div className="mt-8 pt-6 border-t border-gray-200 dark:border-dark-700">
-                                    <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4 text-center">Demo Credentials</h3>
-                                    <div className="grid gap-3">
-                                        <div
-                                            onClick={() => handleDemoLogin('admin@ridex.com')}
-                                            className="p-3 bg-gray-50 dark:bg-dark-800 rounded-lg border border-gray-200 dark:border-dark-700 cursor-pointer hover:border-primary-500 transition-colors flex justify-between items-center group"
-                                        >
-                                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Admin</span>
-                                            <span className="text-xs text-gray-500 font-mono group-hover:text-primary-500">admin@ridex.com</span>
-                                        </div>
-                                        <div
-                                            onClick={() => handleDemoLogin('driver@ridex.com')}
-                                            className="p-3 bg-gray-50 dark:bg-dark-800 rounded-lg border border-gray-200 dark:border-dark-700 cursor-pointer hover:border-primary-500 transition-colors flex justify-between items-center group"
-                                        >
-                                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Driver</span>
-                                            <span className="text-xs text-gray-500 font-mono group-hover:text-primary-500">driver@ridex.com</span>
-                                        </div>
-                                        <div
-                                            onClick={() => handleDemoLogin('rider@ridex.com')}
-                                            className="p-3 bg-gray-50 dark:bg-dark-800 rounded-lg border border-gray-200 dark:border-dark-700 cursor-pointer hover:border-primary-500 transition-colors flex justify-between items-center group"
-                                        >
-                                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Rider</span>
-                                            <span className="text-xs text-gray-500 font-mono group-hover:text-primary-500">rider@ridex.com</span>
-                                        </div>
-                                    </div>
-                                </div>
+                                {/* Demo credentials removed — login requires real user in PostgreSQL via backend /api/auth/login */}
                             </>
                         )}
 

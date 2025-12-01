@@ -68,7 +68,7 @@ export const MapPage: React.FC = () => {
                      mapInstance.addControl(geolocate, 'top-right');
                 } catch (e) { console.warn("Geolocate control error", e); }
 
-                mapInstance.on('load', () => {
+                mapInstance.on('load', async () => {
                     // Automatically ask for location permission when map loads
                     try {
                         geolocate.trigger();
@@ -77,9 +77,10 @@ export const MapPage: React.FC = () => {
                     }
 
                     // Add markers from API
-                    const vehicles = ApiService.getMapVehicles();
-
-                    vehicles.forEach(v => {
+                    // Load vehicles from API (async)
+                    try {
+                        const vehicles = await ApiService.getMapVehicles();
+                        (vehicles || []).forEach((v: any) => {
                         const el = document.createElement('div');
                         el.className = `w-4 h-4 rounded-full border-2 border-white dark:border-dark-800 shadow-lg cursor-pointer transition-transform hover:scale-125 ${v.type === 'driver' ? 'driver-marker' : 'rider-marker'}`;
                         el.style.backgroundColor = v.type === 'driver' ? '#FACC15' : '#3b82f6'; // Yellow for drivers, Blue for riders
@@ -87,7 +88,10 @@ export const MapPage: React.FC = () => {
                         new window.mapboxgl.Marker(el)
                             .setLngLat([v.lng, v.lat])
                             .addTo(mapInstance);
-                    });
+                        });
+                    } catch (e) {
+                        console.warn('Failed to load map vehicles', e);
+                    }
                 });
 
                 // Add error listener for potential async failures and specific frame blocking issues

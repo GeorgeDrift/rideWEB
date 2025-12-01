@@ -20,21 +20,10 @@ import { View, UserRole } from './types';
 
 const App: React.FC = () => {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
-    const [userRole, setUserRole] = useState<UserRole>('admin');
+        const [userRole, setUserRole] = useState<UserRole>('admin');
+        const [profile, setProfile] = useState<any | null>(null);
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [activeView, setActiveView] = useState<View>('dashboard');
-    // Default to light mode for visibility
-    const [isDarkMode, setIsDarkMode] = useState(false);
-
-    useEffect(() => {
-        if (isDarkMode) {
-            document.documentElement.classList.add('dark');
-        } else {
-            document.documentElement.classList.remove('dark');
-        }
-    }, [isDarkMode]);
-
-    const toggleTheme = () => setIsDarkMode(!isDarkMode);
 
     const getTitle = (view: View) => {
         switch (view) {
@@ -71,15 +60,55 @@ const App: React.FC = () => {
         }
     };
 
-    const handleLogin = (role: UserRole) => {
+    useEffect(() => {
+        // If a token exists, try to fetch profile and auto-login
+        const token = localStorage.getItem('token');
+        if (!token) return;
+
+        (async () => {
+            try {
+                const resp = await fetch('/api/auth/me', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!resp.ok) {
+                    localStorage.removeItem('token');
+                    return;
+                }
+                    const user = await resp.json();
+                    setUserRole(user.role || 'admin');
+                    setProfile(user);
+                setIsAuthenticated(true);
+            } catch (e) {
+                console.warn('Auto-login failed', e);
+                localStorage.removeItem('token');
+            }
+        })();
+    }, []);
+
+    const handleLogin = async (role: UserRole) => {
         setUserRole(role);
+        // try to fetch profile now that a token should be present
+        const token = localStorage.getItem('token');
+        if (token) {
+            try {
+                const resp = await fetch('/api/auth/me', { headers: { 'Authorization': `Bearer ${token}` } });
+                if (resp.ok) {
+                    const user = await resp.json();
+                    setProfile(user);
+                }
+            } catch (err) { console.warn('Failed to fetch profile after login', err); }
+        }
         setIsAuthenticated(true);
     };
 
     const handleLogout = () => {
         setIsAuthenticated(false);
         setUserRole('admin'); // Reset to default
+            setProfile(null);
+        localStorage.removeItem('token');
     };
+
+    // Theme handled by ThemeProvider/ThemeToggle
 
     if (!isAuthenticated) {
         return <LoginPage onLogin={handleLogin} />;
@@ -104,13 +133,12 @@ const App: React.FC = () => {
                 isOpen={sidebarOpen}
                 setIsOpen={setSidebarOpen}
                 onLogout={handleLogout}
+                    profile={profile}
             />
             <div className="flex-1 flex flex-col transition-all duration-300 lg:ml-64">
                 <Header
                     title={getTitle(activeView)}
                     onMenuClick={() => setSidebarOpen(true)}
-                    isDarkMode={isDarkMode}
-                    toggleTheme={toggleTheme}
                     onNavigate={setActiveView}
                 />
                 <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto no-scrollbar">

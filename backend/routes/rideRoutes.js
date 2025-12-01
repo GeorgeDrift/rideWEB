@@ -8,5 +8,6 @@ router.post('/', authenticateToken, rideController.createRide);
 router.get('/my-rides', authenticateToken, rideController.getMyRides);
 router.get('/marketplace/share', rideController.getMarketplaceShares);
 router.put('/:id/status', authenticateToken, rideController.updateRideStatus);
+router.post('/:id/complete', authenticateToken, rideController.completeRide);
 
 module.exports = router;

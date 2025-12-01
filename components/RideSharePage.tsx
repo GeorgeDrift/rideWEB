@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
     AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
 } from 'recharts';
@@ -27,11 +27,22 @@ const StatCard = ({ title, value, subValue, icon: Icon }: { title: string, value
 
 export const RideSharePage: React.FC<RideSharePageProps> = ({ onBack }) => {
     const [timeRange, setTimeRange] = useState<'Weekly' | 'Monthly'>('Weekly');
-    const rideShareData = ApiService.getRideShareData();
+    const [rideShareData, setRideShareData] = useState<any>({ weekly: [], monthly: [] });
 
-    const getData = () => {
-        return timeRange === 'Weekly' ? rideShareData.weekly : rideShareData.monthly;
-    };
+    useEffect(() => {
+        let mounted = true;
+        (async () => {
+            try {
+                const data = await ApiService.getRideShareData();
+                if (mounted) setRideShareData(data);
+            } catch (e) {
+                console.warn('Failed to load ride share data', e);
+            }
+        })();
+        return () => { mounted = false; };
+    }, []);
+
+    const getData = () => (timeRange === 'Weekly' ? (rideShareData.weekly || []) : (rideShareData.monthly || []));
 
     const CustomTooltip = ({ active, payload, label }: any) => {
         if (active && payload && payload.length) {
@@ -39,7 +50,7 @@ export const RideSharePage: React.FC<RideSharePageProps> = ({ onBack }) => {
                 <div className="bg-white dark:bg-dark-800 border border-gray-300 dark:border-dark-600 p-3 rounded-lg shadow-xl">
                     <p className="text-gray-600 dark:text-gray-300 text-sm font-medium mb-1">{label}</p>
                     <p className="text-blue-600 dark:text-blue-500 text-lg font-bold">
-                        {payload[0].value.toLocaleString()} Rides
+                        {(payload[0]?.value ?? 0).toLocaleString()} Rides
                     </p>
                 </div>
             );

@@ -63,7 +63,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     const mapContainer = useRef<HTMLDivElement>(null);
     const map = useRef<any>(null);
 
-    const dashboardData = ApiService.getDashboardData();
+    const [dashboardData, setDashboardData] = useState<any>({ users: 0, activeDrivers: 0, rides: 0, revenue: 0, weekly: [], lastWeek: [], monthly: [], mapVehicles: [] });
+
+    useEffect(() => {
+        let mounted = true;
+        const load = async () => {
+            try {
+                const data = await ApiService.getDashboardData();
+                if (mounted && data) setDashboardData(data);
+            } catch (e) {
+                console.warn('Failed to load dashboard data', e);
+            }
+        };
+        load();
+        return () => { mounted = false; };
+    }, []);
 
     const getCurrentData = () => {
         switch (timeRange) {
@@ -153,7 +167,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                     // Add Markers from API
                     const vehicles = dashboardData.mapVehicles;
 
-                    vehicles.forEach(v => {
+                    vehicles.forEach((v: any) => {
                         const el = document.createElement('div');
                         el.className = 'w-3 h-3 rounded-full border-2 border-white dark:border-dark-800 shadow-lg cursor-pointer';
                         el.style.backgroundColor = v.type === 'share' ? '#FACC15' : '#3b82f6';
@@ -203,7 +217,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                 <div className="bg-white dark:bg-dark-800 border border-gray-300 dark:border-dark-600 p-3 rounded-lg shadow-xl">
                     <p className="text-gray-600 dark:text-gray-300 text-sm font-medium mb-1">{label}</p>
                     <p className="text-primary-600 dark:text-primary-500 text-lg font-bold">
-                        MWK {payload[0].value.toLocaleString()}
+                        MWK {(payload[0]?.value ?? 0).toLocaleString()}
                     </p>
                 </div>
             );
@@ -225,26 +239,26 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 <StatCard 
                     title="Total Revenue" 
-                    value="MWK 128,560" 
-                    trend="12.5%" 
+                    value={`MWK ${(dashboardData.revenue || 0).toLocaleString()}`} 
+                    trend={undefined}
                     trendUp={true} 
                     icon={MoneyIcon}
                     onClick={() => onNavigate('revenue')}
                 />
                 <StatCard 
-                    title="Total Rides (Today)" 
-                    value="432" 
+                    title="Total Rides" 
+                    value={`${dashboardData.rides || 0}`} 
                     icon={CarIcon} 
                     breakdown={[
-                        { label: 'Ride Share', value: '312' },
-                        { label: 'For Hire', value: '120' }
+                        { label: 'Ride Share', value: dashboardData?.rideShareCount ? `${dashboardData.rideShareCount}` : '—' },
+                        { label: 'For Hire', value: dashboardData?.forHireCount ? `${dashboardData.forHireCount}` : '—' }
                     ]}
                     onClick={() => onNavigate('total-rides')}
                 />
                 <StatCard 
                     title="Active Drivers" 
-                    value="1,240" 
-                    trend="2.1%" 
+                    value={`${dashboardData.activeDrivers || 0}`} 
+                    trend={undefined}
                     trendUp={false} 
                     icon={SteeringWheelIcon} 
                     onClick={() => onNavigate('drivers')}

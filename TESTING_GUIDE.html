@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RideX Testing Instructions</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
+            line-height: 1.6;
+        }
+
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #2563eb;
+            border-bottom: 3px solid #2563eb;
+            padding-bottom: 10px;
+        }
+
+        h2 {
+            color: #1e40af;
+            margin-top: 30px;
+        }
+
+        .step {
+            background: #f0f9ff;
+            border-left: 4px solid #2563eb;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+        }
+
+        .step-number {
+            font-weight: bold;
+            color: #2563eb;
+            font-size: 1.2em;
+        }
+
+        .code {
+            background: #1e293b;
+            color: #10b981;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            margin: 10px 0;
+            overflow-x: auto;
+        }
+
+        .warning {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+        }
+
+        .success {
+            background: #d1fae5;
+            border-left: 4px solid #10b981;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+        }
+
+        ul {
+            margin-left: 20px;
+        }
+
+        li {
+            margin: 8px 0;
+        }
+
+        .button {
+            display: inline-block;
+            background: #2563eb;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 5px;
+            text-decoration: none;
+            margin: 10px 5px;
+            font-weight: bold;
+        }
+
+        .button:hover {
+            background: #1e40af;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🚗 RideX Application - Complete Testing Guide</h1>
+
+        <div class="success">
+            <strong>✅ Status:</strong> Both servers are running!
+            <ul>
+                <li>Backend: <a href="http://localhost:5000" target="_blank">http://localhost:5000</a></li>
+                <li>Frontend: <a href="http://localhost:5173" target="_blank">http://localhost:5173</a></li>
+            </ul>
+        </div>
+
+        <h2>📋 Step 1: Clear Browser Storage</h2>
+        <div class="step">
+            <div class="step-number">1.1</div>
+            Open your browser and navigate to:
+            <div class="code">http://localhost:5173</div>
+        </div>
+
+        <div class="step">
+            <div class="step-number">1.2</div>
+            Open Developer Tools (Press <strong>F12</strong>)
+        </div>
+
+        <div class="step">
+            <div class="step-number">1.3</div>
+            Go to <strong>Console</strong> tab and paste this code:
+            <div class="code">localStorage.clear(); sessionStorage.clear(); location.reload();</div>
+            Press <strong>Enter</strong>
+        </div>
+
+        <div class="warning">
+            <strong>⚠️ Expected Result:</strong> You should now see the LOGIN page (not the admin dashboard)
+        </div>
+
+        <h2>🔐 Step 2: Test Registration</h2>
+        <div class="step">
+            <div class="step-number">2.1</div>
+            Look for a "Register" or "Sign Up" link on the login page and click it
+        </div>
+
+        <div class="step">
+            <div class="step-number">2.2</div>
+            Fill out the registration form with:
+            <ul>
+                <li><strong>Name:</strong> Test Driver</li>
+                <li><strong>Email:</strong> testdriver@example.com</li>
+                <li><strong>Password:</strong> Test123!</li>
+                <li><strong>Role:</strong> Driver</li>
+            </ul>
+        </div>
+
+        <div class="step">
+            <div class="step-number">2.3</div>
+            Submit the registration form
+        </div>
+
+        <h2>🔑 Step 3: Test Google Login (Optional)</h2>
+        <div class="step">
+            <div class="step-number">3.1</div>
+            If you see a "Sign in with Google" button, click it
+        </div>
+
+        <div class="step">
+            <div class="step-number">3.2</div>
+            Complete the Google authentication flow
+        </div>
+
+        <h2>🚪 Step 4: Test Login</h2>
+        <div class="step">
+            <div class="step-number">4.1</div>
+            If registration succeeded, you should be automatically logged in
+        </div>
+
+        <div class="step">
+            <div class="step-number">4.2</div>
+            Otherwise, login with:
+            <ul>
+                <li><strong>Email:</strong> testdriver@example.com</li>
+                <li><strong>Password:</strong> Test123!</li>
+            </ul>
+        </div>
+
+        <h2>🚗 Step 5: Test Vehicle Management</h2>
+        <div class="step">
+            <div class="step-number">5.1</div>
+            Navigate to "My Vehicles" or "Fleet" section in the driver dashboard
+        </div>
+
+        <div class="step">
+            <div class="step-number">5.2</div>
+            Click "Add Vehicle" button
+        </div>
+
+        <div class="step">
+            <div class="step-number">5.3</div>
+            <strong>Test Ride Share Vehicle:</strong>
+            <ul>
+                <li><strong>Name:</strong> My Sedan</li>
+                <li><strong>Plate:</strong> ABC-123</li>
+                <li><strong>Make:</strong> Toyota</li>
+                <li><strong>Model:</strong> Corolla</li>
+                <li><strong>Category:</strong> Sedan</li>
+                <li><strong>Rate:</strong> 5000</li>
+            </ul>
+        </div>
+
+        <div class="step">
+            <div class="step-number">5.4</div>
+            Submit and verify the vehicle appears in your list
+        </div>
+
+        <div class="step">
+            <div class="step-number">5.5</div>
+            <strong>Test Hire Vehicle:</strong>
+            <ul>
+                <li><strong>Name:</strong> Big Tractor</li>
+                <li><strong>Plate:</strong> XYZ-789</li>
+                <li><strong>Make:</strong> John Deere</li>
+                <li><strong>Model:</strong> 5075E</li>
+                <li><strong>Category:</strong> Tractor</li>
+                <li><strong>Rate:</strong> 15000</li>
+            </ul>
+        </div>
+
+        <div class="warning">
+            <strong>⚠️ Expected Result:</strong>
+            <ul>
+                <li>Sedan should go to <code>RideShareVehicles</code> table</li>
+                <li>Tractor should go to <code>HireVehicles</code> table</li>
+            </ul>
+        </div>
+
+        <h2>💳 Step 6: Test Subscriptions</h2>
+        <div class="step">
+            <div class="step-number">6.1</div>
+            Navigate to "Subscription" tab in the dashboard
+        </div>
+
+        <div class="step">
+            <div class="step-number">6.2</div>
+            Check your current subscription status
+        </div>
+
+        <div class="step">
+            <div class="step-number">6.3</div>
+            Try to purchase a subscription (Monthly or Yearly)
+        </div>
+
+        <div class="step">
+            <div class="step-number">6.4</div>
+            Note: Payment will require mobile money (PayChangu integration)
+        </div>
+
+        <h2>📝 Step 7: Test Job Posting</h2>
+        <div class="step">
+            <div class="step-number">7.1</div>
+            Look for "Post a Job" or "For Hire" section
+        </div>
+
+        <div class="step">
+            <div class="step-number">7.2</div>
+            Fill out job details:
+            <ul>
+                <li><strong>Title:</strong> Tractor Available for Farming</li>
+                <li><strong>Location:</strong> Lilongwe</li>
+                <li><strong>Rate:</strong> 15000 per day</li>
+                <li><strong>Vehicle:</strong> Select your tractor</li>
+            </ul>
+        </div>
+
+        <div class="step">
+            <div class="step-number">7.3</div>
+            Submit the job posting
+        </div>
+
+        <h2>🚪 Step 8: Test Logout</h2>
+        <div class="step">
+            <div class="step-number">8.1</div>
+            Click the logout button
+        </div>
+
+        <div class="step">
+            <div class="step-number">8.2</div>
+            Verify you're redirected to the login page
+        </div>
+
+        <div class="step">
+            <div class="step-number">8.3</div>
+            Verify localStorage is cleared (check in DevTools Console):
+            <div class="code">console.log(localStorage.getItem('token')); // Should be null</div>
+        </div>
+
+        <h2>🗄️ Step 9: Verify Database</h2>
+        <div class="step">
+            <div class="step-number">9.1</div>
+            Open your PostgreSQL client and run these queries:
+            <div class="code">
+                -- Check RideShareVehicles (should have Sedan)<br>
+                SELECT * FROM "RideShareVehicles";<br><br>
+                -- Check HireVehicles (should have Tractor)<br>
+                SELECT * FROM "HireVehicles";<br><br>
+                -- Check Jobs (should have your job posting)<br>
+                SELECT * FROM "Jobs";<br><br>
+                -- Check Subscriptions (if you purchased one)<br>
+                SELECT * FROM "Subscriptions";
+            </div>
+        </div>
+
+        <h2>✅ Testing Checklist</h2>
+        <div class="step">
+            Check off each item as you test:
+            <ul>
+                <li>☐ Login page appears after clearing storage</li>
+                <li>☐ Registration works</li>
+                <li>☐ Google login button present</li>
+                <li>☐ Login with credentials works</li>
+                <li>☐ Driver dashboard loads</li>
+                <li>☐ Can add Ride Share vehicle (Sedan)</li>
+                <li>☐ Can add Hire vehicle (Tractor)</li>
+                <li>☐ Vehicles appear in "My Vehicles" list</li>
+                <li>☐ Can delete a vehicle</li>
+                <li>☐ Subscription tab shows status</li>
+                <li>☐ Can post a job</li>
+                <li>☐ Logout works correctly</li>
+                <li>☐ Database tables have correct data</li>
+            </ul>
+        </div>
+
+        <div class="success">
+            <strong>🎉 Quick Start:</strong>
+            <a href="http://localhost:5173" target="_blank" class="button">Open RideX App</a>
+        </div>
+    </div>
+</body>
+
+</html>

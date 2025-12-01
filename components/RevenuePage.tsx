@@ -2,7 +2,8 @@
 import React from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { ArrowLeftIcon, MoneyIcon, DocumentIcon } from './Icons';
-import { ApiService } from '../services/api';
+import { ApiService, Transaction } from '../services/api';
+import { useState, useEffect } from 'react';
 
 interface RevenuePageProps {
     onBack: () => void;
@@ -25,9 +26,23 @@ const SummaryCard = ({ title, value, subtitle, type }: { title: string, value: s
 };
 
 export const RevenuePage: React.FC<RevenuePageProps> = ({ onBack }) => {
-    const revenueData = ApiService.getRevenueData();
-    const annualData = revenueData.annual;
-    const transactions = revenueData.transactions;
+    const [revenueData, setRevenueData] = useState<any>({ annual: [], transactions: [] });
+
+    useEffect(() => {
+        let mounted = true;
+        (async () => {
+            try {
+                const data = await ApiService.getRevenueData();
+                if (mounted) setRevenueData(data);
+            } catch (e) {
+                console.warn('Failed to fetch revenue data', e);
+            }
+        })();
+        return () => { mounted = false; };
+    }, []);
+
+    const annualData = revenueData.annual || [];
+    const transactions = revenueData.transactions || [];
     
     const CustomTooltip = ({ active, payload, label }: any) => {
         if (active && payload && payload.length) {
@@ -35,7 +50,7 @@ export const RevenuePage: React.FC<RevenuePageProps> = ({ onBack }) => {
                 <div className="bg-white dark:bg-dark-800 border border-gray-300 dark:border-dark-600 p-3 rounded-lg shadow-xl">
                     <p className="text-gray-600 dark:text-gray-300 text-sm font-medium mb-1">{label} 2023</p>
                     <p className="text-primary-600 dark:text-primary-500 text-lg font-bold">
-                        MWK {payload[0].value.toLocaleString()}
+                        MWK {(payload[0]?.value ?? 0).toLocaleString()}
                     </p>
                 </div>
             );
@@ -146,7 +161,7 @@ export const RevenuePage: React.FC<RevenuePageProps> = ({ onBack }) => {
                             </tr>
                         </thead>
                         <tbody>
-                            {transactions.map((trx, index) => (
+                            {transactions.map((trx: Transaction, index: number) => (
                                 <tr key={index} className="border-b border-gray-100 dark:border-dark-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-dark-700/30 transition-colors">
                                     <td className="px-4 py-4 font-mono text-xs text-gray-600 dark:text-gray-300">{trx.id}</td>
                                     <td className="px-4 py-4 text-gray-900 dark:text-white font-medium">{trx.source}</td>

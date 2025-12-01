@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
     PieChart, Pie, Cell, Legend, AreaChart, Area 
@@ -67,7 +67,20 @@ const StatCard = ({
 
 export const TotalRidesPage: React.FC<TotalRidesPageProps> = ({ onBack }) => {
     const [timeRange, setTimeRange] = useState<TimeRange>('Weekly');
-    const ridesData = ApiService.getTotalRidesData();
+    const [ridesData, setRidesData] = useState<any>({ weekly: [], monthly: [], yearly: [] });
+
+    useEffect(() => {
+        let mounted = true;
+        (async () => {
+            try {
+                const data = await ApiService.getTotalRidesData();
+                if (mounted) setRidesData(data);
+            } catch (e) {
+                console.warn('Failed to fetch total rides data', e);
+            }
+        })();
+        return () => { mounted = false; };
+    }, []);
 
     const getData = () => {
         switch (timeRange) {
@@ -79,18 +92,18 @@ export const TotalRidesPage: React.FC<TotalRidesPageProps> = ({ onBack }) => {
     };
 
     const getTotal = () => {
-        const data = getData();
-        return data.reduce((acc, curr) => acc + curr.rides, 0);
+        const data = getData() as Array<{ rides: number }>;
+        return data.reduce((acc: number, curr: { rides: number }) => acc + (curr.rides || 0), 0);
     };
 
     const totalRides = getTotal();
-    const formattedTotal = totalRides.toLocaleString();
+    const formattedTotal = (totalRides ?? 0).toLocaleString();
     
     // Calculate mock breakdown values based on total
-    const rideShareValue = Math.floor(totalRides * 0.65).toLocaleString();
-    const forHireValue = Math.floor(totalRides * 0.35).toLocaleString();
-    const completedValue = Math.floor(totalRides * 0.92).toLocaleString();
-    const cancelledValue = Math.floor(totalRides * 0.08).toLocaleString();
+    const rideShareValue = Math.floor((totalRides ?? 0) * 0.65).toLocaleString();
+    const forHireValue = Math.floor((totalRides ?? 0) * 0.35).toLocaleString();
+    const completedValue = Math.floor((totalRides ?? 0) * 0.92).toLocaleString();
+    const cancelledValue = Math.floor((totalRides ?? 0) * 0.08).toLocaleString();
     
     // Reuse monthly data for area chart
     const monthlyData = ridesData.monthly;
@@ -101,10 +114,10 @@ export const TotalRidesPage: React.FC<TotalRidesPageProps> = ({ onBack }) => {
                 <div className="bg-white dark:bg-dark-800 border border-gray-300 dark:border-dark-600 p-3 rounded-lg shadow-xl">
                     <p className="text-gray-600 dark:text-gray-300 text-sm font-medium mb-1">{label}</p>
                     <p className="text-primary-600 dark:text-primary-500 text-lg font-bold">
-                        {payload[0].value.toLocaleString()} Rides
+                        {(payload[0]?.value ?? 0).toLocaleString()} Rides
                     </p>
                     <p className="text-red-500 text-xs font-medium mt-1">
-                        {payload[1]?.value.toLocaleString()} Cancelled
+                        {(payload[1]?.value ?? 0).toLocaleString()} Cancelled
                     </p>
                 </div>
             );
@@ -152,16 +165,26 @@ export const TotalRidesPage: React.FC<TotalRidesPageProps> = ({ onBack }) => {
                     ]}
                     hoverClass="hover:border-green-500 hover:shadow-green-500/40"
                 />
-                 <StatCard 
+                <StatCard 
                     title="Avg Daily Rides" 
-                    value="1,240" 
-                    subValue="Peak: 1,850 (Sat)"
+                    value={(() => {
+                        try {
+                            const data = ridesData.weekly || [];
+                            const total = data.reduce((s: any, d: any) => s + (d.rides || 0), 0);
+                            return data.length ? Math.round(total / data.length).toLocaleString() : '—';
+                        } catch (e) { return '—'; }
+                    })()} 
+                    subValue="Average over selected period"
                     icon={DocumentIcon} 
                     hoverClass="hover:border-orange-500 hover:shadow-orange-500/40"
                 />
-                 <StatCard 
+                <StatCard 
                     title="Avg Distance" 
-                    value="4.8 km" 
+                    value={(() => {
+                        // If the API provides average distance in the payload use it; otherwise show placeholder
+                        if (ridesData && typeof ridesData.avgDistance === 'number') return `${ridesData.avgDistance.toFixed(1)} km`;
+                        return '—';
+                    })()} 
                     subValue="Per trip avg."
                     icon={TagIcon} 
                     hoverClass="hover:border-indigo-500 hover:shadow-indigo-500/40"
@@ -311,12 +334,12 @@ export const TotalRidesPage: React.FC<TotalRidesPageProps> = ({ onBack }) => {
                             </tr>
                         </thead>
                         <tbody>
-                            {ridesData.weekly.map((day, index) => {
+                            {ridesData.weekly.map((day: any, index: number) => {
                                 const completionRate = day.rides > 0 ? ((day.rides - day.cancelled) / day.rides * 100).toFixed(1) : '0.0';
                                 return (
                                     <tr key={index} className="bg-white dark:bg-dark-800 border-b border-gray-200 dark:border-dark-700 hover:bg-gray-50 dark:hover:bg-dark-700/50 transition-colors">
                                         <td className="px-6 py-4 font-medium text-gray-900 dark:text-white">{day.name}</td>
-                                        <td className="px-6 py-4 text-gray-900 dark:text-white font-bold">{day.rides.toLocaleString()}</td>
+                                        <td className="px-6 py-4 text-gray-900 dark:text-white font-bold">{(day.rides ?? 0).toLocaleString()}</td>
                                         <td className="px-6 py-4 text-red-500 font-medium">{day.cancelled}</td>
                                         <td className="px-6 py-4">
                                             <div className="flex items-center">

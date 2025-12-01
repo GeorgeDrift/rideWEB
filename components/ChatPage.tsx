@@ -1,11 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { SearchIcon, ChatBubbleIcon, SendIcon } from './Icons';
 import { ApiService, Conversation, Message } from '../services/api';
 
 export const ChatPage: React.FC = () => {
-    const [conversations, setConversations] = useState<Conversation[]>(ApiService.getConversations());
-    // Default to first conversation if exists
-    const [selectedChatId, setSelectedChatId] = useState<string>(conversations[0]?.id || '');
+    const [conversations, setConversations] = useState<Conversation[]>([]);
+    // Default to first conversation when loaded
+    const [selectedChatId, setSelectedChatId] = useState<string>('');
+
+    useEffect(() => {
+        let mounted = true;
+        (async () => {
+            try {
+                const items = await ApiService.getConversations();
+                if (mounted && items) {
+                    setConversations(items);
+                    if (items.length) setSelectedChatId(items[0].id);
+                }
+            } catch (e) {
+                console.warn('Failed to load conversations', e);
+            }
+        })();
+        return () => { mounted = false; };
+    }, []);
     const [inputMessage, setInputMessage] = useState('');
 
     const activeChat = conversations.find(c => c.id === selectedChatId);

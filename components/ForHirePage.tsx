@@ -1,10 +1,11 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
     AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar 
 } from 'recharts';
 import { ArrowLeftIcon, TagIcon, DocumentIcon, MapIcon, CarIcon, PlusIcon } from './Icons';
-import { ApiService, VehicleCategory } from '../services/api';
+import { ApiService } from '../services/api';
+import { VehicleCategory } from '../types/vehicle';
 
 interface ForHirePageProps {
     onBack: () => void;
@@ -32,7 +33,7 @@ const StatCard = ({ title, value, subValue, icon: Icon, trend, trendUp }: { titl
     </div>
 );
 
-const FleetCard: React.FC<{ category: VehicleCategory; onClick: () => void }> = ({ category, onClick }) => (
+const FleetCard: React.FC<{ category: any; onClick: () => void }> = ({ category, onClick }) => (
     <div 
         onClick={onClick}
         className="cursor-pointer bg-white dark:bg-dark-800 p-5 rounded-xl border border-gray-300 dark:border-dark-700 shadow-sm hover:shadow-lg hover:border-purple-500 hover:scale-[1.02] transition-all duration-300"
@@ -59,7 +60,7 @@ const FleetCard: React.FC<{ category: VehicleCategory; onClick: () => void }> = 
         </div>
 
         <div className="space-y-1">
-            {category.examples.slice(0, 4).map((ex, i) => (
+            {category.examples.slice(0, 4).map((ex: string, i: number) => (
                 <div key={i} className="text-xs text-gray-600 dark:text-gray-300 flex items-center">
                     <span className="w-1.5 h-1.5 bg-gray-400 dark:bg-gray-600 rounded-full mr-2"></span>
                     {ex}
@@ -76,13 +77,24 @@ const FleetCard: React.FC<{ category: VehicleCategory; onClick: () => void }> = 
 
 export const ForHirePage: React.FC<ForHirePageProps> = ({ onBack }) => {
     const [timeRange, setTimeRange] = useState<'Weekly' | 'Monthly'>('Weekly');
-    const [selectedCategory, setSelectedCategory] = useState<VehicleCategory | null>(null);
+    const [selectedCategory, setSelectedCategory] = useState<any | null>(null);
     
-    const forHireData = ApiService.getForHireData();
+    const [forHireData, setForHireData] = useState<any>({ weekly: [], monthly: [], categories: [] });
 
-    const getData = () => {
-        return timeRange === 'Weekly' ? forHireData.weekly : forHireData.monthly;
-    };
+    useEffect(() => {
+        let mounted = true;
+        (async () => {
+            try {
+                const data = await ApiService.getForHireData();
+                if (mounted) setForHireData(data);
+            } catch (e) {
+                console.warn('Failed to load for-hire data', e);
+            }
+        })();
+        return () => { mounted = false; };
+    }, []);
+
+    const getData = () => (timeRange === 'Weekly' ? (forHireData.weekly || []) : (forHireData.monthly || []));
     
     const CustomTooltip = ({ active, payload, label }: any) => {
         if (active && payload && payload.length) {
@@ -90,7 +102,7 @@ export const ForHirePage: React.FC<ForHirePageProps> = ({ onBack }) => {
                 <div className="bg-white dark:bg-dark-800 border border-gray-300 dark:border-dark-600 p-3 rounded-lg shadow-xl">
                     <p className="text-gray-600 dark:text-gray-300 text-sm font-medium mb-1">{label}</p>
                     <p className="text-purple-500 dark:text-purple-400 text-sm font-bold">
-                         {payload[0].value.toLocaleString()} Requests
+                        {(payload[0]?.value ?? 0).toLocaleString()} Requests
                     </p>
                 </div>
             );
@@ -136,7 +148,7 @@ export const ForHirePage: React.FC<ForHirePageProps> = ({ onBack }) => {
                     />
                     <StatCard 
                         title="Weekly Revenue" 
-                        value={`MWK ${selectedCategory.stats.revenue.toLocaleString()}`} 
+                        value={`MWK ${(selectedCategory?.stats?.revenue ?? 0).toLocaleString()}`} 
                         subValue="From this category"
                         trend="4.2%"
                         trendUp={true}
@@ -193,7 +205,7 @@ export const ForHirePage: React.FC<ForHirePageProps> = ({ onBack }) => {
                 <div className="bg-white dark:bg-dark-800 p-6 rounded-xl border border-gray-300 dark:border-dark-700 shadow-sm">
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Vehicles in this Category</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {selectedCategory.examples.map((model, idx) => (
+                        {selectedCategory.examples.map((model: string, idx: number) => (
                             <div key={idx} className="flex items-center p-3 bg-gray-50 dark:bg-dark-700/50 rounded-lg border border-gray-200 dark:border-dark-600">
                                 <div className="h-8 w-8 rounded-full bg-gray-200 dark:bg-dark-600 flex items-center justify-center mr-3 text-lg">
                                     {selectedCategory.icon}
@@ -323,7 +335,7 @@ export const ForHirePage: React.FC<ForHirePageProps> = ({ onBack }) => {
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">Select a category below to view specific hiring statistics and trends.</p>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                    {forHireData.categories.map((category, index) => (
+                    {forHireData.categories.map((category: any, index: number) => (
                         <FleetCard 
                             key={index} 
                             category={category} 

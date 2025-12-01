@@ -196,11 +196,11 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
                                     <div className="text-center">
                                         <h3 className="text-xl font-bold text-white mb-2">{plans.monthly.name}</h3>
                                         <div className="text-4xl font-bold text-[#FACC15] mb-2">
-                                            MWK {plans.monthly.price.toLocaleString()}
+                                            MWK {(plans.monthly.price ?? 0).toLocaleString()}
                                         </div>
                                         <p className="text-gray-400 text-sm mb-4">{plans.monthly.description}</p>
                                         <div className="text-gray-500 text-xs">
-                                            ~MWK {Math.round(plans.monthly.price / 30).toLocaleString()} per day
+                                            ~MWK {Math.round((plans.monthly.price ?? 0) / 30).toLocaleString()} per day
                                         </div>
                                     </div>
                                     <button className="w-full mt-6 py-3 bg-[#333] group-hover:bg-[#FACC15] text-white group-hover:text-black font-bold rounded-xl transition-colors">
@@ -219,11 +219,11 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
                                     <div className="text-center">
                                         <h3 className="text-xl font-bold text-white mb-2">{plans.yearly.name}</h3>
                                         <div className="text-4xl font-bold text-[#FACC15] mb-2">
-                                            MWK {plans.yearly.price.toLocaleString()}
+                                            MWK {(plans.yearly.price ?? 0).toLocaleString()}
                                         </div>
                                         <p className="text-gray-400 text-sm mb-4">{plans.yearly.description}</p>
                                         <div className="text-green-400 text-xs font-bold">
-                                            Save MWK {((plans.monthly.price * 12) - plans.yearly.price).toLocaleString()}
+                                            Save MWK {(((plans.monthly.price ?? 0) * 12) - (plans.yearly.price ?? 0)).toLocaleString()}
                                         </div>
                                     </div>
                                     <button className="w-full mt-6 py-3 bg-[#FACC15] text-black font-bold rounded-xl hover:bg-[#EAB308] transition-colors">
@@ -245,7 +245,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
                                 <div className="flex justify-between items-center mt-2">
                                     <span className="text-gray-400">Amount:</span>
                                     <span className="text-[#FACC15] font-bold text-xl">
-                                        MWK {plans[selectedPlan].price.toLocaleString()}
+                                        MWK {(plans[selectedPlan].price ?? 0).toLocaleString()}
                                     </span>
                                 </div>
                             </div>

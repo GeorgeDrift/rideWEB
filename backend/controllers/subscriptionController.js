@@ -1,4 +1,5 @@
-const { User, Transaction, sequelize } = require('../models');
+const { User, Transaction, Subscription, sequelize } = require('../models');
+const { Op } = require('sequelize');
 const payChanguService = require('../services/payChanguService');
 
 // Subscription Plans Configuration
@@ -147,14 +148,33 @@ exports.handleWebhook = async (req, res) => {
                 const duration = metadata?.duration || SUBSCRIPTION_PLANS[plan].duration;
 
                 // Calculate new expiry date
-                const currentExpiry = user.subscriptionExpiry && new Date(user.subscriptionExpiry) > new Date()
-                    ? new Date(user.subscriptionExpiry)
-                    : new Date();
+                // Check for existing active subscription
+                const activeSub = await Subscription.findOne({
+                    where: {
+                        userId: user.id,
+                        status: 'active',
+                        endDate: { [Op.gt]: new Date() }
+                    },
+                    order: [['endDate', 'DESC']]
+                });
 
+                const currentExpiry = activeSub ? new Date(activeSub.endDate) : new Date();
                 const newExpiry = new Date(currentExpiry);
                 newExpiry.setDate(newExpiry.getDate() + duration);
 
-                // Update user subscription
+                // Create Subscription Record
+                await Subscription.create({
+                    userId: user.id,
+                    plan: plan,
+                    amount: transaction.amount,
+                    status: 'active',
+                    startDate: new Date(),
+                    endDate: newExpiry,
+                    paymentMethod: 'PayChangu',
+                    transactionId: transaction.id
+                });
+
+                // Update user status for quick access (optional, but good for caching)
                 await user.update({
                     subscriptionStatus: 'active',
                     subscriptionExpiry: newExpiry
@@ -226,18 +246,40 @@ exports.verifyPayment = async (req, res) => {
                 await transaction.update({ status: 'completed' });
 
                 // Activate subscription if not already done
-                const user = await User.findByPk(userId);
-                if (user && user.subscriptionStatus !== 'active') {
+                // Check if subscription record exists for this transaction
+                const existingSub = await Subscription.findOne({ where: { transactionId: transaction.id } });
+
+                if (!existingSub) {
+                    const user = await User.findByPk(userId);
                     const metadata = verification.data.metadata || {};
                     const plan = metadata.plan || 'monthly';
                     const duration = metadata.duration || SUBSCRIPTION_PLANS[plan].duration;
 
-                    const currentExpiry = user.subscriptionExpiry && new Date(user.subscriptionExpiry) > new Date()
-                        ? new Date(user.subscriptionExpiry)
-                        : new Date();
+                    // Check for existing active subscription
+                    const activeSub = await Subscription.findOne({
+                        where: {
+                            userId: userId,
+                            status: 'active',
+                            endDate: { [Op.gt]: new Date() }
+                        },
+                        order: [['endDate', 'DESC']]
+                    });
 
+                    const currentExpiry = activeSub ? new Date(activeSub.endDate) : new Date();
                     const newExpiry = new Date(currentExpiry);
                     newExpiry.setDate(newExpiry.getDate() + duration);
+
+                    // Create Subscription Record
+                    await Subscription.create({
+                        userId: userId,
+                        plan: plan,
+                        amount: transaction.amount,
+                        status: 'active',
+                        startDate: new Date(),
+                        endDate: newExpiry,
+                        paymentMethod: 'PayChangu',
+                        transactionId: transaction.id
+                    });
 
                     await user.update({
                         subscriptionStatus: 'active',
@@ -246,10 +288,16 @@ exports.verifyPayment = async (req, res) => {
                 }
             }
 
+            // Get updated expiry
+            const latestSub = await Subscription.findOne({
+                where: { userId, status: 'active' },
+                order: [['endDate', 'DESC']]
+            });
+
             return res.json({
                 status: 'success',
                 message: 'Subscription activated successfully',
-                subscriptionExpiry: (await User.findByPk(userId)).subscriptionExpiry
+                subscriptionExpiry: latestSub ? latestSub.endDate : null
             });
 
         } else if (status === 'failed' || status === 'cancelled') {
@@ -277,8 +325,18 @@ exports.getSubscriptionStatus = async (req, res) => {
     try {
         const userId = req.user.id;
 
+        // Check Subscription table
+        const activeSub = await Subscription.findOne({
+            where: {
+                userId,
+                status: 'active',
+                endDate: { [Op.gt]: new Date() }
+            },
+            order: [['endDate', 'DESC']]
+        });
+
         const user = await User.findByPk(userId, {
-            attributes: ['subscriptionStatus', 'subscriptionExpiry', 'createdAt']
+            attributes: ['createdAt']
         });
 
         if (!user) {
@@ -286,8 +344,8 @@ exports.getSubscriptionStatus = async (req, res) => {
         }
 
         const now = new Date();
-        const expiry = user.subscriptionExpiry ? new Date(user.subscriptionExpiry) : null;
-        const isActive = user.subscriptionStatus === 'active' && expiry && expiry > now;
+        const expiry = activeSub ? new Date(activeSub.endDate) : null;
+        const isActive = !!activeSub;
 
         // Calculate days remaining
         let daysRemaining = 0;
@@ -297,7 +355,7 @@ exports.getSubscriptionStatus = async (req, res) => {
 
         // Check if in trial period (7 days from registration)
         const accountAge = Math.ceil((now - new Date(user.createdAt)) / (1000 * 60 * 60 * 24));
-        const inTrialPeriod = accountAge <= 7;
+        const inTrialPeriod = accountAge <= 7 && !isActive; // Only show trial if no active sub
 
         res.json({
             status: isActive || inTrialPeriod ? 'active' : 'inactive',

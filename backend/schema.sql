@@ -334,5 +334,117 @@ ORDER BY ride_date DESC;
 -- GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO your_app_user;
 
 -- ============================================
+-- TABLE: RideShareVehicles
+-- ============================================
+-- Stores vehicles used for Ride Sharing (Sedans, Hatchbacks, etc.)
+CREATE TABLE "RideShareVehicles" (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    make VARCHAR(100) NOT NULL,
+    model VARCHAR(100) NOT NULL,
+    year INTEGER,
+    plate VARCHAR(100) NOT NULL,
+    color VARCHAR(50),
+    seats INTEGER DEFAULT 4,
+    "imageUrl" VARCHAR(500),
+    status VARCHAR(50) DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'maintenance')),
+    
+    -- Foreign Key
+    "driverId" UUID REFERENCES "Users"(id) ON DELETE CASCADE,
+    
+    -- Timestamps
+    "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
+    "updatedAt" TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_rideshare_vehicles_driver_id ON "RideShareVehicles"("driverId");
+
+-- ============================================
+-- TABLE: HireVehicles
+-- ============================================
+-- Stores vehicles used for Hire (Trucks, Tractors, Construction, etc.)
+CREATE TABLE "HireVehicles" (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(255) NOT NULL, -- Custom name e.g. "Big Red Tractor"
+    make VARCHAR(100) NOT NULL,
+    model VARCHAR(100) NOT NULL,
+    plate VARCHAR(100) NOT NULL,
+    category VARCHAR(100) NOT NULL, -- Tractor, Truck, etc.
+    rate VARCHAR(100), -- Daily/Hourly rate description
+    "rateAmount" FLOAT, -- Numeric rate for calculations
+    "rateUnit" VARCHAR(20) DEFAULT 'day', -- day, hour, km
+    features JSONB,
+    "imageUrl" VARCHAR(500),
+    status VARCHAR(50) DEFAULT 'Available' CHECK (status IN ('Available', 'Rented', 'Maintenance')),
+    
+    -- Foreign Key
+    "driverId" UUID REFERENCES "Users"(id) ON DELETE CASCADE,
+    
+    -- Timestamps
+    "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
+    "updatedAt" TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_hire_vehicles_driver_id ON "HireVehicles"("driverId");
+CREATE INDEX idx_hire_vehicles_category ON "HireVehicles"(category);
+
+-- ============================================
+-- TABLE: Jobs
+-- ============================================
+-- Stores "For Hire" jobs/contracts
+CREATE TABLE "Jobs" (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    location VARCHAR(500) NOT NULL,
+    
+    -- Scheduling
+    "startDate" TIMESTAMP,
+    "endDate" TIMESTAMP,
+    
+    -- Pricing
+    budget FLOAT,
+    status VARCHAR(50) DEFAULT 'Open' CHECK (status IN ('Open', 'In Progress', 'Completed', 'Cancelled')),
+    
+    -- Foreign Keys
+    "clientId" UUID REFERENCES "Users"(id) ON DELETE SET NULL,
+    "driverId" UUID REFERENCES "Users"(id) ON DELETE SET NULL,
+    "vehicleId" UUID REFERENCES "HireVehicles"(id) ON DELETE SET NULL,
+    
+    -- Timestamps
+    "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
+    "updatedAt" TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_jobs_driver_id ON "Jobs"("driverId");
+CREATE INDEX idx_jobs_client_id ON "Jobs"("clientId");
+CREATE INDEX idx_jobs_status ON "Jobs"(status);
+
+-- ============================================
+-- TABLE: Subscriptions
+-- ============================================
+-- Stores driver subscriptions
+CREATE TABLE "Subscriptions" (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    plan VARCHAR(50) NOT NULL CHECK (plan IN ('1m', '3m', '6m', '1y')),
+    amount FLOAT NOT NULL,
+    status VARCHAR(50) DEFAULT 'active' CHECK (status IN ('active', 'expired', 'cancelled')),
+    "startDate" TIMESTAMP NOT NULL DEFAULT NOW(),
+    "endDate" TIMESTAMP NOT NULL,
+    "paymentMethod" VARCHAR(50),
+    "transactionId" VARCHAR(255),
+    
+    -- Foreign Key
+    "userId" UUID REFERENCES "Users"(id) ON DELETE CASCADE,
+    
+    -- Timestamps
+    "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
+    "updatedAt" TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_subscriptions_user_id ON "Subscriptions"("userId");
+CREATE INDEX idx_subscriptions_status ON "Subscriptions"(status);
+CREATE INDEX idx_subscriptions_end_date ON "Subscriptions"("endDate");
+
+-- ============================================
 -- END OF SCHEMA
 -- ============================================

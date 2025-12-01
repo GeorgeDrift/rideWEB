@@ -22,6 +22,12 @@ import {
 } from '../services/api';
 import { socketService } from '../services/socket';
 import { MapboxMap } from './MapboxMap';
+import { geocodeAddress, calculateDistance } from '../services/mapUtils';
+import { VEHICLE_HIRE_CATEGORIES, VehicleCategoryType } from '../constants/VehicleCategories';
+import LocationSearch from './LocationSearch';
+import NegotiationModal from './NegotiationModal';
+import PaymentSelectionModal from './PaymentSelectionModal';
+import PickupConfirmation from './PickupConfirmation';
 
 // --- Local Icons ---
 const HomeIcon = ({ className }: { className?: string }) => (
@@ -60,6 +66,26 @@ const LockClosedIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 
+const LocationMarkerIcon = ({ className }: { className?: string }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
+);
+
+const UsersIcon = ({ className }: { className?: string }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+    </svg>
+);
+
+const TruckIcon = ({ className }: { className?: string }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0" />
+    </svg>
+);
+
 interface RiderDashboardProps {
     onLogout: () => void;
 }
@@ -68,13 +94,30 @@ interface RiderDashboardProps {
 
 
 
+import { ThemeToggle } from './ThemeToggle';
+
 export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
     // State
     const [sidebarOpen, setSidebarOpen] = useState(false);
-    const [activeTab, setActiveTab] = useState<'overview' | 'market' | 'trips' | 'active-trip' | 'financials' | 'distance' | 'messages'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'statistics' | 'trips' | 'active-trip' | 'financials' | 'distance' | 'messages'>('overview');
     const [marketTab, setMarketTab] = useState<'share' | 'hire'>('share');
+    const [selectedHireCategory, setSelectedHireCategory] = useState<string | null>(null);
+
+    // Negotiation Workflow State
+    const [searchResults, setSearchResults] = useState<DriverRidePost[]>([]);
+    const [isSearching, setIsSearching] = useState(false);
+    const [negotiationRide, setNegotiationRide] = useState<DriverRidePost | null>(null);
+    const [showNegotiationModal, setShowNegotiationModal] = useState(false);
+    const [negotiationHistory, setNegotiationHistory] = useState<any[]>([]);
+    const [showPaymentModal, setShowPaymentModal] = useState(false);
+    const [approvedRide, setApprovedRide] = useState<any>(null);
+    const [showPickupModal, setShowPickupModal] = useState(false);
+    const [pickupRide, setPickupRide] = useState<any>(null);
     const [searchTerm, setSearchTerm] = useState('');
-    const [driverLocation, setDriverLocation] = useState<{ lng: number; lat: number }>({ lng: 33.7741, lat: -13.9626 });
+
+    // const [driverLocation, setDriverLocation] = useState<{ lng: number; lat: number }>({ lng: 33.7741, lat: -13.9626 }); // Removed live tracking
+    const [tripCoordinates, setTripCoordinates] = useState<{ origin: [number, number] | null, destination: [number, number] | null }>({ origin: null, destination: null });
+    const [tripDistance, setTripDistance] = useState<number | null>(null);
 
     // Request Modal State (No payment yet)
     const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
@@ -112,22 +155,25 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
     const [activeChatId, setActiveChatId] = useState<string>('');
     const [messageInput, setMessageInput] = useState('');
 
-    // Data
+    // Data States
     const [profile, setProfile] = useState<any>({ name: '', avatar: '', rating: 0 });
     const [stats, setStats] = useState<any>({ totalSpend: 0, totalRides: 0, totalDistance: 0, chartData: [], rideTypes: [] });
-
-    // Initialize history
     const [history, setHistory] = useState<any[]>([]);
-
-    // Listings Data
     const [rideShareListings, setRideShareListings] = useState<DriverRidePost[]>([]);
     const [forHireListings, setForHireListings] = useState<DriverHirePost[]>([]);
+    const [activeTrips, setActiveTrips] = useState<any[]>([]);
+    const [transactions, setTransactions] = useState<any[]>([]);
+
+    // Loading States
+    const [isLoadingProfile, setIsLoadingProfile] = useState(true);
+    const [isLoadingStats, setIsLoadingStats] = useState(true);
+    const [isLoadingMarketplace, setIsLoadingMarketplace] = useState(true);
+    const [isLoadingTrips, setIsLoadingTrips] = useState(true);
+
+    const currentActiveTrip = activeTrips.length > 0 ? activeTrips[0] : null;
 
     // Helper to separate active vs past trips
-    // Statuses: Pending -> Inbound -> Arrived -> In Progress -> Payment Due -> Completed
-    const activeTrips = history.filter(h => ['Pending', 'Approved', 'Inbound', 'Arrived', 'In Progress', 'Waiting for Pickup', 'Payment Due'].includes(h.status));
     const pastTrips = history.filter(h => ['Completed', 'Cancelled', 'Refunded'].includes(h.status));
-    const currentActiveTrip = activeTrips.find(t => t.status !== 'Pending') || activeTrips[0]; // Prioritize non-pending
 
     // Auto-Status Simulation Effect (To show flow without driver interaction in this demo)
     // Real-time status updates via Socket.IO
@@ -160,7 +206,6 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
     // --- Effects ---
 
     // Initialize Socket Connection
-    // Initialize Socket Connection
     useEffect(() => {
         const token = localStorage.getItem('token');
         let userId = 'rider_123';
@@ -175,42 +220,106 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
 
         socketService.connect(userId, 'rider');
 
-        socketService.on('driver_location', (location: { lng: number; lat: number }) => {
-            setDriverLocation(location);
+        socketService.on('notification', (data) => {
+            console.log('Notification:', data);
+        });
+
+        socketService.on('request_approved', (data) => {
+            setApprovedRide((prev: any) => ({ ...prev, ...data, status: 'Approved' }));
+            setShowNegotiationModal(false);
+            setShowPaymentModal(true);
+        });
+
+        socketService.on('counter_offer', (data) => {
+            setNegotiationHistory(prev => [
+                { type: 'counter', amount: data.counterPrice, timestamp: new Date(), isDriver: true },
+                ...prev
+            ]);
         });
 
         return () => {
-            socketService.off('driver_location');
+            socketService.off('notification');
+            socketService.off('request_approved');
+            socketService.off('counter_offer');
             socketService.disconnect();
         };
     }, []);
 
-    // Fetch initial data
+    // Fetch initial data with loading states
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const [profileData, statsData, historyData, conversationsData, shareListings, hireListings] = await Promise.all([
-                    ApiService.getRiderProfile(),
-                    ApiService.getRiderStats(),
-                    ApiService.getRiderHistory(),
-                    ApiService.getRiderConversations(),
+                // Fetch profile
+                setIsLoadingProfile(true);
+                const profileData = await ApiService.getRiderProfile();
+                setProfile(profileData || { name: '', avatar: '', rating: 0 });
+                setIsLoadingProfile(false);
+
+                // Fetch stats
+                setIsLoadingStats(true);
+                const statsData = await ApiService.getRiderStats();
+                setStats(statsData || { totalSpend: 0, totalRides: 0, totalDistance: 0, chartData: [], rideTypes: [] });
+                setIsLoadingStats(false);
+
+                // Fetch marketplace listings
+                setIsLoadingMarketplace(true);
+                const [shareListings, hireListings] = await Promise.all([
                     ApiService.getAllRideSharePosts(),
                     ApiService.getAllForHirePosts()
                 ]);
+                setRideShareListings(shareListings || []);
+                setForHireListings(hireListings || []);
+                setIsLoadingMarketplace(false);
 
-                setProfile(profileData);
-                setStats(statsData);
-                setHistory(historyData);
-                setConversations(conversationsData);
-                setActiveChatId(conversationsData[0]?.id || '');
-                setRideShareListings(shareListings);
-                setForHireListings(hireListings);
+                // Fetch trips and history
+                setIsLoadingTrips(true);
+                const historyData = await ApiService.getRiderHistory();
+                setHistory(historyData || []);
+                // Separate active trips from history
+                const active = (historyData || []).filter((h: any) =>
+                    ['Pending', 'Approved', 'Inbound', 'Arrived', 'In Progress', 'Waiting for Pickup', 'Payment Due'].includes(h.status)
+                );
+                setActiveTrips(active);
+                setIsLoadingTrips(false);
+
+                // Fetch conversations
+                const conversationsData = await ApiService.getRiderConversations();
+                setConversations(conversationsData || []);
+                setActiveChatId((conversationsData && conversationsData[0] && conversationsData[0].id) ? conversationsData[0].id : '');
+
+                // Fetch transactions
+                const transactionsData = await ApiService.getRiderTransactions();
+                setTransactions(transactionsData || []);
+
             } catch (error) {
                 console.error("Error fetching initial data:", error);
+                // Set loading to false even on error
+                setIsLoadingProfile(false);
+                setIsLoadingStats(false);
+                setIsLoadingMarketplace(false);
+                setIsLoadingTrips(false);
             }
         };
         fetchData();
     }, []);
+
+    // Geocode Trip Coordinates when Active Trip Changes
+    useEffect(() => {
+        const updateTripCoords = async () => {
+            if (currentActiveTrip) {
+                const originCoords = await geocodeAddress(currentActiveTrip.origin);
+                const destCoords = await geocodeAddress(currentActiveTrip.destination);
+
+                setTripCoordinates({ origin: originCoords, destination: destCoords });
+
+                if (originCoords && destCoords) {
+                    const dist = calculateDistance(originCoords, destCoords);
+                    setTripDistance(dist);
+                }
+            }
+        };
+        updateTripCoords();
+    }, [currentActiveTrip]);
 
     // Fetch Driver Payout Details when Payment Modal Opens
     useEffect(() => {
@@ -220,9 +329,6 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                 setPaymentError(null);
 
                 try {
-                    // Fetch driver payout details
-                    // For demo purposes, we'll use a mock driver ID based on driver name
-                    // In production, you'd get the actual driver ID from the trip data
                     const driverIdMap: Record<string, string> = {
                         'Alex Driver': 'D-001',
                         'Mike Ross': 'D-002',
@@ -256,14 +362,16 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
 
     // Filtered Listings
     const filteredRideShares = rideShareListings.filter(post =>
-        post.destination.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        post.origin.toLowerCase().includes(searchTerm.toLowerCase())
+        (post.destination?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+        (post.origin?.toLowerCase() || '').includes(searchTerm.toLowerCase())
     );
 
-    const filteredHireListings = forHireListings.filter(post =>
-        post.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        post.category.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const filteredHireListings = forHireListings.filter(post => {
+        const matchesSearch = (post.title?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+            (post.category?.toLowerCase() || '').includes(searchTerm.toLowerCase());
+        const matchesCategory = !selectedHireCategory || (post.category?.toLowerCase() === selectedHireCategory.toLowerCase());
+        return matchesSearch && matchesCategory;
+    });
 
     // UI Components
     const StatCard = ({ title, value, subValue, icon: Icon, onClick }: any) => (
@@ -380,7 +488,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
             console.log(`Initiating PayChangu Payment...`);
             console.log(`Recipient (Driver): ${currentActiveTrip.driver}`, driverPayoutDetails);
             console.log(`Sender (You): ${passengerPhone}`);
-            console.log(`Amount: MWK ${currentActiveTrip.price.toLocaleString()}`);
+            console.log(`Amount: MWK ${(currentActiveTrip?.price ?? 0).toLocaleString()}`);
             console.log(`Provider: ${mobileProvider}`);
 
             // Call PayChangu API
@@ -504,6 +612,73 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
         setMessageInput('');
     };
 
+    // Negotiation Handlers
+    const handleSearch = async (pickup: string, destination: string) => {
+        setIsSearching(true);
+        try {
+            const results = await ApiService.searchRideShareVehicles(pickup, destination);
+            setSearchResults(results);
+        } catch (error) {
+            console.error("Search failed", error);
+        } finally {
+            setIsSearching(false);
+        }
+    };
+
+    const handleStartNegotiation = (ride: DriverRidePost) => {
+        setNegotiationRide(ride);
+        setNegotiationHistory([]); // Initialize or fetch history
+        setShowNegotiationModal(true);
+    };
+
+    const handleSubmitOffer = async (offerPrice: number, message: string) => {
+        if (!negotiationRide) return;
+        try {
+            // Submit offer
+            await ApiService.submitRideRequest({
+                ...negotiationRide,
+                offeredPrice: offerPrice,
+                message
+            });
+            // Add to local history for display
+            setNegotiationHistory(prev => [...prev, {
+                type: 'offer',
+                price: offerPrice,
+                message,
+                status: 'pending',
+                timestamp: new Date().toISOString()
+            }]);
+            // In a real app, we might wait for socket confirmation or close modal
+            // For now, keep modal open to show "Pending Approval" or similar
+        } catch (error) {
+            console.error("Offer failed", error);
+        }
+    };
+
+    const handlePaymentSelection = async (method: 'online' | 'physical') => {
+        if (!approvedRide) return;
+        try {
+            await ApiService.selectPaymentMethod(approvedRide.id, method);
+            setShowPaymentModal(false);
+            setPickupRide(approvedRide); // Move to pickup
+            setShowPickupModal(true);
+        } catch (error) {
+            console.error("Payment selection failed", error);
+        }
+    };
+
+    const handleConfirmPickup = async () => {
+        if (!pickupRide) return;
+        try {
+            await ApiService.confirmPickup(pickupRide.id);
+            setShowPickupModal(false);
+            // Navigate to active trip or show success
+            setActiveTab('active-trip');
+        } catch (error) {
+            console.error("Pickup confirmation failed", error);
+        }
+    };
+
     const activeChat = conversations.find(c => c.id === activeChatId);
 
     const getCalculatedTotal = () => {
@@ -552,7 +727,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
 
                 <nav className="flex-1 px-4 space-y-2">
                     <button onClick={() => setActiveTab('overview')} className={`flex items-center w-full px-4 py-3 rounded-xl font-bold transition-transform hover:scale-105 ${activeTab === 'overview' ? 'text-black bg-[#FACC15]' : 'text-gray-400 hover:text-white hover:bg-[#2A2A2A]'}`}>
-                        <DashboardIcon className="w-5 h-5 mr-3" /> Overview
+                        <HomeIcon className="w-5 h-5 mr-3" /> Marketplace
                     </button>
 
                     <button
@@ -564,20 +739,20 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                         {activeTrips.length > 0 && <span className="ml-auto w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>}
                     </button>
 
-                    <button onClick={() => setActiveTab('messages')} className={`flex items-center w-full px-4 py-3 rounded-xl font-medium transition-colors ${activeTab === 'messages' ? 'text-white bg-[#2A2A2A]' : 'text-gray-400 hover:text-white hover:bg-[#2A2A2A]'}`}>
-                        <ChatBubbleIcon className="w-5 h-5 mr-3" /> Messages
-                    </button>
-                    <button onClick={() => setActiveTab('market')} className={`flex items-center w-full px-4 py-3 rounded-xl font-medium transition-colors ${activeTab === 'market' ? 'text-white bg-[#2A2A2A]' : 'text-gray-400 hover:text-white hover:bg-[#2A2A2A]'}`}>
-                        <MarketIcon className="w-5 h-5 mr-3" /> Marketplace
+                    <button onClick={() => setActiveTab('statistics')} className={`flex items-center w-full px-4 py-3 rounded-xl font-medium transition-colors ${activeTab === 'statistics' ? 'text-white bg-[#2A2A2A]' : 'text-gray-400 hover:text-white hover:bg-[#2A2A2A]'}`}>
+                        <DashboardIcon className="w-5 h-5 mr-3" /> Statistics
                     </button>
                     <button onClick={() => setActiveTab('trips')} className={`flex items-center w-full px-4 py-3 rounded-xl font-medium transition-colors ${activeTab === 'trips' ? 'text-white bg-[#2A2A2A]' : 'text-gray-400 hover:text-white hover:bg-[#2A2A2A]'}`}>
-                        <HistoryIcon className="w-5 h-5 mr-3" /> My Trips
+                        <BriefcaseIcon className="w-5 h-5 mr-3" /> My Trips
                     </button>
                     <button onClick={() => setActiveTab('financials')} className={`flex items-center w-full px-4 py-3 rounded-xl font-medium transition-colors ${activeTab === 'financials' ? 'text-white bg-[#2A2A2A]' : 'text-gray-400 hover:text-white hover:bg-[#2A2A2A]'}`}>
                         <WalletIcon className="w-5 h-5 mr-3" /> Financials
                     </button>
                     <button onClick={() => setActiveTab('distance')} className={`flex items-center w-full px-4 py-3 rounded-xl font-medium transition-colors ${activeTab === 'distance' ? 'text-white bg-[#2A2A2A]' : 'text-gray-400 hover:text-white hover:bg-[#2A2A2A]'}`}>
                         <MapIcon className="w-5 h-5 mr-3" /> Distance
+                    </button>
+                    <button onClick={() => setActiveTab('messages')} className={`flex items-center w-full px-4 py-3 rounded-xl font-medium transition-colors ${activeTab === 'messages' ? 'text-white bg-[#2A2A2A]' : 'text-gray-400 hover:text-white hover:bg-[#2A2A2A]'}`}>
+                        <ChatBubbleIcon className="w-5 h-5 mr-3" /> Messages
                     </button>
                 </nav>
 
@@ -592,47 +767,178 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
             <main className="flex-1 flex flex-col h-full overflow-hidden relative">
 
                 {/* Header */}
-                <header className="h-20 flex items-center justify-between px-6 lg:px-10 bg-[#121212] border-b border-[#2A2A2A] shrink-0 z-30">
+                <header className="bg-white dark:bg-dark-800 shadow-sm sticky top-0 z-20 px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between transition-colors duration-300">
                     <div className="flex items-center">
-                        <button className="lg:hidden mr-4 text-gray-400" onClick={() => setSidebarOpen(true)}>
-                            <MenuIcon className="w-6 h-6" />
+                        <button onClick={() => setSidebarOpen(true)} className="lg:hidden mr-4 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white">
+                            <MenuIcon className="h-6 w-6" />
                         </button>
-                        <h1 className="text-2xl font-bold text-white hidden md:block">
+                        <h1 className="text-xl font-bold text-gray-900 dark:text-white">
                             {activeTab === 'overview' ? 'Dashboard' :
                                 activeTab === 'messages' ? 'Messages' :
-                                    activeTab === 'market' ? 'Ride Market' :
-                                        activeTab === 'trips' ? 'My Trips' :
-                                            activeTab === 'active-trip' ? 'Active Trip' :
-                                                activeTab === 'financials' ? 'Total Spent' :
+                                    activeTab === 'trips' ? 'My Trips' :
+                                        activeTab === 'active-trip' ? 'Active Trip' :
+                                            activeTab === 'financials' ? 'Total Spent' :
+                                                activeTab === 'statistics' ? 'Statistics' :
                                                     'Distance Analytics'}
                         </h1>
                     </div>
+                    <div className="flex items-center space-x-4">
+                        <ThemeToggle />
 
-                    <div className="flex items-center gap-4">
-                        {/* Search Bar for Market */}
-                        {activeTab === 'market' && (
-                            <div className="relative hidden md:block">
-                                <input
-                                    type="text"
-                                    placeholder={marketTab === 'share' ? "Search destinations..." : "Search vehicle types..."}
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                    className="bg-[#1E1E1E] border border-[#333] rounded-xl pl-10 pr-4 py-2 text-sm text-white focus:border-[#FACC15] outline-none w-64"
-                                />
-                                <SearchIcon className="w-4 h-4 text-gray-500 absolute left-3 top-2.5" />
-                            </div>
-                        )}
-
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-[#252525] rounded-full flex items-center justify-center border border-[#333]">
-                                <UserIcon className="w-5 h-5 text-gray-400" />
-                            </div>
+                        <div className="flex items-center space-x-2">
+                            <img className="h-8 w-8 rounded-full" src="https://ui-avatars.com/api/?name=Rider+User" alt="User" />
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300 hidden sm:block">Rider</span>
                         </div>
                     </div>
                 </header>
 
                 {/* Content Area */}
                 <div className={`flex-1 overflow-y-auto ${activeTab === 'active-trip' ? 'p-0' : 'p-6 lg:p-8'}`}>
+
+                    {/* --- OVERVIEW (MARKETPLACE) TAB --- */}
+                    {activeTab === 'overview' && (
+                        <div className="flex flex-col h-full">
+                            {/* Top Section: Location & Search */}
+                            <div className="bg-white dark:bg-[#1E1E1E] p-4 border-b border-gray-200 dark:border-[#2A2A2A] flex flex-col md:flex-row gap-4 items-center justify-between">
+                                <div className="flex items-center gap-2 text-gray-700 dark:text-gray-200">
+                                    <LocationMarkerIcon className="w-5 h-5 text-[#FACC15]" />
+                                    <span className="font-bold">Mzuzu, Malawi (Current Location)</span>
+                                </div>
+                                <div className="relative w-full md:w-96">
+                                    <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                                    <input
+                                        type="text"
+                                        placeholder="Search ride, vehicle type, or destination..."
+                                        className="w-full pl-10 pr-4 py-2 bg-gray-100 dark:bg-[#252525] border border-transparent focus:border-[#FACC15] rounded-xl outline-none text-gray-900 dark:text-white transition-all"
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Marketplace Tabs */}
+                            <div className="flex border-b border-gray-200 dark:border-[#2A2A2A]">
+                                <button
+                                    onClick={() => setMarketTab('share')}
+                                    className={`flex-1 py-4 font-bold text-center transition-colors ${marketTab === 'share' ? 'text-[#FACC15] border-b-2 border-[#FACC15]' : 'text-gray-500 hover:text-white'}`}
+                                >
+                                    🚗 Rideshare
+                                </button>
+                                <button
+                                    onClick={() => setMarketTab('hire')}
+                                    className={`flex-1 py-4 font-bold text-center transition-colors ${marketTab === 'hire' ? 'text-[#FACC15] border-b-2 border-[#FACC15]' : 'text-gray-500 hover:text-white'}`}
+                                >
+                                    🚚 For Hire
+                                </button>
+                            </div>
+
+                            {/* Tab Content */}
+                            <div className="flex-1 overflow-y-auto p-4 lg:p-6">
+                                {marketTab === 'share' ? (
+                                    <div className="space-y-6">
+                                        {/* Location Search */}
+                                        <div className="bg-[#252525] p-6 rounded-3xl border border-[#333]">
+                                            <h3 className="text-lg font-bold text-white mb-4">Where to?</h3>
+                                            <LocationSearch onSearch={handleSearch} isLoading={isSearching} />
+                                        </div>
+
+                                        {/* Search Results */}
+                                        {searchResults.length > 0 && (
+                                            <div>
+                                                <h3 className="text-lg font-bold text-white mb-4">Available Rides</h3>
+                                                <div className="space-y-3">
+                                                    {searchResults.map(ride => (
+                                                        <div key={ride.id} className="bg-[#252525] p-4 rounded-2xl border border-[#333] flex justify-between items-center hover:border-[#FACC15]/50 transition-colors cursor-pointer" onClick={() => handleStartNegotiation(ride)}>
+                                                            <div className="flex items-center gap-4">
+                                                                <div className="w-12 h-12 bg-[#1E1E1E] rounded-full flex items-center justify-center text-gray-400">
+                                                                    <CarIcon className="w-6 h-6" />
+                                                                </div>
+                                                                <div>
+                                                                    <div className="font-bold text-white">{ride.origin} → {ride.destination}</div>
+                                                                    <div className="text-sm text-gray-400">{ride.date} • {ride.time}</div>
+                                                                    <div className="text-xs text-[#FACC15] mt-1">{ride.negotiable ? 'Negotiable' : 'Fixed Price'}</div>
+                                                                </div>
+                                                            </div>
+                                                            <div className="text-right">
+                                                                <div className="font-bold text-[#FACC15] text-lg">MK {ride.price.toLocaleString()}</div>
+                                                                <div className="text-xs text-gray-500">{ride.seats} seats left</div>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Map removed as per user request */}
+                                    </div>
+                                ) : (
+                                    <div className="space-y-8">
+                                        {/* Category Filter Tags */}
+                                        <div className="flex flex-wrap gap-2 mb-4">
+                                            <button
+                                                onClick={() => setSelectedHireCategory(null)}
+                                                className={`px-4 py-2 rounded-xl font-medium transition-all ${selectedHireCategory === null
+                                                        ? 'bg-[#FACC15] text-black'
+                                                        : 'bg-[#252525] text-gray-400 hover:bg-[#2A2A2A] hover:text-white'
+                                                    }`}
+                                            >
+                                                All Categories
+                                            </button>
+                                            {VEHICLE_HIRE_CATEGORIES.flatMap(mainCat => mainCat.categories).map((cat) => (
+                                                <button
+                                                    key={cat.id}
+                                                    onClick={() => setSelectedHireCategory(cat.name)}
+                                                    className={`px-4 py-2 rounded-xl font-medium transition-all ${selectedHireCategory === cat.name
+                                                            ? 'bg-[#FACC15] text-black'
+                                                            : 'bg-[#252525] text-gray-400 hover:bg-[#2A2A2A] hover:text-white'
+                                                        }`}
+                                                >
+                                                    {cat.name}
+                                                </button>
+                                            ))}
+                                        </div>
+
+                                        {/* For Hire Listings */}
+                                        {filteredHireListings.length > 0 ? (
+                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                                {filteredHireListings.map((post) => (
+                                                    <div
+                                                        key={post.id}
+                                                        onClick={() => initiateRequest(post, 'hire')}
+                                                        className="bg-[#252525] p-6 rounded-2xl border border-[#333] hover:border-[#FACC15] transition-all cursor-pointer group"
+                                                    >
+                                                        <div className="flex justify-between items-start mb-4">
+                                                            <div className="w-12 h-12 bg-[#1E1E1E] rounded-xl flex items-center justify-center text-[#FACC15] group-hover:bg-[#FACC15] group-hover:text-black transition-colors">
+                                                                <CarIcon className="w-6 h-6" />
+                                                            </div>
+                                                            <div className="text-xs bg-[#1E1E1E] px-3 py-1 rounded-full text-gray-400">
+                                                                {post.category}
+                                                            </div>
+                                                        </div>
+                                                        <div className="font-bold text-white text-lg mb-2">{post.title}</div>
+                                                        <div className="text-sm text-gray-400 mb-4">{post.location}</div>
+                                                        <div className="flex justify-between items-center">
+                                                            <div className="text-[#FACC15] font-bold text-xl">{post.rate}</div>
+                                                            <button className="px-4 py-2 bg-[#FACC15] text-black font-medium rounded-lg group-hover:bg-[#EAB308] transition-colors">
+                                                                Request
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div className="text-center py-12">
+                                                <div className="w-16 h-16 bg-[#252525] rounded-full flex items-center justify-center mx-auto mb-4">
+                                                    <CarIcon className="w-8 h-8 text-gray-600" />
+                                                </div>
+                                                <p className="text-gray-400">No vehicles available in this category</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
 
                     {/* --- ACTIVE TRIP TAB --- */}
                     {activeTab === 'active-trip' && (
@@ -707,6 +1013,14 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                     <p className="text-white font-medium">{currentActiveTrip.destination}</p>
                                                 </div>
                                             </div>
+
+                                            {/* Distance Display */}
+                                            {tripDistance && (
+                                                <div className="mt-6 p-4 bg-[#252525] rounded-xl border border-[#333] flex items-center justify-between">
+                                                    <div className="text-xs text-gray-500 uppercase font-bold">Total Distance</div>
+                                                    <div className="text-xl font-bold text-[#FACC15]">{tripDistance} km</div>
+                                                </div>
+                                            )}
                                         </div>
 
                                         <div className="p-6 flex-1 overflow-y-auto">
@@ -766,9 +1080,14 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                         </div>
                                     </div>
 
-                                    {/* Right Panel: Mock Map */}
+                                    {/* Right Panel: Static Route Map */}
                                     <div className="flex-1 relative bg-[#1E1E1E]">
-                                        <MapboxMap center={[driverLocation.lng, driverLocation.lat]} zoom={13} />
+                                        <MapboxMap
+                                            center={tripCoordinates.origin || [33.7741, -13.9626]}
+                                            zoom={11}
+                                            trackDevice={false}
+                                            destination={tripCoordinates.destination || undefined}
+                                        />
                                     </div>
                                 </>
                             ) : (
@@ -781,7 +1100,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                         You don't have any trips in progress. Book a ride from the marketplace to see it here.
                                     </p>
                                     <button
-                                        onClick={() => setActiveTab('market')}
+                                        onClick={() => setActiveTab('overview')}
                                         className="px-8 py-3 bg-[#FACC15] text-black font-bold rounded-xl hover:bg-[#EAB308] transition-colors"
                                     >
                                         Go to Marketplace
@@ -790,10 +1109,9 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                             )}
                         </div>
                     )}
-
-                    {/* --- OVERVIEW TAB --- */}
-                    {activeTab === 'overview' && (
-                        <div className="space-y-8 animate-fadeIn">
+                    {/* --- STATISTICS (OLD OVERVIEW) TAB --- */}
+                    {activeTab === 'statistics' && (
+                        <div className="space-y-8 animate-fadeIn p-6 lg:p-8">
                             {/* Quick Active Trip View if available */}
                             {currentActiveTrip && (
                                 <div
@@ -809,7 +1127,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                             Active Trip
                                         </h3>
                                         <span className="text-sm text-[#FACC15] font-bold flex items-center gap-1 group-hover:underline">
-                                            Track Live <MapIcon className="w-4 h-4" />
+                                            View Details <MapIcon className="w-4 h-4" />
                                         </span>
                                     </div>
                                     <div className="flex items-center justify-between bg-[#1E1E1E] p-4 rounded-2xl border border-[#333]">
@@ -830,7 +1148,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                 <StatCard
                                     title="Total Spent"
-                                    value={`MWK ${stats.totalSpend.toLocaleString()}`}
+                                    value={`MWK ${(stats?.totalSpend ?? 0).toLocaleString()}`}
                                     subValue="Lifetime spending"
                                     icon={WalletIcon}
                                     onClick={() => setActiveTab('financials')}
@@ -870,7 +1188,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                 <Tooltip
                                                     contentStyle={{ backgroundColor: '#1E1E1E', borderColor: '#333', borderRadius: '8px', color: '#fff' }}
                                                     cursor={{ stroke: '#333' }}
-                                                    formatter={(value: number) => [`MWK ${value.toLocaleString()}`, 'Spent']}
+                                                    formatter={(value: number) => [`MWK ${(value ?? 0).toLocaleString()}`, 'Spent']}
                                                 />
                                                 <Area type="monotone" dataKey="value" stroke="#FACC15" strokeWidth={3} fillOpacity={1} fill="url(#colorSpend)" />
                                             </AreaChart>
@@ -905,765 +1223,710 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                 </div>
                             </div>
                         </div>
-                    )}
 
+                    )}
                     {/* --- MESSAGES TAB --- */}
-                    {activeTab === 'messages' && (
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-10rem)] animate-fadeIn">
-                            {/* Left Column: Conversation List */}
-                            <div className="bg-[#1E1E1E] rounded-3xl border border-[#2A2A2A] overflow-hidden flex flex-col">
-                                <div className="p-4 border-b border-[#333]">
-                                    <div className="relative">
-                                        <input
-                                            type="text"
-                                            placeholder="Search messages..."
-                                            className="w-full bg-[#252525] border border-[#333] rounded-xl pl-10 pr-4 py-2 text-sm text-white outline-none focus:border-[#FACC15]"
-                                        />
-                                        <SearchIcon className="w-4 h-4 text-gray-500 absolute left-3 top-2.5" />
-                                    </div>
-                                </div>
-                                <div className="flex-1 overflow-y-auto no-scrollbar">
-                                    {conversations.map(chat => (
-                                        <div
-                                            key={chat.id}
-                                            onClick={() => setActiveChatId(chat.id)}
-                                            className={`p-4 border-b border-[#333] cursor-pointer hover:bg-[#252525] transition-colors ${activeChatId === chat.id ? 'bg-[#252525] border-l-4 border-l-[#FACC15]' : ''}`}
-                                        >
-                                            <div className="flex items-center gap-3">
-                                                <div className="relative">
-                                                    <img src={chat.avatar} alt={chat.name} className="w-10 h-10 rounded-full object-cover" />
-                                                    {chat.status === 'online' && <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-[#1E1E1E]"></span>}
-                                                </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="flex justify-between items-baseline mb-1">
-                                                        <h4 className={`text-sm font-bold truncate ${activeChatId === chat.id ? 'text-white' : 'text-gray-300'}`}>{chat.name}</h4>
-                                                        <span className="text-[10px] text-gray-500">{chat.time}</span>
-                                                    </div>
-                                                    <p className="text-xs text-gray-400 truncate">{chat.lastMessage}</p>
-                                                </div>
-                                                {chat.unread > 0 && (
-                                                    <span className="bg-[#FACC15] text-black text-[10px] font-bold px-1.5 py-0.5 rounded-full">{chat.unread}</span>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Right Column: Chat Window */}
-                            <div className="lg:col-span-2 bg-[#1E1E1E] rounded-3xl border border-[#2A2A2A] overflow-hidden flex flex-col">
-                                {activeChat ? (
-                                    <>
-                                        <div className="p-4 border-b border-[#333] flex justify-between items-center bg-[#252525]">
-                                            <div className="flex items-center gap-3">
-                                                <img src={activeChat.avatar} alt={activeChat.name} className="w-10 h-10 rounded-full" />
-                                                <div>
-                                                    <h3 className="text-white font-bold text-sm">{activeChat.name}</h3>
-                                                    <div className="flex items-center gap-1 text-xs text-gray-400">
-                                                        <span className={`w-1.5 h-1.5 rounded-full ${activeChat.status === 'online' ? 'bg-green-500' : 'bg-gray-500'}`}></span>
-                                                        {activeChat.status === 'online' ? 'Online' : 'Offline'}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[#1E1E1E]">
-                                            {activeChat.messages.map(msg => (
-                                                <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                                    <div className={`max-w-[75%] p-3 rounded-2xl text-sm ${msg.sender === 'user' ? 'bg-[#FACC15] text-black rounded-tr-none' : 'bg-[#2A2A2A] text-gray-200 rounded-tl-none'}`}>
-                                                        <p>{msg.text}</p>
-                                                        <p className={`text-[10px] mt-1 text-right ${msg.sender === 'user' ? 'text-black/60' : 'text-gray-500'}`}>{msg.timestamp}</p>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-
-                                        <div className="p-4 border-t border-[#333] bg-[#252525]">
-                                            <form onSubmit={handleSendMessage} className="flex gap-2">
-                                                <input
-                                                    type="text"
-                                                    value={messageInput}
-                                                    onChange={(e) => setMessageInput(e.target.value)}
-                                                    placeholder="Type a message..."
-                                                    className="flex-1 bg-[#1E1E1E] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]"
-                                                />
-                                                <button
-                                                    type="submit"
-                                                    disabled={!messageInput.trim()}
-                                                    className="p-3 bg-[#FACC15] text-black rounded-xl hover:bg-[#EAB308] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                                >
-                                                    <SendIcon className="w-5 h-5" />
-                                                </button>
-                                            </form>
-                                        </div>
-                                    </>
-                                ) : (
-                                    <div className="flex-1 flex flex-col items-center justify-center text-gray-500">
-                                        <ChatBubbleIcon className="w-16 h-16 opacity-20 mb-4" />
-                                        <p>Select a conversation to start messaging</p>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* --- MARKET TAB (DRIVER POSTS) --- */}
-                    {activeTab === 'market' && (
-                        <div className="animate-fadeIn">
-                            <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-                                <div className="bg-[#1E1E1E] p-1 rounded-xl border border-[#2A2A2A] flex">
-                                    <button
-                                        onClick={() => setMarketTab('share')}
-                                        className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${marketTab === 'share' ? 'bg-[#FACC15] text-black' : 'text-gray-400 hover:text-white'}`}
-                                    >
-                                        Ride Share
-                                    </button>
-                                    <button
-                                        onClick={() => setMarketTab('hire')}
-                                        className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${marketTab === 'hire' ? 'bg-[#FACC15] text-black' : 'text-gray-400 hover:text-white'}`}
-                                    >
-                                        For Hire
-                                    </button>
-                                </div>
-                                <p className="text-gray-500 text-sm">
-                                    Browse listings posted directly by drivers.
-                                </p>
-                            </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                                {marketTab === 'share' ? (
-                                    filteredRideShares.length > 0 ? (
-                                        filteredRideShares.map(post => (
-                                            <div key={post.id} className="bg-[#1E1E1E] rounded-3xl p-6 border border-[#2A2A2A] hover:border-[#FACC15]/50 transition-all group">
-                                                <div className="flex justify-between items-start mb-4">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="w-10 h-10 bg-[#252525] rounded-full flex items-center justify-center text-[#FACC15]">
-                                                            <CarIcon className="w-5 h-5" />
-                                                        </div>
-                                                        <div>
-                                                            <h4 className="font-bold text-white text-sm">{post.driverName}</h4>
-                                                            <div className="flex items-center gap-1 text-xs text-[#FACC15]">
-                                                                <StarIcon className="w-3 h-3" /> {post.driverRating}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                    <div className="bg-[#FACC15]/10 text-[#FACC15] px-3 py-1 rounded-lg font-bold text-sm">
-                                                        MWK {post.price.toLocaleString()}
-                                                    </div>
-                                                </div>
-
-                                                <div className="space-y-3 mb-6">
-                                                    <div className="flex items-center justify-between p-3 bg-[#252525] rounded-xl">
-                                                        <div>
-                                                            <div className="text-[10px] text-gray-500 uppercase font-bold">From</div>
-                                                            <div className="text-white font-bold text-sm">{post.origin}</div>
-                                                        </div>
-                                                        <div className="text-gray-600">→</div>
-                                                        <div className="text-right">
-                                                            <div className="text-[10px] text-gray-500 uppercase font-bold">To</div>
-                                                            <div className="text-white font-bold text-sm">{post.destination}</div>
-                                                        </div>
-                                                    </div>
-                                                    <div className="flex gap-2">
-                                                        <div className="flex-1 bg-[#252525] p-2 rounded-lg text-center">
-                                                            <div className="text-[10px] text-gray-500 uppercase">Date</div>
-                                                            <div className="text-xs font-bold text-white">{post.date}</div>
-                                                        </div>
-                                                        <div className="flex-1 bg-[#252525] p-2 rounded-lg text-center">
-                                                            <div className="text-[10px] text-gray-500 uppercase">Time</div>
-                                                            <div className="text-xs font-bold text-white">{post.time}</div>
-                                                        </div>
-                                                        <div className="flex-1 bg-[#252525] p-2 rounded-lg text-center">
-                                                            <div className="text-[10px] text-gray-500 uppercase">Seats</div>
-                                                            <div className="text-xs font-bold text-white">{post.seats}</div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                <button
-                                                    onClick={() => initiateRequest(post, 'share')}
-                                                    className="w-full py-3 bg-[#FACC15] text-black font-bold rounded-xl hover:bg-[#EAB308] transition-colors"
-                                                >
-                                                    Request Ride
-                                                </button>
-                                            </div>
-                                        ))
-                                    ) : (
-                                        <div className="col-span-full text-center py-10 text-gray-500">No ride share listings found.</div>
-                                    )
-                                ) : (
-                                    filteredHireListings.length > 0 ? (
-                                        filteredHireListings.map(post => (
-                                            <div key={post.id} className="bg-[#1E1E1E] rounded-3xl p-6 border border-[#2A2A2A] hover:border-[#FACC15]/50 transition-all group">
-                                                <div className="flex justify-between items-start mb-4">
-                                                    <div>
-                                                        <div className="text-xs text-[#FACC15] font-bold uppercase tracking-wider mb-1">{post.category}</div>
-                                                        <h3 className="text-lg font-bold text-white leading-tight">{post.title}</h3>
-                                                    </div>
-                                                    <div className="w-8 h-8 bg-[#252525] rounded-full flex items-center justify-center text-gray-400">
-                                                        <BriefcaseIcon className="w-4 h-4" />
-                                                    </div>
-                                                </div>
-
-                                                <div className="space-y-2 mb-6 text-sm">
-                                                    <div className="flex justify-between border-b border-[#333] pb-2">
-                                                        <span className="text-gray-500">Location</span>
-                                                        <span className="text-white">{post.location}</span>
-                                                    </div>
-                                                    <div className="flex justify-between border-b border-[#333] pb-2">
-                                                        <span className="text-gray-500">Rate</span>
-                                                        <span className="text-white font-bold">{post.rate}</span>
-                                                    </div>
-                                                    <div className="flex justify-between pt-1">
-                                                        <span className="text-gray-500">Driver</span>
-                                                        <span className="text-white">{post.driverName} ({post.driverRating}★)</span>
-                                                    </div>
-                                                </div>
-
-                                                <button
-                                                    onClick={() => initiateRequest(post, 'hire')}
-                                                    className="w-full py-3 bg-[#252525] text-white border border-[#333] font-bold rounded-xl hover:bg-[#FACC15] hover:text-black hover:border-[#FACC15] transition-all"
-                                                >
-                                                    Request Hire
-                                                </button>
-                                            </div>
-                                        ))
-                                    ) : (
-                                        <div className="col-span-full text-center py-10 text-gray-500">No vehicle listings found.</div>
-                                    )
-                                )}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* --- FINANCIALS TAB (REVENUE/SPENDING) --- */}
-                    {activeTab === 'financials' && (
-                        <div className="max-w-6xl mx-auto animate-fadeIn space-y-8">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                <div className="bg-[#1E1E1E] p-6 rounded-3xl border border-[#2A2A2A] flex flex-col justify-between h-40">
-                                    <h3 className="text-gray-400 text-sm font-medium">Total Spent</h3>
-                                    <div className="text-3xl font-bold text-white">MWK {stats.totalSpend.toLocaleString()}</div>
-                                    <div className="text-xs text-green-400">+12% vs last month</div>
-                                </div>
-                                <div className="bg-[#1E1E1E] p-6 rounded-3xl border border-[#2A2A2A] flex flex-col justify-between h-40">
-                                    <h3 className="text-gray-400 text-sm font-medium">Avg. Ride Cost</h3>
-                                    <div className="text-3xl font-bold text-white">MWK 18,350</div>
-                                    <div className="text-xs text-gray-500">Based on 24 rides</div>
-                                </div>
-                                <div className="bg-[#1E1E1E] p-6 rounded-3xl border border-[#2A2A2A] flex flex-col justify-between h-40">
-                                    <h3 className="text-gray-400 text-sm font-medium">Payment Methods</h3>
-                                    <div className="flex gap-2 mt-2">
-                                        <div className="w-10 h-6 bg-white rounded flex items-center justify-center"><span className="text-blue-600 font-bold text-[8px]">VISA</span></div>
-                                        <div className="w-10 h-6 bg-red-600 rounded flex items-center justify-center"><span className="text-white font-bold text-[8px]">AIRTEL</span></div>
-                                    </div>
-                                    <div className="text-xs text-gray-500 mt-auto">2 Active Methods</div>
-                                </div>
-                            </div>
-
-                            <div className="bg-[#1E1E1E] rounded-3xl p-8 border border-[#2A2A2A]">
-                                <h3 className="text-lg font-bold text-white mb-6">Recent Transactions</h3>
-                                <div className="overflow-hidden rounded-xl border border-[#333]">
-                                    <table className="w-full text-left text-sm text-gray-400">
-                                        <thead className="bg-[#252525] text-gray-200 uppercase text-xs font-bold">
-                                            <tr>
-                                                <th className="px-6 py-3">Date</th>
-                                                <th className="px-6 py-3">Description</th>
-                                                <th className="px-6 py-3">Payment Method</th>
-                                                <th className="px-6 py-3 text-right">Amount</th>
-                                                <th className="px-6 py-3 text-center">Status</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-[#333]">
-                                            {[
-                                                { date: 'Oct 26, 2023', desc: 'Ride Share to Lilongwe', method: 'Airtel Money', amount: 25000, status: 'Completed' },
-                                                { date: 'Oct 24, 2023', desc: 'City Commute', method: 'Cash (Physical)', amount: 5000, status: 'Completed' },
-                                                { date: 'Oct 20, 2023', desc: 'Cancelled Ride Fee', method: 'Mpamba', amount: 2500, status: 'Refunded' },
-                                                { date: 'Oct 18, 2023', desc: 'Vehicle Hire Deposit', method: 'Bank Transfer', amount: 150000, status: 'Pending' },
-                                            ].map((tx, i) => (
-                                                <tr key={i} className="hover:bg-[#252525] transition-colors">
-                                                    <td className="px-6 py-4 whitespace-nowrap">{tx.date}</td>
-                                                    <td className="px-6 py-4 font-medium text-white">{tx.desc}</td>
-                                                    <td className="px-6 py-4 flex items-center gap-2">
-                                                        {tx.method.includes('Airtel') && <div className="w-2 h-2 rounded-full bg-red-500"></div>}
-                                                        {tx.method.includes('Mpamba') && <div className="w-2 h-2 rounded-full bg-green-500"></div>}
-                                                        {tx.method.includes('Bank') && <div className="w-2 h-2 rounded-full bg-blue-500"></div>}
-                                                        {tx.method.includes('Cash') && <div className="w-2 h-2 rounded-full bg-yellow-500"></div>}
-                                                        {tx.method}
-                                                    </td>
-                                                    <td className="px-6 py-4 text-right font-bold text-white">MWK {tx.amount.toLocaleString()}</td>
-                                                    <td className="px-6 py-4 text-center">
-                                                        <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${tx.status === 'Completed' ? 'bg-green-500/20 text-green-400' :
-                                                            tx.status === 'Pending' ? 'bg-yellow-500/20 text-yellow-400' :
-                                                                'bg-gray-500/20 text-gray-400'
-                                                            }`}>{tx.status}</span>
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* --- TRIPS TAB (HISTORY) --- */}
-                    {activeTab === 'trips' && (
-                        <div className="max-w-4xl mx-auto animate-fadeIn">
-
-                            {/* Active Trips Link / Teaser */}
-                            {activeTrips.length > 0 && (
-                                <button
-                                    onClick={() => setActiveTab('active-trip')}
-                                    className="w-full mb-8 bg-gradient-to-r from-[#1E1E1E] to-[#252525] border border-[#FACC15]/30 rounded-2xl p-6 shadow-[0_0_20px_rgba(250,204,21,0.05)] hover:border-[#FACC15] transition-all group text-left"
-                                >
-                                    <div className="flex justify-between items-center">
-                                        <div>
-                                            <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                                                <span className="relative flex h-3 w-3">
-                                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#FACC15] opacity-75"></span>
-                                                    <span className="relative inline-flex rounded-full h-3 w-3 bg-[#FACC15]"></span>
-                                                </span>
-                                                Go to Active Trip
-                                            </h3>
-                                            <p className="text-sm text-gray-400 mt-1">You have {activeTrips.length} trip(s) in progress or pending.</p>
-                                        </div>
-                                        <div className="bg-[#FACC15] p-2 rounded-full text-black group-hover:scale-110 transition-transform">
-                                            <NavigationIcon className="w-5 h-5" />
+                    {
+                        activeTab === 'messages' && (
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-10rem)] animate-fadeIn">
+                                {/* Left Column: Conversation List */}
+                                <div className="bg-[#1E1E1E] rounded-3xl border border-[#2A2A2A] overflow-hidden flex flex-col">
+                                    <div className="p-4 border-b border-[#333]">
+                                        <div className="relative">
+                                            <input
+                                                type="text"
+                                                placeholder="Search messages..."
+                                                className="w-full bg-[#252525] border border-[#333] rounded-xl pl-10 pr-4 py-2 text-sm text-white outline-none focus:border-[#FACC15]"
+                                            />
+                                            <SearchIcon className="w-4 h-4 text-gray-500 absolute left-3 top-2.5" />
                                         </div>
                                     </div>
-                                </button>
-                            )}
-
-                            {/* Past History Section */}
-                            <h2 className="text-xl font-bold text-white mb-6">Trip History</h2>
-                            {pastTrips.length === 0 ? (
-                                <div className="text-center py-10 text-gray-500">No past trips found.</div>
-                            ) : (
-                                <div className="space-y-4">
-                                    {pastTrips.map(trip => (
-                                        <div key={trip.id} className="bg-[#1E1E1E] border border-[#2A2A2A] rounded-2xl p-6 hover:border-[#FACC15]/30 transition-colors">
-                                            <div className="flex flex-col md:flex-row justify-between gap-6">
-                                                <div className="flex-1">
-                                                    <div className="flex justify-between items-start mb-4">
-                                                        <div className="flex items-center gap-2 text-gray-400 text-xs font-bold uppercase tracking-wider">
-                                                            <span>{trip.date}</span>
-                                                            <span>•</span>
-                                                            <span>{trip.time}</span>
-                                                        </div>
-                                                        <div className={`text-xs font-bold px-2 py-0.5 rounded ${trip.status === 'Completed' ? 'bg-green-900/30 text-green-400' : 'bg-gray-800 text-gray-400'}`}>
-                                                            {trip.status}
-                                                        </div>
+                                    <div className="flex-1 overflow-y-auto no-scrollbar">
+                                        {conversations.map(chat => (
+                                            <div
+                                                key={chat.id}
+                                                onClick={() => setActiveChatId(chat.id)}
+                                                className={`p-4 border-b border-[#333] cursor-pointer hover:bg-[#252525] transition-colors ${activeChatId === chat.id ? 'bg-[#252525] border-l-4 border-l-[#FACC15]' : ''}`}
+                                            >
+                                                <div className="flex items-center gap-3">
+                                                    <div className="relative">
+                                                        <img src={chat.avatar} alt={chat.name} className="w-10 h-10 rounded-full object-cover" />
+                                                        {chat.status === 'online' && <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-[#1E1E1E]"></span>}
                                                     </div>
-
-                                                    <div className="relative pl-4 border-l-2 border-[#333] space-y-6 ml-1">
-                                                        <div className="relative">
-                                                            <div className="absolute -left-[21px] top-1 w-3 h-3 bg-gray-600 rounded-full border-2 border-[#1E1E1E]"></div>
-                                                            <div className="text-white font-bold">{trip.origin}</div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex justify-between items-baseline mb-1">
+                                                            <h4 className={`text-sm font-bold truncate ${activeChatId === chat.id ? 'text-white' : 'text-gray-300'}`}>{chat.name}</h4>
+                                                            <span className="text-[10px] text-gray-500">{chat.time}</span>
                                                         </div>
-                                                        <div className="relative">
-                                                            <div className="absolute -left-[21px] top-1 w-3 h-3 bg-[#FACC15] rounded-full border-2 border-[#1E1E1E]"></div>
-                                                            <div className="text-white font-bold">{trip.destination}</div>
-                                                        </div>
+                                                        <p className="text-xs text-gray-400 truncate">{chat.lastMessage}</p>
                                                     </div>
-                                                </div>
-
-                                                <div className="md:w-48 flex flex-col justify-between border-t md:border-t-0 md:border-l border-[#333] pt-4 md:pt-0 md:pl-6">
-                                                    <div className="flex items-center gap-3 mb-4 md:mb-0">
-                                                        <img
-                                                            src={`https://ui-avatars.com/api/?name=${trip.driver}&background=random`}
-                                                            alt={trip.driver}
-                                                            className="w-10 h-10 rounded-full border border-[#333]"
-                                                        />
-                                                        <div>
-                                                            <div className="text-sm font-bold text-white">{trip.driver}</div>
-                                                            <div className="flex items-center text-[#FACC15] text-xs">
-                                                                {Array.from({ length: trip.rating || 0 }).map((_, i) => <span key={i}>★</span>)}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="text-right">
-                                                        <div className="text-gray-500 text-xs">Total Fare</div>
-                                                        <div className="text-2xl font-bold text-white">MWK {trip.price.toLocaleString()}</div>
-                                                    </div>
-
-                                                    {trip.status === 'Completed' && !trip.rating && (
-                                                        <button
-                                                            onClick={() => openRatingModal(trip)}
-                                                            className="mt-2 w-full py-1.5 bg-[#252525] text-[#FACC15] text-xs font-bold rounded-lg border border-[#333] hover:bg-[#333] transition-colors"
-                                                        >
-                                                            Rate Driver
-                                                        </button>
+                                                    {chat.unread > 0 && (
+                                                        <span className="bg-[#FACC15] text-black text-[10px] font-bold px-1.5 py-0.5 rounded-full">{chat.unread}</span>
                                                     )}
                                                 </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        ))}
+                                    </div>
                                 </div>
-                            )}
-                        </div>
-                    )}
+
+                                {/* Right Column: Chat Window */}
+                                <div className="lg:col-span-2 bg-[#1E1E1E] rounded-3xl border border-[#2A2A2A] overflow-hidden flex flex-col">
+                                    {activeChat ? (
+                                        <>
+                                            <div className="p-4 border-b border-[#333] flex justify-between items-center bg-[#252525]">
+                                                <div className="flex items-center gap-3">
+                                                    <img src={activeChat.avatar} alt={activeChat.name} className="w-10 h-10 rounded-full" />
+                                                    <div>
+                                                        <h3 className="text-white font-bold text-sm">{activeChat.name}</h3>
+                                                        <div className="flex items-center gap-1 text-xs text-gray-400">
+                                                            <span className={`w-1.5 h-1.5 rounded-full ${activeChat.status === 'online' ? 'bg-green-500' : 'bg-gray-500'}`}></span>
+                                                            {activeChat.status === 'online' ? 'Online' : 'Offline'}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[#1E1E1E]">
+                                                {activeChat.messages.map(msg => (
+                                                    <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                                        <div className={`max-w-[75%] p-3 rounded-2xl text-sm ${msg.sender === 'user' ? 'bg-[#FACC15] text-black rounded-tr-none' : 'bg-[#2A2A2A] text-gray-200 rounded-tl-none'}`}>
+                                                            <p>{msg.text}</p>
+                                                            <p className={`text-[10px] mt-1 text-right ${msg.sender === 'user' ? 'text-black/60' : 'text-gray-500'}`}>{msg.timestamp}</p>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+
+                                            <div className="p-4 border-t border-[#333] bg-[#252525]">
+                                                <form onSubmit={handleSendMessage} className="flex gap-2">
+                                                    <input
+                                                        type="text"
+                                                        value={messageInput}
+                                                        onChange={(e) => setMessageInput(e.target.value)}
+                                                        placeholder="Type a message..."
+                                                        className="flex-1 bg-[#1E1E1E] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]"
+                                                    />
+                                                    <button
+                                                        type="submit"
+                                                        disabled={!messageInput.trim()}
+                                                        className="p-3 bg-[#FACC15] text-black rounded-xl hover:bg-[#EAB308] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                                    >
+                                                        <SendIcon className="w-5 h-5" />
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <div className="flex-1 flex flex-col items-center justify-center text-gray-500">
+                                            <ChatBubbleIcon className="w-16 h-16 opacity-20 mb-4" />
+                                            <p>Select a conversation to start messaging</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )
+                    }
+
+                    {/* --- FINANCIALS TAB (REVENUE/SPENDING) --- */}
+                    {
+                        activeTab === 'financials' && (
+                            <div className="max-w-6xl mx-auto animate-fadeIn space-y-8">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                    <div className="bg-[#1E1E1E] p-6 rounded-3xl border border-[#2A2A2A] flex flex-col justify-between h-40">
+                                        <h3 className="text-gray-400 text-sm font-medium">Total Spent</h3>
+                                        <div className="text-3xl font-bold text-white">MWK {(stats?.totalSpend ?? 0).toLocaleString()}</div>
+                                        <div className="text-xs text-green-400">+12% vs last month</div>
+                                    </div>
+                                    <div className="bg-[#1E1E1E] p-6 rounded-3xl border border-[#2A2A2A] flex flex-col justify-between h-40">
+                                        <h3 className="text-gray-400 text-sm font-medium">Avg. Ride Cost</h3>
+                                        <div className="text-3xl font-bold text-white">MWK 18,350</div>
+                                        <div className="text-xs text-gray-500">Based on 24 rides</div>
+                                    </div>
+                                    <div className="bg-[#1E1E1E] p-6 rounded-3xl border border-[#2A2A2A] flex flex-col justify-between h-40">
+                                        <h3 className="text-gray-400 text-sm font-medium">Payment Methods</h3>
+                                        <div className="flex gap-2 mt-2">
+                                            <div className="w-10 h-6 bg-white rounded flex items-center justify-center"><span className="text-blue-600 font-bold text-[8px]">VISA</span></div>
+                                            <div className="w-10 h-6 bg-red-600 rounded flex items-center justify-center"><span className="text-white font-bold text-[8px]">AIRTEL</span></div>
+                                        </div>
+                                        <div className="text-xs text-gray-500 mt-auto">2 Active Methods</div>
+                                    </div>
+                                </div>
+
+                                <div className="bg-[#1E1E1E] rounded-3xl p-8 border border-[#2A2A2A]">
+                                    <h3 className="text-lg font-bold text-white mb-6">Recent Transactions</h3>
+                                    <div className="overflow-hidden rounded-xl border border-[#333]">
+                                        <table className="w-full text-left text-sm text-gray-400">
+                                            <thead className="bg-[#252525] text-gray-200 uppercase text-xs font-bold">
+                                                <tr>
+                                                    <th className="px-6 py-3">Date</th>
+                                                    <th className="px-6 py-3">Description</th>
+                                                    <th className="px-6 py-3">Payment Method</th>
+                                                    <th className="px-6 py-3 text-right">Amount</th>
+                                                    <th className="px-6 py-3 text-center">Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-[#333]">
+                                                {[
+                                                    { date: 'Oct 26, 2023', desc: 'Ride Share to Lilongwe', method: 'Airtel Money', amount: 25000, status: 'Completed' },
+                                                    { date: 'Oct 24, 2023', desc: 'City Commute', method: 'Cash (Physical)', amount: 5000, status: 'Completed' },
+                                                    { date: 'Oct 20, 2023', desc: 'Cancelled Ride Fee', method: 'Mpamba', amount: 2500, status: 'Refunded' },
+                                                    { date: 'Oct 18, 2023', desc: 'Vehicle Hire Deposit', method: 'Bank Transfer', amount: 150000, status: 'Pending' },
+                                                ].map((tx, i) => (
+                                                    <tr key={i} className="hover:bg-[#252525] transition-colors">
+                                                        <td className="px-6 py-4 whitespace-nowrap">{tx.date}</td>
+                                                        <td className="px-6 py-4 font-medium text-white">{tx.desc}</td>
+                                                        <td className="px-6 py-4 flex items-center gap-2">
+                                                            {tx.method.includes('Airtel') && <div className="w-2 h-2 rounded-full bg-red-500"></div>}
+                                                            {tx.method.includes('Mpamba') && <div className="w-2 h-2 rounded-full bg-green-500"></div>}
+                                                            {tx.method.includes('Bank') && <div className="w-2 h-2 rounded-full bg-blue-500"></div>}
+                                                            {tx.method.includes('Cash') && <div className="w-2 h-2 rounded-full bg-yellow-500"></div>}
+                                                            {tx.method}
+                                                        </td>
+                                                        <td className="px-6 py-4 text-right font-bold text-white">MWK {(tx.amount ?? 0).toLocaleString()}</td>
+                                                        <td className="px-6 py-4 text-center">
+                                                            <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${tx.status === 'Completed' ? 'bg-green-500/20 text-green-400' :
+                                                                tx.status === 'Pending' ? 'bg-yellow-500/20 text-yellow-400' :
+                                                                    'bg-gray-500/20 text-gray-400'
+                                                                }`}>{tx.status}</span>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        )
+                    }
+
+                    {/* --- TRIPS TAB (HISTORY) --- */}
+                    {
+                        activeTab === 'trips' && (
+                            <div className="max-w-4xl mx-auto animate-fadeIn">
+
+                                {/* Active Trips Link / Teaser */}
+                                {activeTrips.length > 0 && (
+                                    <button
+                                        onClick={() => setActiveTab('active-trip')}
+                                        className="w-full mb-8 bg-gradient-to-r from-[#1E1E1E] to-[#252525] border border-[#FACC15]/30 rounded-2xl p-6 shadow-[0_0_20px_rgba(250,204,21,0.05)] hover:border-[#FACC15] transition-all group text-left"
+                                    >
+                                        <div className="flex justify-between items-center">
+                                            <div>
+                                                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                                                    <span className="relative flex h-3 w-3">
+                                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#FACC15] opacity-75"></span>
+                                                        <span className="relative inline-flex rounded-full h-3 w-3 bg-[#FACC15]"></span>
+                                                    </span>
+                                                    Go to Active Trip
+                                                </h3>
+                                                <p className="text-sm text-gray-400 mt-1">You have {activeTrips.length} trip(s) in progress or pending.</p>
+                                            </div>
+                                            <div className="bg-[#FACC15] p-2 rounded-full text-black group-hover:scale-110 transition-transform">
+                                                <NavigationIcon className="w-5 h-5" />
+                                            </div>
+                                        </div>
+                                    </button>
+                                )}
+
+                                {/* Past History Section */}
+                                <h2 className="text-xl font-bold text-white mb-6">Trip History</h2>
+                                {pastTrips.length === 0 ? (
+                                    <div className="text-center py-10 text-gray-500">No past trips found.</div>
+                                ) : (
+                                    <div className="space-y-4">
+                                        {pastTrips.map(trip => (
+                                            <div key={trip.id} className="bg-[#1E1E1E] border border-[#2A2A2A] rounded-2xl p-6 hover:border-[#FACC15]/30 transition-colors">
+                                                <div className="flex flex-col md:flex-row justify-between gap-6">
+                                                    <div className="flex-1">
+                                                        <div className="flex justify-between items-start mb-4">
+                                                            <div className="flex items-center gap-2 text-gray-400 text-xs font-bold uppercase tracking-wider">
+                                                                <span>{trip.date}</span>
+                                                                <span>•</span>
+                                                                <span>{trip.time}</span>
+                                                            </div>
+                                                            <div className={`text-xs font-bold px-2 py-0.5 rounded ${trip.status === 'Completed' ? 'bg-green-900/30 text-green-400' : 'bg-gray-800 text-gray-400'}`}>
+                                                                {trip.status}
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="relative pl-4 border-l-2 border-[#333] space-y-6 ml-1">
+                                                            <div className="relative">
+                                                                <div className="absolute -left-[21px] top-1 w-3 h-3 bg-gray-600 rounded-full border-2 border-[#1E1E1E]"></div>
+                                                                <div className="text-white font-bold">{trip.origin}</div>
+                                                            </div>
+                                                            <div className="relative">
+                                                                <div className="absolute -left-[21px] top-1 w-3 h-3 bg-[#FACC15] rounded-full border-2 border-[#1E1E1E]"></div>
+                                                                <div className="text-white font-bold">{trip.destination}</div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="md:w-48 flex flex-col justify-between border-t md:border-t-0 md:border-l border-[#333] pt-4 md:pt-0 md:pl-6">
+                                                        <div className="flex items-center gap-3 mb-4 md:mb-0">
+                                                            <img
+                                                                src={`https://ui-avatars.com/api/?name=${trip.driver}&background=random`}
+                                                                alt={trip.driver}
+                                                                className="w-10 h-10 rounded-full border border-[#333]"
+                                                            />
+                                                            <div>
+                                                                <div className="text-sm font-bold text-white">{trip.driver}</div>
+                                                                <div className="flex items-center text-[#FACC15] text-xs">
+                                                                    {Array.from({ length: trip.rating || 0 }).map((_, i) => <span key={i}>★</span>)}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="text-right">
+                                                            <div className="text-gray-500 text-xs">Total Fare</div>
+                                                            <div className="text-2xl font-bold text-white">MWK {(trip.price ?? 0).toLocaleString()}</div>
+                                                        </div>
+
+                                                        {trip.status === 'Completed' && !trip.rating && (
+                                                            <button
+                                                                onClick={() => openRatingModal(trip)}
+                                                                className="mt-2 w-full py-1.5 bg-[#252525] text-[#FACC15] text-xs font-bold rounded-lg border border-[#333] hover:bg-[#333] transition-colors"
+                                                            >
+                                                                Rate Driver
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )
+                    }
 
                     {/* --- DISTANCE TAB --- */}
-                    {activeTab === 'distance' && (
-                        <div className="max-w-6xl mx-auto animate-fadeIn space-y-8">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                <div className="bg-[#1E1E1E] p-6 rounded-3xl border border-[#2A2A2A] flex flex-col items-start">
-                                    <h3 className="text-gray-400 text-sm font-medium mb-2">Total Distance</h3>
-                                    <div className="text-4xl font-bold text-white">{stats.totalDistance} <span className="text-lg text-[#FACC15]">km</span></div>
+                    {
+                        activeTab === 'distance' && (
+                            <div className="max-w-6xl mx-auto animate-fadeIn space-y-8">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                    <div className="bg-[#1E1E1E] p-6 rounded-3xl border border-[#2A2A2A] flex flex-col items-start">
+                                        <h3 className="text-gray-400 text-sm font-medium mb-2">Total Distance</h3>
+                                        <div className="text-4xl font-bold text-white">{stats.totalDistance} <span className="text-lg text-[#FACC15]">km</span></div>
+                                    </div>
+                                    <div className="bg-[#1E1E1E] p-6 rounded-3xl border border-[#2A2A2A] flex flex-col items-start">
+                                        <h3 className="text-gray-400 text-sm font-medium mb-2">This Month</h3>
+                                        <div className="text-4xl font-bold text-white">124 <span className="text-lg text-gray-500">km</span></div>
+                                    </div>
+                                    <div className="bg-[#1E1E1E] p-6 rounded-3xl border border-[#2A2A2A] flex flex-col items-start">
+                                        <h3 className="text-gray-400 text-sm font-medium mb-2">Avg. Trip</h3>
+                                        <div className="text-4xl font-bold text-white">14.2 <span className="text-lg text-gray-500">km</span></div>
+                                    </div>
                                 </div>
-                                <div className="bg-[#1E1E1E] p-6 rounded-3xl border border-[#2A2A2A] flex flex-col items-start">
-                                    <h3 className="text-gray-400 text-sm font-medium mb-2">This Month</h3>
-                                    <div className="text-4xl font-bold text-white">124 <span className="text-lg text-gray-500">km</span></div>
-                                </div>
-                                <div className="bg-[#1E1E1E] p-6 rounded-3xl border border-[#2A2A2A] flex flex-col items-start">
-                                    <h3 className="text-gray-400 text-sm font-medium mb-2">Avg. Trip</h3>
-                                    <div className="text-4xl font-bold text-white">14.2 <span className="text-lg text-gray-500">km</span></div>
-                                </div>
-                            </div>
 
-                            <div className="bg-[#1E1E1E] rounded-3xl p-8 border border-[#2A2A2A]">
-                                <h3 className="text-lg font-bold text-white mb-6">Distance Traveled History (km)</h3>
-                                <div className="h-80 w-full">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <AreaChart data={stats.chartData.map((d: any) => ({ ...d, value: d.value * 1.5 }))}> {/* Mock scaling for distance demo */}
-                                            <defs>
-                                                <linearGradient id="colorDistance" x1="0" y1="0" x2="0" y2="1">
-                                                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
-                                                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                                                </linearGradient>
-                                            </defs>
-                                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#333" opacity={0.5} />
-                                            <XAxis dataKey="name" stroke="#666" fontSize={12} tickLine={false} axisLine={false} />
-                                            <YAxis stroke="#666" fontSize={12} tickLine={false} axisLine={false} />
-                                            <Tooltip
-                                                contentStyle={{ backgroundColor: '#1E1E1E', borderColor: '#333', borderRadius: '8px', color: '#fff' }}
-                                                cursor={{ stroke: '#333' }}
-                                                formatter={(value: any) => [`${value} km`, 'Distance']}
-                                            />
-                                            <Area type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorDistance)" name="Distance" />
-                                        </AreaChart>
-                                    </ResponsiveContainer>
+                                <div className="bg-[#1E1E1E] rounded-3xl p-8 border border-[#2A2A2A]">
+                                    <h3 className="text-lg font-bold text-white mb-6">Distance Traveled History (km)</h3>
+                                    <div className="h-80 w-full">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <AreaChart data={stats.chartData.map((d: any) => ({ ...d, value: d.value * 1.5 }))}> {/* Mock scaling for distance demo */}
+                                                <defs>
+                                                    <linearGradient id="colorDistance" x1="0" y1="0" x2="0" y2="1">
+                                                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+                                                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                                                    </linearGradient>
+                                                </defs>
+                                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#333" opacity={0.5} />
+                                                <XAxis dataKey="name" stroke="#666" fontSize={12} tickLine={false} axisLine={false} />
+                                                <YAxis stroke="#666" fontSize={12} tickLine={false} axisLine={false} />
+                                                <Tooltip
+                                                    contentStyle={{ backgroundColor: '#1E1E1E', borderColor: '#333', borderRadius: '8px', color: '#fff' }}
+                                                    cursor={{ stroke: '#333' }}
+                                                    formatter={(value: any) => [`${value} km`, 'Distance']}
+                                                />
+                                                <Area type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorDistance)" name="Distance" />
+                                            </AreaChart>
+                                        </ResponsiveContainer>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    )}
+                        )
+                    }
                 </div>
             </main>
 
+
             {/* REQUEST MODAL (NO PAYMENT) */}
-            {isRequestModalOpen && (
-                <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center p-4 animate-fadeIn" onClick={() => setIsRequestModalOpen(false)}>
-                    <div className="bg-[#1E1E1E] rounded-3xl max-w-md w-full border border-[#333] shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+            {
+                isRequestModalOpen && (
+                    <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center p-4 animate-fadeIn" onClick={() => setIsRequestModalOpen(false)}>
+                        <div className="bg-[#1E1E1E] rounded-3xl max-w-md w-full border border-[#333] shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
 
-                        {requestStep === 'success' ? (
-                            <div className="p-8 flex flex-col items-center justify-center text-center h-80">
-                                <div className="w-20 h-20 bg-[#FACC15]/20 rounded-full flex items-center justify-center mb-6 animate-pulse">
-                                    <CheckCircleIcon className="w-10 h-10 text-[#FACC15]" />
+                            {requestStep === 'success' ? (
+                                <div className="p-8 flex flex-col items-center justify-center text-center h-80">
+                                    <div className="w-20 h-20 bg-[#FACC15]/20 rounded-full flex items-center justify-center mb-6 animate-pulse">
+                                        <CheckCircleIcon className="w-10 h-10 text-[#FACC15]" />
+                                    </div>
+                                    <h2 className="text-2xl font-bold text-white mb-2">{bookingMode === 'negotiate' ? 'Offer Sent!' : 'Request Sent!'}</h2>
+                                    <p className="text-gray-400">
+                                        {bookingMode === 'negotiate'
+                                            ? 'Your offer has been sent to the driver for approval.'
+                                            : 'Your booking request has been sent to the driver.'}
+                                    </p>
+                                    <p className="text-sm text-gray-500 mt-4">
+                                        <span className="block text-orange-400 font-bold mb-1">Pending Driver Approval</span>
+                                        Check "Active Trip" for live status updates.
+                                    </p>
                                 </div>
-                                <h2 className="text-2xl font-bold text-white mb-2">{bookingMode === 'negotiate' ? 'Offer Sent!' : 'Request Sent!'}</h2>
-                                <p className="text-gray-400">
-                                    {bookingMode === 'negotiate'
-                                        ? 'Your offer has been sent to the driver for approval.'
-                                        : 'Your booking request has been sent to the driver.'}
-                                </p>
-                                <p className="text-sm text-gray-500 mt-4">
-                                    <span className="block text-orange-400 font-bold mb-1">Pending Driver Approval</span>
-                                    Check "Active Trip" for live status updates.
-                                </p>
-                            </div>
-                        ) : (
-                            <>
-                                <div className="p-6 border-b border-[#333] flex justify-between items-center bg-[#252525]">
-                                    <h3 className="text-xl font-bold text-white">Review & Request</h3>
-                                    <button onClick={() => setIsRequestModalOpen(false)} className="text-gray-400 hover:text-white">
-                                        <CloseIcon className="w-6 h-6" />
-                                    </button>
-                                </div>
+                            ) : (
+                                <>
+                                    <div className="p-6 border-b border-[#333] flex justify-between items-center bg-[#252525]">
+                                        <h3 className="text-xl font-bold text-white">Review & Request</h3>
+                                        <button onClick={() => setIsRequestModalOpen(false)} className="text-gray-400 hover:text-white">
+                                            <CloseIcon className="w-6 h-6" />
+                                        </button>
+                                    </div>
 
-                                <div className="p-6">
-                                    {selectedBooking && (
-                                        <div className="space-y-6">
-                                            <div className="bg-[#121212] p-4 rounded-xl border border-[#333]">
-                                                <div className="text-xs text-[#FACC15] font-bold uppercase mb-2">Itinerary</div>
-                                                {bookingType === 'share' ? (
-                                                    <div className="flex items-center gap-3 text-sm text-gray-300">
-                                                        <span className="font-bold text-white">{selectedBooking.origin}</span>
-                                                        <span className="text-gray-600">→</span>
-                                                        <span className="font-bold text-white">{selectedBooking.destination}</span>
-                                                    </div>
-                                                ) : (
-                                                    <div className="font-bold text-white">{selectedBooking.title}</div>
-                                                )}
-                                                <div className="mt-2 text-xs text-gray-500">
-                                                    {bookingType === 'share' ? `${selectedBooking.date} at ${selectedBooking.time}` : `Category: ${selectedBooking.category}`}
-                                                </div>
-                                            </div>
-
-                                            <div className="bg-[#252525] p-1 rounded-xl flex border border-[#333]">
-                                                <button
-                                                    onClick={() => setBookingMode('fixed')}
-                                                    className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${bookingMode === 'fixed' ? 'bg-[#FACC15] text-black' : 'text-gray-400 hover:text-white'}`}
-                                                >
-                                                    Listed Price
-                                                </button>
-                                                <button
-                                                    onClick={() => setBookingMode('negotiate')}
-                                                    className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${bookingMode === 'negotiate' ? 'bg-[#FACC15] text-black' : 'text-gray-400 hover:text-white'}`}
-                                                >
-                                                    Negotiate Offer
-                                                </button>
-                                            </div>
-
-                                            <div className="flex justify-between items-center py-2 border-b border-[#333]">
-                                                <span className="text-gray-400">
-                                                    {bookingMode === 'fixed' ? 'Base Price' : 'Your Offer (MWK)'}
-                                                </span>
-                                                {bookingMode === 'fixed' ? (
-                                                    <span className="text-white font-bold">
-                                                        {bookingType === 'share' ? `MWK ${selectedBooking.price.toLocaleString()}` : selectedBooking.rate}
-                                                    </span>
-                                                ) : (
-                                                    <div className="flex items-center bg-[#121212] border border-[#333] rounded-lg px-2 w-32 focus-within:border-[#FACC15]">
-                                                        <span className="text-[#FACC15] text-xs mr-1">MWK</span>
-                                                        <input
-                                                            type="number"
-                                                            value={offerPrice}
-                                                            onChange={(e) => setOfferPrice(e.target.value)}
-                                                            className="bg-transparent text-white font-bold text-right w-full py-1 outline-none"
-                                                            placeholder="0.00"
-                                                        />
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            <div className="flex justify-between items-center pt-2">
-                                                <span className="text-lg font-bold text-white">Estimated Total</span>
-                                                <span className="text-2xl font-bold text-[#FACC15]">
-                                                    MWK {getCalculatedTotal().toLocaleString()}
-                                                </span>
-                                            </div>
-
-                                            <p className="text-xs text-gray-500 text-center mt-2">
-                                                Payment will be collected after the trip is completed.
-                                            </p>
-
-                                            <button
-                                                onClick={handleRequestSubmit}
-                                                className="w-full py-4 bg-[#FACC15] text-black font-bold rounded-xl hover:bg-[#EAB308] transition-all shadow-lg shadow-[#FACC15]/20 mt-4"
-                                            >
-                                                {bookingMode === 'negotiate' ? 'Send Offer' : 'Send Request'}
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
-                            </>
-                        )}
-                    </div>
-                </div>
-            )}
-
-            {/* PAYMENT MODAL (Post-Trip) */}
-            {isPaymentModalOpen && (
-                <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center p-4 animate-fadeIn" onClick={() => { }}>
-                    <div className="bg-[#1E1E1E] rounded-3xl max-w-md w-full border border-[#333] shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
-
-                        {paymentStep === 'processing' ? (
-                            <div className="p-8 flex flex-col items-center justify-center text-center h-96">
-                                <div className="w-20 h-20 border-4 border-[#252525] border-t-[#FACC15] rounded-full animate-spin mb-6"></div>
-                                <h2 className="text-xl font-bold text-white mb-2">Processing Secure Payment...</h2>
-                                <p className="text-gray-400 text-sm">
-                                    Please confirm the push request on your mobile device.
-                                </p>
-                                <div className="mt-6 bg-[#252525] px-4 py-2 rounded-lg text-xs text-[#FACC15] font-mono border border-[#FACC15]/20">
-                                    Waiting for Webhook Confirmation...
-                                </div>
-                            </div>
-                        ) : paymentStep === 'success' ? (
-                            <div className="p-8 flex flex-col items-center justify-center text-center h-96">
-                                <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center mb-6 animate-pulse">
-                                    <CheckCircleIcon className="w-10 h-10 text-green-500" />
-                                </div>
-                                <h2 className="text-2xl font-bold text-white mb-2">Payment Successful!</h2>
-                                <p className="text-gray-400">
-                                    Thank you for riding with Ridex.
-                                </p>
-                            </div>
-                        ) : (
-                            <>
-                                <div className="p-6 border-b border-[#333] bg-[#252525] text-center">
-                                    <h3 className="text-xl font-bold text-white">Secure Payment via PayChangu</h3>
-                                    <p className="text-sm text-gray-400 mt-1">Complete your trip payment</p>
-                                </div>
-
-                                <div className="p-6">
-                                    {/* Loading State */}
-                                    {isLoadingDriverDetails ? (
-                                        <div className="mb-6 bg-[#121212] p-6 rounded-xl border border-[#333] flex items-center justify-center">
-                                            <div className="w-6 h-6 border-2 border-[#252525] border-t-[#FACC15] rounded-full animate-spin mr-3"></div>
-                                            <span className="text-gray-400 text-sm">Loading driver details...</span>
-                                        </div>
-                                    ) : paymentError ? (
-                                        <div className="mb-6 bg-red-500/10 border border-red-500/30 p-4 rounded-xl">
-                                            <p className="text-red-400 text-sm">{paymentError}</p>
-                                        </div>
-                                    ) : driverPayoutDetails ? (
-                                        <div className="mb-6 bg-[#121212] p-4 rounded-xl border border-[#333]">
-                                            <div className="flex justify-between mb-3">
-                                                <span className="text-gray-500 text-xs uppercase font-bold">Recipient (Driver)</span>
-                                                <span className="text-xs text-[#FACC15] font-bold">{driverPayoutDetails.payoutMethod}</span>
-                                            </div>
-                                            <div className="flex items-center gap-3 mb-3">
-                                                <div className="w-10 h-10 bg-[#252525] rounded-full flex items-center justify-center">
-                                                    {driverPayoutDetails.payoutMethod === 'Bank' ? (
-                                                        <BankIcon className="w-5 h-5 text-blue-400" />
+                                    <div className="p-6">
+                                        {selectedBooking && (
+                                            <div className="space-y-6">
+                                                <div className="bg-[#121212] p-4 rounded-xl border border-[#333]">
+                                                    <div className="text-xs text-[#FACC15] font-bold uppercase mb-2">Itinerary</div>
+                                                    {bookingType === 'share' ? (
+                                                        <div className="flex items-center gap-3 text-sm text-gray-300">
+                                                            <span className="font-bold text-white">{selectedBooking.origin}</span>
+                                                            <span className="text-gray-600">→</span>
+                                                            <span className="font-bold text-white">{selectedBooking.destination}</span>
+                                                        </div>
                                                     ) : (
-                                                        <PhoneIcon className="w-5 h-5 text-[#FACC15]" />
+                                                        <div className="font-bold text-white">{selectedBooking.title}</div>
                                                     )}
+                                                    <div className="mt-2 text-xs text-gray-500">
+                                                        {bookingType === 'share' ? `${selectedBooking.date} at ${selectedBooking.time}` : `Category: ${selectedBooking.category}`}
+                                                    </div>
                                                 </div>
-                                                <div className="flex-1">
-                                                    <div className="text-white font-bold text-sm">{driverPayoutDetails.driverName}</div>
-                                                    {driverPayoutDetails.payoutMethod === 'Bank' ? (
-                                                        <>
-                                                            <div className="text-xs text-gray-400">{driverPayoutDetails.bankName}</div>
-                                                            <div className="text-xs text-[#FACC15] font-mono">
-                                                                {driverPayoutDetails.payoutAccountNumber}
-                                                            </div>
-                                                        </>
+
+                                                <div className="bg-[#252525] p-1 rounded-xl flex border border-[#333]">
+                                                    <button
+                                                        onClick={() => setBookingMode('fixed')}
+                                                        className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${bookingMode === 'fixed' ? 'bg-[#FACC15] text-black' : 'text-gray-400 hover:text-white'}`}
+                                                    >
+                                                        Listed Price
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setBookingMode('negotiate')}
+                                                        className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${bookingMode === 'negotiate' ? 'bg-[#FACC15] text-black' : 'text-gray-400 hover:text-white'}`}
+                                                    >
+                                                        Negotiate Offer
+                                                    </button>
+                                                </div>
+
+                                                <div className="flex justify-between items-center py-2 border-b border-[#333]">
+                                                    <span className="text-gray-400">
+                                                        {bookingMode === 'fixed' ? 'Base Price' : 'Your Offer (MWK)'}
+                                                    </span>
+                                                    {bookingMode === 'fixed' ? (
+                                                        <span className="text-white font-bold">
+                                                            {bookingType === 'share' ? `MWK ${(selectedBooking?.price ?? 0).toLocaleString()}` : selectedBooking?.rate}
+                                                        </span>
                                                     ) : (
-                                                        <div className="text-xs text-[#FACC15] font-mono">
-                                                            {driverPayoutDetails.payoutMobileNumber}
+                                                        <div className="flex items-center bg-[#121212] border border-[#333] rounded-lg px-2 w-32 focus-within:border-[#FACC15]">
+                                                            <span className="text-[#FACC15] text-xs mr-1">MWK</span>
+                                                            <input
+                                                                type="number"
+                                                                value={offerPrice}
+                                                                onChange={(e) => setOfferPrice(e.target.value)}
+                                                                className="bg-transparent text-white font-bold text-right w-full py-1 outline-none"
+                                                                placeholder="0.00"
+                                                            />
                                                         </div>
                                                     )}
                                                 </div>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="mb-6 bg-[#121212] p-4 rounded-xl border border-[#333]">
-                                            <div className="flex justify-between mb-2">
-                                                <span className="text-gray-500 text-xs uppercase font-bold">Recipient (Driver)</span>
-                                            </div>
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-8 h-8 bg-[#252525] rounded-full flex items-center justify-center">
-                                                    <UserIcon className="w-4 h-4 text-gray-400" />
-                                                </div>
-                                                <div>
-                                                    <div className="text-white font-bold text-sm">{currentActiveTrip?.driver || 'Unknown Driver'}</div>
-                                                    <div className="text-xs text-gray-500">Payout details not available</div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
 
-                                    <div className="mb-6 text-center">
-                                        <p className="text-gray-400 text-xs uppercase font-bold mb-1">Total Amount Due</p>
-                                        <p className="text-3xl font-bold text-[#FACC15]">MWK {currentActiveTrip ? currentActiveTrip.price.toLocaleString() : '0'}</p>
+                                                <div className="flex justify-between items-center pt-2">
+                                                    <span className="text-lg font-bold text-white">Estimated Total</span>
+                                                    <span className="text-2xl font-bold text-[#FACC15]">
+                                                        MWK {(getCalculatedTotal() ?? 0).toLocaleString()}
+                                                    </span>
+                                                </div>
+
+                                                <p className="text-xs text-gray-500 text-center mt-2">
+                                                    Payment will be collected after the trip is completed.
+                                                </p>
+
+                                                <button
+                                                    onClick={handleRequestSubmit}
+                                                    className="w-full py-4 bg-[#FACC15] text-black font-bold rounded-xl hover:bg-[#EAB308] transition-all shadow-lg shadow-[#FACC15]/20 mt-4"
+                                                >
+                                                    {bookingMode === 'negotiate' ? 'Send Offer' : 'Send Request'}
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                )
+            }
+
+            {/* PAYMENT MODAL (Post-Trip) */}
+            {
+                isPaymentModalOpen && (
+                    <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center p-4 animate-fadeIn" onClick={() => { }}>
+                        <div className="bg-[#1E1E1E] rounded-3xl max-w-md w-full border border-[#333] shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+
+                            {paymentStep === 'processing' ? (
+                                <div className="p-8 flex flex-col items-center justify-center text-center h-96">
+                                    <div className="w-20 h-20 border-4 border-[#252525] border-t-[#FACC15] rounded-full animate-spin mb-6"></div>
+                                    <h2 className="text-xl font-bold text-white mb-2">Processing Secure Payment...</h2>
+                                    <p className="text-gray-400 text-sm">
+                                        Please confirm the push request on your mobile device.
+                                    </p>
+                                    <div className="mt-6 bg-[#252525] px-4 py-2 rounded-lg text-xs text-[#FACC15] font-mono border border-[#FACC15]/20">
+                                        Waiting for Webhook Confirmation...
+                                    </div>
+                                </div>
+                            ) : paymentStep === 'success' ? (
+                                <div className="p-8 flex flex-col items-center justify-center text-center h-96">
+                                    <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center mb-6 animate-pulse">
+                                        <CheckCircleIcon className="w-10 h-10 text-green-500" />
+                                    </div>
+                                    <h2 className="text-2xl font-bold text-white mb-2">Payment Successful!</h2>
+                                    <p className="text-gray-400">
+                                        Thank you for riding with Ridex.
+                                    </p>
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="p-6 border-b border-[#333] bg-[#252525] text-center">
+                                        <h3 className="text-xl font-bold text-white">Secure Payment via PayChangu</h3>
+                                        <p className="text-sm text-gray-400 mt-1">Complete your trip payment</p>
                                     </div>
 
-                                    <div className="space-y-4">
-                                        {/* Mobile Money Option (Default) */}
-                                        <div className="p-4 rounded-xl border-2 border-[#FACC15] bg-[#FACC15]/5">
-                                            <div className="flex items-center gap-3 mb-4">
-                                                <div className="w-8 h-8 rounded-full bg-[#FACC15] flex items-center justify-center text-black">
-                                                    <PhoneIcon className="w-4 h-4" />
-                                                </div>
-                                                <div className="font-bold text-white">Mobile Money Checkout</div>
+                                    <div className="p-6">
+                                        {/* Loading State */}
+                                        {isLoadingDriverDetails ? (
+                                            <div className="mb-6 bg-[#121212] p-6 rounded-xl border border-[#333] flex items-center justify-center">
+                                                <div className="w-6 h-6 border-2 border-[#252525] border-t-[#FACC15] rounded-full animate-spin mr-3"></div>
+                                                <span className="text-gray-400 text-sm">Loading driver details...</span>
                                             </div>
-
-                                            <div className="space-y-3">
-                                                <div>
-                                                    <label className="text-xs text-gray-500 block mb-1">Select Network</label>
-                                                    <div className="flex gap-2">
-                                                        <button
-                                                            onClick={() => setMobileProvider('airtel')}
-                                                            className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${mobileProvider === 'airtel' ? 'bg-red-600 text-white border-red-600' : 'bg-[#121212] border-[#333] text-gray-500 hover:border-gray-500'}`}
-                                                        >
-                                                            Airtel Money
-                                                        </button>
-                                                        <button
-                                                            onClick={() => setMobileProvider('mpamba')}
-                                                            className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${mobileProvider === 'mpamba' ? 'bg-green-600 text-white border-green-600' : 'bg-[#121212] border-[#333] text-gray-500 hover:border-gray-500'}`}
-                                                        >
-                                                            Mpamba (TNM)
-                                                        </button>
+                                        ) : paymentError ? (
+                                            <div className="mb-6 bg-red-500/10 border border-red-500/30 p-4 rounded-xl">
+                                                <p className="text-red-400 text-sm">{paymentError}</p>
+                                            </div>
+                                        ) : driverPayoutDetails ? (
+                                            <div className="mb-6 bg-[#121212] p-4 rounded-xl border border-[#333]">
+                                                <div className="flex justify-between mb-3">
+                                                    <span className="text-gray-500 text-xs uppercase font-bold">Recipient (Driver)</span>
+                                                    <span className="text-xs text-[#FACC15] font-bold">{driverPayoutDetails.payoutMethod}</span>
+                                                </div>
+                                                <div className="flex items-center gap-3 mb-3">
+                                                    <div className="w-10 h-10 bg-[#252525] rounded-full flex items-center justify-center">
+                                                        {driverPayoutDetails.payoutMethod === 'Bank' ? (
+                                                            <BankIcon className="w-5 h-5 text-blue-400" />
+                                                        ) : (
+                                                            <PhoneIcon className="w-5 h-5 text-[#FACC15]" />
+                                                        )}
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <div className="text-white font-bold text-sm">{driverPayoutDetails.driverName}</div>
+                                                        {driverPayoutDetails.payoutMethod === 'Bank' ? (
+                                                            <>
+                                                                <div className="text-xs text-gray-400">{driverPayoutDetails.bankName}</div>
+                                                                <div className="text-xs text-[#FACC15] font-mono">
+                                                                    {driverPayoutDetails.payoutAccountNumber}
+                                                                </div>
+                                                            </>
+                                                        ) : (
+                                                            <div className="text-xs text-[#FACC15] font-mono">
+                                                                {driverPayoutDetails.payoutMobileNumber}
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </div>
+                                            </div>
+                                        ) : (
+                                            <div className="mb-6 bg-[#121212] p-4 rounded-xl border border-[#333]">
+                                                <div className="flex justify-between mb-2">
+                                                    <span className="text-gray-500 text-xs uppercase font-bold">Recipient (Driver)</span>
+                                                </div>
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-8 h-8 bg-[#252525] rounded-full flex items-center justify-center">
+                                                        <UserIcon className="w-4 h-4 text-gray-400" />
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-white font-bold text-sm">{currentActiveTrip?.driver || 'Unknown Driver'}</div>
+                                                        <div className="text-xs text-gray-500">Payout details not available</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
 
-                                                <div>
-                                                    <label className="text-xs text-gray-500 block mb-1">Your Mobile Number (Payer)</label>
-                                                    <input
-                                                        type="text"
-                                                        placeholder="+265..."
-                                                        value={passengerPhone}
-                                                        onChange={(e) => setPassengerPhone(e.target.value)}
-                                                        className="w-full bg-[#121212] border border-[#333] rounded-lg px-4 py-3 text-sm text-white focus:border-[#FACC15] outline-none transition-colors"
-                                                    />
+                                        <div className="mb-6 text-center">
+                                            <p className="text-gray-400 text-xs uppercase font-bold mb-1">Total Amount Due</p>
+                                            <p className="text-3xl font-bold text-[#FACC15]">MWK {currentActiveTrip ? currentActiveTrip.price.toLocaleString() : '0'}</p>
+                                        </div>
+
+                                        <div className="space-y-4">
+                                            {/* Mobile Money Option (Default) */}
+                                            <div className="p-4 rounded-xl border-2 border-[#FACC15] bg-[#FACC15]/5">
+                                                <div className="flex items-center gap-3 mb-4">
+                                                    <div className="w-8 h-8 rounded-full bg-[#FACC15] flex items-center justify-center text-black">
+                                                        <PhoneIcon className="w-4 h-4" />
+                                                    </div>
+                                                    <div className="font-bold text-white">Mobile Money Checkout</div>
+                                                </div>
+
+                                                <div className="space-y-3">
+                                                    <div>
+                                                        <label className="text-xs text-gray-500 block mb-1">Select Network</label>
+                                                        <div className="flex gap-2">
+                                                            <button
+                                                                onClick={() => setMobileProvider('airtel')}
+                                                                className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${mobileProvider === 'airtel' ? 'bg-red-600 text-white border-red-600' : 'bg-[#121212] border-[#333] text-gray-500 hover:border-gray-500'}`}
+                                                            >
+                                                                Airtel Money
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setMobileProvider('mpamba')}
+                                                                className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${mobileProvider === 'mpamba' ? 'bg-green-600 text-white border-green-600' : 'bg-[#121212] border-[#333] text-gray-500 hover:border-gray-500'}`}
+                                                            >
+                                                                Mpamba (TNM)
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    <div>
+                                                        <label className="text-xs text-gray-500 block mb-1">Your Mobile Number (Payer)</label>
+                                                        <input
+                                                            type="text"
+                                                            placeholder="+265..."
+                                                            value={passengerPhone}
+                                                            onChange={(e) => setPassengerPhone(e.target.value)}
+                                                            className="w-full bg-[#121212] border border-[#333] rounded-lg px-4 py-3 text-sm text-white focus:border-[#FACC15] outline-none transition-colors"
+                                                        />
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
-                                    </div>
 
-                                    <button
-                                        onClick={handleCompletePayment}
-                                        className="w-full py-4 bg-[#FACC15] text-black font-bold rounded-xl hover:bg-[#EAB308] transition-all shadow-lg shadow-[#FACC15]/20 mt-6 flex items-center justify-center gap-2"
-                                    >
-                                        <LockClosedIcon className="w-4 h-4" />
-                                        Pay Securely
-                                    </button>
-                                </div>
-                            </>
-                        )}
+                                        <button
+                                            onClick={handleCompletePayment}
+                                            className="w-full py-4 bg-[#FACC15] text-black font-bold rounded-xl hover:bg-[#EAB308] transition-all shadow-lg shadow-[#FACC15]/20 mt-6 flex items-center justify-center gap-2"
+                                        >
+                                            <LockClosedIcon className="w-4 h-4" />
+                                            Pay Securely
+                                        </button>
+                                    </div>
+                                </>
+                            )}
+                        </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* RATING MODAL */}
-            {isRatingModalOpen && (
-                <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center p-4 animate-fadeIn" onClick={() => setIsRatingModalOpen(false)}>
-                    <div className="bg-[#1E1E1E] rounded-3xl max-w-sm w-full border border-[#333] shadow-2xl overflow-hidden p-6 text-center" onClick={e => e.stopPropagation()}>
-                        <div className="flex justify-end">
-                            <button onClick={() => setIsRatingModalOpen(false)} className="text-gray-400 hover:text-white">
-                                <CloseIcon className="w-5 h-5" />
+            {
+                isRatingModalOpen && (
+                    <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center p-4 animate-fadeIn" onClick={() => setIsRatingModalOpen(false)}>
+                        <div className="bg-[#1E1E1E] rounded-3xl max-w-sm w-full border border-[#333] shadow-2xl overflow-hidden p-6 text-center" onClick={e => e.stopPropagation()}>
+                            <div className="flex justify-end">
+                                <button onClick={() => setIsRatingModalOpen(false)} className="text-gray-400 hover:text-white">
+                                    <CloseIcon className="w-5 h-5" />
+                                </button>
+                            </div>
+                            <div className="mb-4 flex flex-col items-center">
+                                <img src={`https://ui-avatars.com/api/?name=${ratingTrip?.driver}&background=random`} alt="Driver" className="w-16 h-16 rounded-full border-2 border-[#FACC15] mb-3" />
+                                <h3 className="text-xl font-bold text-white">Rate {ratingTrip?.driver}</h3>
+                                <p className="text-gray-500 text-sm">How was your trip from {ratingTrip?.origin}?</p>
+                            </div>
+
+                            <div className="flex justify-center gap-2 mb-6">
+                                {[1, 2, 3, 4, 5].map((star) => (
+                                    <button
+                                        key={star}
+                                        onMouseEnter={() => setHoverRating(star)}
+                                        onMouseLeave={() => setHoverRating(0)}
+                                        onClick={() => setSelectedRating(star)}
+                                        className="transition-transform hover:scale-110 focus:outline-none"
+                                    >
+                                        <StarIcon className={`w-8 h-8 ${star <= (hoverRating || selectedRating) ? 'text-[#FACC15]' : 'text-gray-600'}`} />
+                                    </button>
+                                ))}
+                            </div>
+
+                            <textarea
+                                placeholder="Leave a comment (optional)..."
+                                value={ratingComment}
+                                onChange={(e) => setRatingComment(e.target.value)}
+                                className="w-full bg-[#252525] border border-[#333] rounded-xl p-3 text-sm text-white outline-none focus:border-[#FACC15] mb-6 h-24 resize-none"
+                            ></textarea>
+
+                            <button
+                                onClick={submitRating}
+                                disabled={selectedRating === 0}
+                                className="w-full py-3 bg-[#FACC15] text-black font-bold rounded-xl hover:bg-[#EAB308] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Submit Rating
                             </button>
                         </div>
-                        <div className="mb-4 flex flex-col items-center">
-                            <img src={`https://ui-avatars.com/api/?name=${ratingTrip?.driver}&background=random`} alt="Driver" className="w-16 h-16 rounded-full border-2 border-[#FACC15] mb-3" />
-                            <h3 className="text-xl font-bold text-white">Rate {ratingTrip?.driver}</h3>
-                            <p className="text-gray-500 text-sm">How was your trip from {ratingTrip?.origin}?</p>
-                        </div>
-
-                        <div className="flex justify-center gap-2 mb-6">
-                            {[1, 2, 3, 4, 5].map((star) => (
-                                <button
-                                    key={star}
-                                    onMouseEnter={() => setHoverRating(star)}
-                                    onMouseLeave={() => setHoverRating(0)}
-                                    onClick={() => setSelectedRating(star)}
-                                    className="transition-transform hover:scale-110 focus:outline-none"
-                                >
-                                    <StarIcon className={`w-8 h-8 ${star <= (hoverRating || selectedRating) ? 'text-[#FACC15]' : 'text-gray-600'}`} />
-                                </button>
-                            ))}
-                        </div>
-
-                        <textarea
-                            placeholder="Leave a comment (optional)..."
-                            value={ratingComment}
-                            onChange={(e) => setRatingComment(e.target.value)}
-                            className="w-full bg-[#252525] border border-[#333] rounded-xl p-3 text-sm text-white outline-none focus:border-[#FACC15] mb-6 h-24 resize-none"
-                        ></textarea>
-
-                        <button
-                            onClick={submitRating}
-                            disabled={selectedRating === 0}
-                            className="w-full py-3 bg-[#FACC15] text-black font-bold rounded-xl hover:bg-[#EAB308] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            Submit Rating
-                        </button>
                     </div>
-                </div>
+                )
+            }
+
+            {/* End of Modals */}
+            {/* Negotiation Modals */}
+            {negotiationRide && (
+                <NegotiationModal
+                    isOpen={showNegotiationModal}
+                    onClose={() => setShowNegotiationModal(false)}
+                    originalPrice={negotiationRide.price}
+                    minPrice={negotiationRide.minPrice || negotiationRide.price * 0.8}
+                    maxPrice={negotiationRide.maxPrice || negotiationRide.price * 1.2}
+                    onSubmitOffer={handleSubmitOffer}
+                    negotiationHistory={negotiationHistory}
+                    vehicleDetails={{
+                        name: negotiationRide.driverName || 'Driver',
+                        type: 'share',
+                        origin: negotiationRide.origin,
+                        destination: negotiationRide.destination
+                    }}
+                />
             )}
 
+            {approvedRide && (
+                <PaymentSelectionModal
+                    isOpen={showPaymentModal}
+                    onClose={() => setShowPaymentModal(false)}
+                    amount={approvedRide.acceptedPrice || approvedRide.price}
+                    onSelectPayment={handlePaymentSelection}
+                    rideDetails={{
+                        type: approvedRide.type || 'share',
+                        origin: approvedRide.origin,
+                        destination: approvedRide.destination,
+                        driverName: approvedRide.driverName || 'Driver'
+                    }}
+                />
+            )}
+
+            {pickupRide && (
+                <PickupConfirmation
+                    isOpen={showPickupModal}
+                    onClose={() => setShowPickupModal(false)}
+                    onConfirm={handleConfirmPickup}
+                    rideDetails={{
+                        id: pickupRide.id,
+                        type: pickupRide.type || 'share',
+                        origin: pickupRide.origin,
+                        destination: pickupRide.destination,
+                        pickupLocation: pickupRide.pickupLocation || pickupRide.origin,
+                        pickupTime: pickupRide.pickupTime || 'Now',
+                        acceptedPrice: pickupRide.acceptedPrice || pickupRide.price,
+                        driver: {
+                            name: pickupRide.driverName || 'Driver',
+                            phone: pickupRide.driverPhone || 'N/A',
+                            rating: pickupRide.driverRating || 5.0,
+                            vehicleModel: pickupRide.vehicleModel || 'Vehicle',
+                            vehiclePlate: pickupRide.vehiclePlate || 'N/A'
+                        },
+                        paymentType: pickupRide.paymentType || 'physical'
+                    }}
+                />
+            )}
         </div>
     );
 };

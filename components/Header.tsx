@@ -3,11 +3,11 @@ import { SearchIcon, MenuIcon, SunIcon, MoonIcon, CarIcon, UsersIcon, SteeringWh
 import { View } from '../types';
 import { ApiService, SearchResult as ApiSearchResult } from '../services/api';
 
+import { ThemeToggle } from './ThemeToggle';
+
 interface HeaderProps {
     title: string;
     onMenuClick: () => void;
-    isDarkMode: boolean;
-    toggleTheme: () => void;
     onNavigate: (view: View) => void;
 }
 
@@ -15,7 +15,7 @@ interface SearchResult extends ApiSearchResult {
     icon: React.ReactNode;
 }
 
-export const Header: React.FC<HeaderProps> = ({ title, onMenuClick, isDarkMode, toggleTheme, onNavigate }) => {
+export const Header: React.FC<HeaderProps> = ({ title, onMenuClick, onNavigate }) => {
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
     const [showDropdown, setShowDropdown] = useState(false);
@@ -59,7 +59,7 @@ export const Header: React.FC<HeaderProps> = ({ title, onMenuClick, isDarkMode, 
         setSearchQuery(e.target.value);
 
         if (query.length > 0) {
-            const filtered = searchItems.filter(item => 
+            const filtered = searchItems.filter(item =>
                 item.label.toLowerCase().includes(query) ||
                 item.subLabel.toLowerCase().includes(query) ||
                 item.keywords?.some(k => k.toLowerCase().includes(query))
@@ -103,7 +103,7 @@ export const Header: React.FC<HeaderProps> = ({ title, onMenuClick, isDarkMode, 
                                 className="w-64 lg:w-80 pl-10 pr-4 py-2 bg-gray-100 dark:bg-dark-700 border border-transparent rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent text-gray-900 dark:text-white placeholder-gray-500 transition-colors"
                             />
                         </div>
-                        
+
                         {/* Search Results Dropdown */}
                         {showDropdown && (
                             <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-dark-800 rounded-lg shadow-lg border border-gray-200 dark:border-dark-700 max-h-96 overflow-y-auto no-scrollbar z-50">
@@ -111,7 +111,7 @@ export const Header: React.FC<HeaderProps> = ({ title, onMenuClick, isDarkMode, 
                                     <ul>
                                         {searchResults.map((result) => (
                                             <li key={result.id}>
-                                                <button 
+                                                <button
                                                     onClick={() => handleSelectResult(result)}
                                                     className="w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-dark-700 flex items-center transition-colors border-b border-gray-100 dark:border-dark-700 last:border-0"
                                                 >
@@ -134,14 +134,8 @@ export const Header: React.FC<HeaderProps> = ({ title, onMenuClick, isDarkMode, 
                             </div>
                         )}
                     </div>
-                    
-                    <button 
-                        onClick={toggleTheme}
-                        className="p-2 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white focus:outline-none rounded-lg hover:bg-gray-100 dark:hover:bg-dark-700 transition-colors"
-                        aria-label="Toggle Dark Mode"
-                    >
-                        {isDarkMode ? <SunIcon className="h-6 w-6" /> : <MoonIcon className="h-6 w-6" />}
-                    </button>
+
+                    <ThemeToggle />
 
                     <div className="relative">
                         <button className="flex text-sm border-2 border-transparent rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition">

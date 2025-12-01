@@ -9,6 +9,7 @@ interface SidebarProps {
     isOpen: boolean;
     setIsOpen: (isOpen: boolean) => void;
     onLogout: () => void;
+    profile?: { name?: string; email?: string; avatar?: string } | null;
 }
 
 const NavItem: React.FC<{ icon: React.ReactNode; label: string; isActive: boolean; onClick: () => void }> = ({ icon, label, isActive, onClick }) => {
@@ -27,7 +28,7 @@ const NavItem: React.FC<{ icon: React.ReactNode; label: string; isActive: boolea
     );
 };
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isOpen, setIsOpen, onLogout }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isOpen, setIsOpen, onLogout, profile }) => {
     
     const handleNavigation = (view: View) => {
         setActiveView(view);
@@ -73,10 +74,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isO
             <div className="p-4 border-t border-gray-200 dark:border-dark-700">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center">
-                        <img className="h-10 w-10 rounded-full object-cover ring-2 ring-primary-500" src="https://picsum.photos/id/1005/100/100" alt="Admin"/>
+                        <img className="h-10 w-10 rounded-full object-cover ring-2 ring-primary-500" src={profile?.avatar || 'https://picsum.photos/id/1005/100/100'} alt={profile?.name || 'Admin'} />
                         <div className="ml-3">
-                            <p className="text-sm font-medium text-gray-900 dark:text-white">Admin</p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">admin@ridex.com</p>
+                            <p className="text-sm font-medium text-gray-900 dark:text-white">{profile?.name || 'Admin'}</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">{profile?.email || 'admin@ridex.com'}</p>
                         </div>
                     </div>
                     <button 

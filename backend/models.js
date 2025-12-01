@@ -1,4 +1,3 @@
-
 const { Sequelize, DataTypes } = require('sequelize');
 require('dotenv').config();
 
@@ -65,6 +64,7 @@ const Vehicle = sequelize.define('Vehicle', {
     name: { type: DataTypes.STRING, allowNull: false },
     plate: { type: DataTypes.STRING, allowNull: false },
     category: { type: DataTypes.STRING, allowNull: false },
+    // NOTE: make/model columns removed to match current DB schema (kept in separate RideShare/Hire tables)
     rate: { type: DataTypes.STRING, allowNull: false },
     features: { type: DataTypes.JSON }, // Store array as JSON
     imageUrl: { type: DataTypes.STRING },
@@ -89,6 +89,8 @@ const Ride = sequelize.define('Ride', {
     price: { type: DataTypes.FLOAT, allowNull: false },
     platformFee: { type: DataTypes.FLOAT, defaultValue: 0 },
     driverEarnings: { type: DataTypes.FLOAT, defaultValue: 0 },
+    distance_km: { type: DataTypes.FLOAT, defaultValue: 0 },
+    duration_minutes: { type: DataTypes.INTEGER, defaultValue: 0 },
 
     seats: { type: DataTypes.INTEGER },
     duration: { type: DataTypes.STRING },
@@ -143,11 +145,175 @@ const Message = sequelize.define('Message', {
     readBy: { type: DataTypes.JSON } // Array of user IDs
 });
 
+// --- Ride Share Vehicle Model ---
+const RideShareVehicle = sequelize.define('RideShareVehicle', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    make: { type: DataTypes.STRING, allowNull: false },
+    model: { type: DataTypes.STRING, allowNull: false },
+    year: { type: DataTypes.INTEGER },
+    plate: { type: DataTypes.STRING, allowNull: false },
+    color: { type: DataTypes.STRING },
+    seats: { type: DataTypes.INTEGER, defaultValue: 4 },
+    imageUrl: { type: DataTypes.STRING },
+    status: { type: DataTypes.ENUM('active', 'inactive', 'maintenance'), defaultValue: 'active' }
+});
+
+// --- Hire Vehicle Model ---
+const HireVehicle = sequelize.define('HireVehicle', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    name: { type: DataTypes.STRING, allowNull: false },
+    make: { type: DataTypes.STRING, allowNull: false },
+    model: { type: DataTypes.STRING, allowNull: false },
+    plate: { type: DataTypes.STRING, allowNull: false },
+    category: { type: DataTypes.STRING, allowNull: false },
+    rate: { type: DataTypes.STRING },
+    rateAmount: { type: DataTypes.FLOAT },
+    rateUnit: { type: DataTypes.STRING, defaultValue: 'day' },
+    features: { type: DataTypes.JSON },
+    imageUrl: { type: DataTypes.STRING },
+    status: { type: DataTypes.ENUM('Available', 'Rented', 'Maintenance'), defaultValue: 'Available' }
+});
+
+// --- Job Model (For Hire) ---
+const Job = sequelize.define('Job', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    title: { type: DataTypes.STRING, allowNull: false },
+    description: { type: DataTypes.TEXT },
+    location: { type: DataTypes.STRING, allowNull: false },
+    startDate: { type: DataTypes.DATE },
+    endDate: { type: DataTypes.DATE },
+    budget: { type: DataTypes.FLOAT },
+    status: { type: DataTypes.ENUM('Open', 'In Progress', 'Completed', 'Cancelled'), defaultValue: 'Open' }
+});
+
+// --- Subscription Model ---
+const Subscription = sequelize.define('Subscription', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    plan: { type: DataTypes.ENUM('1m', '3m', '6m', '1y'), allowNull: false },
+    amount: { type: DataTypes.FLOAT, allowNull: false },
+    status: { type: DataTypes.ENUM('active', 'expired', 'cancelled'), defaultValue: 'active' },
+    startDate: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
+    endDate: { type: DataTypes.DATE, allowNull: false },
+    paymentMethod: { type: DataTypes.STRING },
+    transactionId: { type: DataTypes.STRING }
+});
+
+// --- RideSharePost Model ---
+const RideSharePost = sequelize.define('RideSharePost', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    origin: { type: DataTypes.STRING, allowNull: false },
+    destination: { type: DataTypes.STRING, allowNull: false },
+    date: { type: DataTypes.STRING, allowNull: false },
+    time: { type: DataTypes.STRING, allowNull: false },
+    price: { type: DataTypes.FLOAT, allowNull: false },
+    seats: { type: DataTypes.INTEGER, allowNull: false },
+    availableSeats: { type: DataTypes.INTEGER, allowNull: false },
+    description: { type: DataTypes.TEXT },
+    status: { type: DataTypes.ENUM('active', 'full', 'cancelled', 'completed'), defaultValue: 'active' },
+    vehicleId: { type: DataTypes.UUID },
+    driverId: { type: DataTypes.UUID }
+});
+
+// --- HirePost Model ---
+const HirePost = sequelize.define('HirePost', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    title: { type: DataTypes.STRING, allowNull: false },
+    category: { type: DataTypes.STRING, allowNull: false },
+    location: { type: DataTypes.STRING, allowNull: false },
+    rate: { type: DataTypes.STRING, allowNull: false },
+    rateAmount: { type: DataTypes.FLOAT, allowNull: false },
+    rateUnit: { type: DataTypes.STRING, defaultValue: 'day' },
+    description: { type: DataTypes.TEXT },
+    features: { type: DataTypes.JSON },
+    imageUrl: { type: DataTypes.STRING },
+    status: { type: DataTypes.ENUM('available', 'rented', 'inactive'), defaultValue: 'available' },
+    vehicleId: { type: DataTypes.UUID },
+    driverId: { type: DataTypes.UUID }
+});
+
+// --- Conversation Model ---
+const Conversation = sequelize.define('Conversation', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    lastMessage: { type: DataTypes.TEXT },
+    lastMessageTime: { type: DataTypes.DATE },
+    unreadCount: { type: DataTypes.INTEGER, defaultValue: 0 },
+    participants: { type: DataTypes.JSON, allowNull: false } // Array of user IDs
+});
+
+// --- Notification Model ---
+const Notification = sequelize.define('Notification', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    title: { type: DataTypes.STRING, allowNull: false },
+    message: { type: DataTypes.TEXT, allowNull: false },
+    type: { type: DataTypes.ENUM('info', 'success', 'warning', 'error'), defaultValue: 'info' },
+    isRead: { type: DataTypes.BOOLEAN, defaultValue: false },
+    relatedType: { type: DataTypes.STRING },
+    relatedId: { type: DataTypes.UUID }
+});
+
+// --- RiderStats Model ---
+const RiderStats = sequelize.define('RiderStats', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    totalSpend: { type: DataTypes.FLOAT, defaultValue: 0 },
+    totalRides: { type: DataTypes.INTEGER, defaultValue: 0 },
+    totalDistance: { type: DataTypes.FLOAT, defaultValue: 0 },
+    completedRides: { type: DataTypes.INTEGER, defaultValue: 0 },
+    cancelledRides: { type: DataTypes.INTEGER, defaultValue: 0 },
+    averageRating: { type: DataTypes.FLOAT, defaultValue: 5.0 },
+    chartData: { type: DataTypes.JSON },
+    rideTypes: { type: DataTypes.JSON },
+    lastCalculated: { type: DataTypes.DATE, defaultValue: DataTypes.NOW }
+});
+
+// --- DriverStats Model ---
+const DriverStats = sequelize.define('DriverStats', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    totalEarnings: { type: DataTypes.FLOAT, defaultValue: 0 },
+    totalRides: { type: DataTypes.INTEGER, defaultValue: 0 },
+    totalDistance: { type: DataTypes.FLOAT, defaultValue: 0 },
+    completedRides: { type: DataTypes.INTEGER, defaultValue: 0 },
+    cancelledRides: { type: DataTypes.INTEGER, defaultValue: 0 },
+    averageRating: { type: DataTypes.FLOAT, defaultValue: 5.0 },
+    onTimePercentage: { type: DataTypes.FLOAT, defaultValue: 100.0 },
+    profitData: { type: DataTypes.JSON },
+    tripHistory: { type: DataTypes.JSON },
+    distanceData: { type: DataTypes.JSON },
+    lastCalculated: { type: DataTypes.DATE, defaultValue: DataTypes.NOW }
+});
+
+// --- NegotiationHistory Model ---
+const NegotiationHistory = sequelize.define('NegotiationHistory', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    offeredPrice: { type: DataTypes.FLOAT, allowNull: false },
+    message: { type: DataTypes.TEXT },
+    status: { type: DataTypes.ENUM('pending', 'accepted', 'rejected', 'countered'), defaultValue: 'pending' }
+});
+
 // --- Relationships ---
 
-// User <-> Vehicle
+// User <-> Vehicle (Legacy)
 User.hasMany(Vehicle, { foreignKey: 'driverId', as: 'vehicles' });
 Vehicle.belongsTo(User, { foreignKey: 'driverId', as: 'driver' });
+
+// User <-> RideShareVehicle
+User.hasMany(RideShareVehicle, { foreignKey: 'driverId', as: 'rideShareVehicles' });
+RideShareVehicle.belongsTo(User, { foreignKey: 'driverId', as: 'driver' });
+
+// User <-> HireVehicle
+User.hasMany(HireVehicle, { foreignKey: 'driverId', as: 'hireVehicles' });
+HireVehicle.belongsTo(User, { foreignKey: 'driverId', as: 'driver' });
+
+// User <-> Job
+User.hasMany(Job, { foreignKey: 'driverId', as: 'driverJobs' });
+User.hasMany(Job, { foreignKey: 'clientId', as: 'clientJobs' });
+Job.belongsTo(User, { foreignKey: 'driverId', as: 'driver' });
+Job.belongsTo(User, { foreignKey: 'clientId', as: 'client' });
+HireVehicle.hasMany(Job, { foreignKey: 'vehicleId', as: 'jobs' });
+Job.belongsTo(HireVehicle, { foreignKey: 'vehicleId', as: 'vehicle' });
+
+// User <-> Subscription
+User.hasMany(Subscription, { foreignKey: 'userId', as: 'subscriptions' });
+Subscription.belongsTo(User, { foreignKey: 'userId', as: 'user' });
 
 // User <-> Ride
 User.hasMany(Ride, { foreignKey: 'driverId', as: 'drivenRides' });
@@ -163,13 +329,69 @@ Transaction.belongsTo(User, { foreignKey: 'userId', as: 'user' });
 Message.belongsTo(User, { foreignKey: 'senderId', as: 'sender' });
 Message.belongsTo(Ride, { foreignKey: 'rideId', as: 'ride' });
 
+// NEW RELATIONSHIPS
+
+// User <-> RideSharePost
+User.hasMany(RideSharePost, { foreignKey: 'driverId', as: 'rideSharePosts' });
+RideSharePost.belongsTo(User, { foreignKey: 'driverId', as: 'driver' });
+
+// User <-> HirePost
+User.hasMany(HirePost, { foreignKey: 'driverId', as: 'hirePosts' });
+HirePost.belongsTo(User, { foreignKey: 'driverId', as: 'driver' });
+
+// HireVehicle <-> HirePost
+HireVehicle.hasMany(HirePost, { foreignKey: 'vehicleId', as: 'posts' });
+HirePost.belongsTo(HireVehicle, { foreignKey: 'vehicleId', as: 'vehicle' });
+
+// RideShareVehicle <-> RideSharePost (explicit relationship)
+RideShareVehicle.hasMany(RideSharePost, { foreignKey: 'vehicleId', as: 'posts' });
+RideSharePost.belongsTo(RideShareVehicle, { foreignKey: 'vehicleId', as: 'vehicle' });
+
+// Conversation <-> Ride
+Conversation.belongsTo(Ride, { foreignKey: 'relatedRideId', as: 'ride' });
+
+// Conversation <-> Message
+Conversation.hasMany(Message, { foreignKey: 'conversationId', as: 'messages' });
+Message.belongsTo(Conversation, { foreignKey: 'conversationId', as: 'conversation' });
+
+// User <-> Notification
+User.hasMany(Notification, { foreignKey: 'userId', as: 'notifications' });
+Notification.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+
+// User <-> RiderStats (One-to-One)
+User.hasOne(RiderStats, { foreignKey: 'userId', as: 'riderStats' });
+RiderStats.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+
+// User <-> DriverStats (One-to-One)
+User.hasOne(DriverStats, { foreignKey: 'userId', as: 'driverStats' });
+DriverStats.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+
+// Ride <-> NegotiationHistory
+Ride.hasMany(NegotiationHistory, { foreignKey: 'rideId', as: 'negotiations' });
+NegotiationHistory.belongsTo(Ride, { foreignKey: 'rideId', as: 'ride' });
+
+// User <-> NegotiationHistory
+User.hasMany(NegotiationHistory, { foreignKey: 'offeredBy', as: 'offers' });
+NegotiationHistory.belongsTo(User, { foreignKey: 'offeredBy', as: 'offerer' });
+
 module.exports = {
     sequelize,
     User,
     Vehicle,
+    RideShareVehicle,
+    HireVehicle,
+    Job,
+    Subscription,
     Ride,
     PricingZone,
     SystemSetting,
     Transaction,
-    Message
+    Message,
+    RideSharePost,
+    HirePost,
+    Conversation,
+    Notification,
+    RiderStats,
+    DriverStats,
+    NegotiationHistory
 };

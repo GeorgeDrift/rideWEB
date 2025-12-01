@@ -14,6 +14,7 @@ const riderRoutes = require('./routes/riderRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const subscriptionRoutes = require('./routes/subscriptionRoutes');
+const vehicleRoutes = require('./routes/vehicleRoutes');
 
 const { sequelize, User, Message } = require('./models');
 
@@ -51,6 +52,7 @@ app.use('/api/rider', riderRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
+app.use('/api/vehicles', vehicleRoutes);
 
 // --- Database Connection & Server Start ---
 // sync({ force: false }) creates tables if they don't exist
