@@ -20,6 +20,8 @@ import {
     MobileMoneyOperator,
     PaymentInitiationRequest
 } from '../services/api';
+import { socketService } from '../services/socket';
+import { MapboxMap } from './MapboxMap';
 
 // --- Local Icons ---
 const HomeIcon = ({ className }: { className?: string }) => (
@@ -62,76 +64,9 @@ interface RiderDashboardProps {
     onLogout: () => void;
 }
 
-// --- Mock Map Component ---
-const MockMap = ({ status }: { status?: string }) => (
-    <div className="w-full h-full bg-[#1a1a1a] relative overflow-hidden">
-        {/* Map Background Pattern */}
-        <div className="absolute inset-0 opacity-10"
-            style={{
-                backgroundImage: 'linear-gradient(#333 1px, transparent 1px), linear-gradient(90deg, #333 1px, transparent 1px)',
-                backgroundSize: '40px 40px'
-            }}>
-        </div>
 
-        {/* Mock Roads */}
-        <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-50">
-            <path d="M-100 200 L 300 250 L 500 150 L 800 400 L 1200 350" stroke="#2a2a2a" strokeWidth="40" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M400 -50 L 450 300 L 400 800" stroke="#2a2a2a" strokeWidth="35" fill="none" strokeLinecap="round" strokeLinejoin="round" />
 
-            {/* Active Route Line */}
-            <path d="M300 250 L 500 150 L 800 400" stroke="#FACC15" strokeWidth="6" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="10 5" className="animate-pulse" />
-        </svg>
 
-        {/* Markers */}
-        <div className="absolute top-[250px] left-[300px] transform -translate-x-1/2 -translate-y-1/2 group cursor-pointer">
-            <div className="w-4 h-4 bg-blue-500 rounded-full border-2 border-white shadow-[0_0_15px_rgba(59,130,246,0.5)]"></div>
-            <div className="absolute top-5 left-1/2 transform -translate-x-1/2 bg-[#1E1E1E] px-2 py-1 rounded text-[10px] text-white font-bold shadow-lg whitespace-nowrap border border-[#333] opacity-0 group-hover:opacity-100 transition-opacity">
-                Pickup Location
-            </div>
-        </div>
-
-        <div className="absolute top-[400px] left-[800px] transform -translate-x-1/2 -translate-y-1/2 group cursor-pointer">
-            <div className="w-4 h-4 bg-red-500 rounded-full border-2 border-white shadow-[0_0_15px_rgba(239,68,68,0.5)]"></div>
-            <div className="absolute top-5 left-1/2 transform -translate-x-1/2 bg-[#1E1E1E] px-2 py-1 rounded text-[10px] text-white font-bold shadow-lg whitespace-nowrap border border-[#333] opacity-0 group-hover:opacity-100 transition-opacity">
-                Destination
-            </div>
-        </div>
-
-        {/* Driver Car (Animated) */}
-        <div className={`absolute top-[200px] left-[400px] transform -translate-x-1/2 -translate-y-1/2 transition-all duration-[5000ms] ease-linear ${status === 'Arrived' ? 'translate-x-[-100px] translate-y-[50px]' : ''}`}>
-            <div className="w-16 h-16 bg-[#FACC15]/10 rounded-full animate-ping absolute inset-0"></div>
-            <div className="relative w-12 h-12 bg-[#FACC15] rounded-full border-2 border-black flex items-center justify-center shadow-2xl z-10">
-                <CarIcon className="w-6 h-6 text-black" />
-            </div>
-            <div className="absolute -top-12 left-1/2 transform -translate-x-1/2 bg-white text-black text-xs font-bold px-3 py-1.5 rounded-lg shadow-xl whitespace-nowrap flex items-center gap-1">
-                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                {status === 'Arrived' ? 'Driver Here' : 'Driver • 2 min away'}
-            </div>
-        </div>
-
-        {/* Overlay Info */}
-        <div className="absolute top-4 right-4 bg-[#1E1E1E]/90 backdrop-blur-md p-4 rounded-xl border border-[#333] shadow-lg max-w-xs">
-            <div className="flex items-center gap-3 mb-2">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                <span className="text-xs font-bold text-white uppercase tracking-wider">Live Traffic</span>
-            </div>
-            <div className="text-xs text-gray-400">Optimal route selected. Traffic is light on the M1 highway.</div>
-        </div>
-    </div>
-);
-
-// --- Mock Database for Driver Numbers ---
-const MOCK_DRIVER_DB: Record<string, string> = {
-    'Alex Driver': '+265 991 234 567',
-    'Mike Ross': '+265 888 765 432',
-    'John Doe': '+265 999 111 222',
-    // Fallback
-    'default': '+265 999 000 000'
-};
-
-const getDriverPhone = (driverName: string): string => {
-    return MOCK_DRIVER_DB[driverName] || MOCK_DRIVER_DB['default'];
-};
 
 export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
     // State
@@ -139,6 +74,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
     const [activeTab, setActiveTab] = useState<'overview' | 'market' | 'trips' | 'active-trip' | 'financials' | 'distance' | 'messages'>('overview');
     const [marketTab, setMarketTab] = useState<'share' | 'hire'>('share');
     const [searchTerm, setSearchTerm] = useState('');
+    const [driverLocation, setDriverLocation] = useState<{ lng: number; lat: number }>({ lng: 33.7741, lat: -13.9626 });
 
     // Request Modal State (No payment yet)
     const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
@@ -172,34 +108,20 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
     const [ratingComment, setRatingComment] = useState('');
 
     // Messages State
-    const [conversations, setConversations] = useState<Conversation[]>(ApiService.getRiderConversations());
-    const [activeChatId, setActiveChatId] = useState<string>(conversations[0]?.id || '');
+    const [conversations, setConversations] = useState<Conversation[]>([]);
+    const [activeChatId, setActiveChatId] = useState<string>('');
     const [messageInput, setMessageInput] = useState('');
 
     // Data
-    const [profile] = useState(ApiService.getRiderProfile());
-    const [stats] = useState(ApiService.getRiderStats());
+    const [profile, setProfile] = useState<any>({ name: '', avatar: '', rating: 0 });
+    const [stats, setStats] = useState<any>({ totalSpend: 0, totalRides: 0, totalDistance: 0, chartData: [], rideTypes: [] });
 
     // Initialize history
-    const [history, setHistory] = useState<any[]>([
-        ...ApiService.getRiderHistory(),
-        {
-            id: 99,
-            date: new Date().toLocaleDateString(),
-            time: '10:00',
-            origin: 'Zomba',
-            destination: 'Blantyre',
-            price: 20000,
-            status: 'Completed',
-            driver: 'Mike Ross',
-            rating: 4,
-            timestamp: Date.now() - 10000000
-        }
-    ]);
+    const [history, setHistory] = useState<any[]>([]);
 
     // Listings Data
-    const [rideShareListings] = useState<DriverRidePost[]>(ApiService.getAllRideSharePosts());
-    const [forHireListings] = useState<DriverHirePost[]>(ApiService.getAllForHirePosts());
+    const [rideShareListings, setRideShareListings] = useState<DriverRidePost[]>([]);
+    const [forHireListings, setForHireListings] = useState<DriverHirePost[]>([]);
 
     // Helper to separate active vs past trips
     // Statuses: Pending -> Inbound -> Arrived -> In Progress -> Payment Due -> Completed
@@ -208,36 +130,24 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
     const currentActiveTrip = activeTrips.find(t => t.status !== 'Pending') || activeTrips[0]; // Prioritize non-pending
 
     // Auto-Status Simulation Effect (To show flow without driver interaction in this demo)
+    // Real-time status updates via Socket.IO
     useEffect(() => {
-        const interval = setInterval(() => {
+        socketService.on('trip_status_update', (updatedTrip: any) => {
             setHistory(currentHistory => {
-                let hasChanges = false;
-                const updatedHistory = currentHistory.map(trip => {
-                    const timeDiff = Date.now() - (trip.timestamp || 0);
-
-                    // 1. Pending -> Inbound (Approved) after 3s
-                    if (trip.status === 'Pending' && timeDiff > 3000) {
-                        hasChanges = true;
-                        return { ...trip, status: 'Inbound', driver: trip.driver || 'Alex Driver' };
-                    }
-                    // 2. Inbound -> Arrived after 8s
-                    if (trip.status === 'Inbound' && timeDiff > 8000) {
-                        hasChanges = true;
-                        return { ...trip, status: 'Arrived' };
-                    }
-                    // 3. In Progress -> Payment Due after 20s (Simulated trip end)
-                    if (trip.status === 'In Progress' && timeDiff > 20000) {
-                        hasChanges = true;
-                        return { ...trip, status: 'Payment Due' };
-                    }
-                    return trip;
-                });
-                return hasChanges ? updatedHistory : currentHistory;
+                const exists = currentHistory.find(t => t.id === updatedTrip.id);
+                if (exists) {
+                    return currentHistory.map(t => t.id === updatedTrip.id ? updatedTrip : t);
+                } else {
+                    return [updatedTrip, ...currentHistory];
+                }
             });
-        }, 1000);
+        });
 
-        return () => clearInterval(interval);
+        return () => {
+            socketService.off('trip_status_update');
+        };
     }, []);
+
 
     // Auto-Open Payment Modal when status becomes 'Payment Due'
     useEffect(() => {
@@ -246,6 +156,61 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
             setPaymentStep('method');
         }
     }, [currentActiveTrip?.status]);
+
+    // --- Effects ---
+
+    // Initialize Socket Connection
+    // Initialize Socket Connection
+    useEffect(() => {
+        const token = localStorage.getItem('token');
+        let userId = 'rider_123';
+        if (token) {
+            try {
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                userId = payload.id;
+            } catch (e) {
+                console.error('Error decoding token for socket:', e);
+            }
+        }
+
+        socketService.connect(userId, 'rider');
+
+        socketService.on('driver_location', (location: { lng: number; lat: number }) => {
+            setDriverLocation(location);
+        });
+
+        return () => {
+            socketService.off('driver_location');
+            socketService.disconnect();
+        };
+    }, []);
+
+    // Fetch initial data
+    useEffect(() => {
+        const fetchData = async () => {
+            try {
+                const [profileData, statsData, historyData, conversationsData, shareListings, hireListings] = await Promise.all([
+                    ApiService.getRiderProfile(),
+                    ApiService.getRiderStats(),
+                    ApiService.getRiderHistory(),
+                    ApiService.getRiderConversations(),
+                    ApiService.getAllRideSharePosts(),
+                    ApiService.getAllForHirePosts()
+                ]);
+
+                setProfile(profileData);
+                setStats(statsData);
+                setHistory(historyData);
+                setConversations(conversationsData);
+                setActiveChatId(conversationsData[0]?.id || '');
+                setRideShareListings(shareListings);
+                setForHireListings(hireListings);
+            } catch (error) {
+                console.error("Error fetching initial data:", error);
+            }
+        };
+        fetchData();
+    }, []);
 
     // Fetch Driver Payout Details when Payment Modal Opens
     useEffect(() => {
@@ -803,7 +768,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
 
                                     {/* Right Panel: Mock Map */}
                                     <div className="flex-1 relative bg-[#1E1E1E]">
-                                        <MockMap status={currentActiveTrip.status} />
+                                        <MapboxMap center={[driverLocation.lng, driverLocation.lat]} zoom={13} />
                                     </div>
                                 </>
                             ) : (
@@ -1361,7 +1326,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                 <h3 className="text-lg font-bold text-white mb-6">Distance Traveled History (km)</h3>
                                 <div className="h-80 w-full">
                                     <ResponsiveContainer width="100%" height="100%">
-                                        <AreaChart data={stats.chartData.map(d => ({ ...d, value: d.value * 1.5 }))}> {/* Mock scaling for distance demo */}
+                                        <AreaChart data={stats.chartData.map((d: any) => ({ ...d, value: d.value * 1.5 }))}> {/* Mock scaling for distance demo */}
                                             <defs>
                                                 <linearGradient id="colorDistance" x1="0" y1="0" x2="0" y2="1">
                                                     <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />

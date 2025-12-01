@@ -4,12 +4,16 @@ import {
     CarIcon, MapIcon, SteeringWheelIcon, DashboardIcon,
     SearchIcon, CloseIcon, MenuIcon, PlusIcon, CheckBadgeIcon,
     PencilIcon, TrashIcon, CreditCardIcon, PhoneIcon, ChatIcon, SendIcon,
-    BriefcaseIcon, TruckIcon, PackageIcon, HandshakeIcon, StarIcon, DocumentIcon
+    BriefcaseIcon, TruckIcon, PackageIcon, HandshakeIcon, StarIcon, DocumentIcon,
+    UsersIcon
 } from './Icons';
 import {
     AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, PieChart, Pie, Legend
 } from 'recharts';
 import { ApiService, Conversation, Message } from '../services/api';
+import { socketService } from '../services/socket';
+import { MapboxMap } from './MapboxMap';
+import { SubscriptionModal } from './SubscriptionModal';
 
 // --- Local Icon Definitions ---
 
@@ -98,7 +102,51 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     // Global State
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<'overview' | 'jobs' | 'tracking' | 'history' | 'subscription' | 'trips' | 'distance' | 'hours' | 'ontime' | 'inventory' | 'messages' | 'documents'>('overview');
-    const [driverProfile] = useState(ApiService.getDriverProfile());
+    const [driverProfile, setDriverProfile] = useState<any>(null);
+    const [driverLocation, setDriverLocation] = useState<[number, number]>([33.7741, -13.9626]);
+
+    // Load driver profile
+    useEffect(() => {
+        const loadProfile = async () => {
+            const profile = await ApiService.getDriverProfile();
+            setDriverProfile(profile);
+        };
+        loadProfile();
+    }, []);
+
+    // Initialize Socket Connection
+    useEffect(() => {
+        const token = localStorage.getItem('token');
+        let userId = 'driver_123';
+        if (token) {
+            try {
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                userId = payload.id;
+            } catch (e) {
+                console.error('Error decoding token for socket:', e);
+            }
+        }
+
+        socketService.connect(userId, 'driver');
+
+        // Simulate sending location updates (in a real app, this would use navigator.geolocation)
+        const interval = setInterval(() => {
+            // For demo purposes, we might just listen, but usually drivers emit. 
+            // If we want to see the map move, we can listen to 'driver_location' if the server echoes it, 
+            // or just update local state from geolocation.
+            // For this task, we'll listen to 'driver_location' as requested.
+        }, 5000);
+
+        socketService.on('driver_location', (location: { lng: number; lat: number }) => {
+            setDriverLocation([location.lng, location.lat]);
+        });
+
+        return () => {
+            clearInterval(interval);
+            socketService.off('driver_location');
+            socketService.disconnect();
+        };
+    }, []);
 
     // Interactive Features State
     const [isOnline, setIsOnline] = useState(false);
@@ -112,7 +160,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     const notificationRef = useRef<HTMLDivElement>(null);
 
     // Notifications Data - Initialized from API
-    const [notifications, setNotifications] = useState(ApiService.getDriverNotifications());
+    const [notifications, setNotifications] = useState<any[]>([]);
     const unreadCount = notifications.filter(n => n.unread).length;
 
     // Subscription Page State
@@ -129,14 +177,10 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     const [settleDesc, setSettleDesc] = useState('');
 
     // Transactions Data - Initialized from API
-    const [transactions, setTransactions] = useState(ApiService.getDriverTransactions());
+    const [transactions, setTransactions] = useState<any[]>([]);
 
     // Vehicles Inventory State
-    const [myVehicles, setMyVehicles] = useState(ApiService.getDriverVehicles().map(v => ({
-        ...v,
-        category: 'Trucks & Logistics', // Default fallback for mock data
-        rate: 'MWK 150,000/day' // Default fallback
-    })));
+    const [myVehicles, setMyVehicles] = useState<any[]>([]);
 
     // Add Vehicle State
     const [isAddVehicleOpen, setIsAddVehicleOpen] = useState(false);
@@ -155,8 +199,8 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     const [clientInfo, setClientInfo] = useState({ name: '', id: '' });
 
     // Messaging State
-    const [conversations, setConversations] = useState<Conversation[]>(ApiService.getDriverConversations());
-    const [activeChatId, setActiveChatId] = useState<string>(conversations[0]?.id || '');
+    const [conversations, setConversations] = useState<Conversation[]>([]);
+    const [activeChatId, setActiveChatId] = useState<string>('');
     const [messageInput, setMessageInput] = useState('');
 
     // Jobs State
@@ -165,20 +209,13 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     const [editingId, setEditingId] = useState<number | null>(null); // Track which listing is being edited
 
     // Mock Requests for Driver Approval
-    const [incomingRequests, setIncomingRequests] = useState([
-        { id: 101, type: 'share', title: 'Ride Request', user: 'Alice Wonder', route: 'Blantyre → Lilongwe', date: 'Oct 30', seats: 1, price: 25000 },
-        { id: 102, type: 'hire', title: '3-Ton Truck Hire', user: 'Bob Builder', location: 'Lilongwe', duration: '2 Days', price: 400000 }
-    ]);
+    const [incomingRequests, setIncomingRequests] = useState<any[]>([]);
 
     // Initialized from API
-    const [activePosts, setActivePosts] = useState(ApiService.getDriverActivePosts());
+    const [activePosts, setActivePosts] = useState<any[]>([]);
     const [newHireJob, setNewHireJob] = useState({ title: '', category: 'Small Cars (Sedans & Hatchbacks)', location: '', rate: '' });
-    const [myHirePosts, setMyHirePosts] = useState(ApiService.getDriverHirePosts());
-    const [contractedJobs, setContractedJobs] = useState(ApiService.getDriverContractedJobs().map(job => ({
-        ...job,
-        clientName: '', // Add default client name
-        clientId: ''    // Add default client id
-    })));
+    const [myHirePosts, setMyHirePosts] = useState<any[]>([]);
+    const [contractedJobs, setContractedJobs] = useState<any[]>([]);
 
     // Documents/Verification Page State
     const [payoutMethod, setPayoutMethod] = useState<'Bank' | 'Airtel Money' | 'Mpamba'>('Bank');
@@ -186,6 +223,10 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     const [licenseFile, setLicenseFile] = useState<File | null>(null);
     const [licensePreview, setLicensePreview] = useState<string | null>(null);
     const [documentsSaving, setDocumentsSaving] = useState(false);
+
+    // Subscription Modal State
+    const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
+    const [subscriptionStatus, setSubscriptionStatus] = useState<any>(null);
 
     // --- Interactive Logic ---
 
@@ -548,55 +589,90 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     // --- Mock Data for Visuals (Loaded from API where applicable) ---
     // const myVehicles is now state
 
-    const profitChartData = {
-        Weekly: [
-            { name: 'Mon', value: 45000 }, { name: 'Tue', value: 52000 }, { name: 'Wed', value: 48000 },
-            { name: 'Thu', value: 60000 }, { name: 'Fri', value: 85000 }, { name: 'Sat', value: 92000 }, { name: 'Sun', value: 75000 }
-        ],
-        Monthly: [
-            { name: 'Jan', value: 1200000 }, { name: 'Feb', value: 1450000 }, { name: 'Mar', value: 1380000 },
-            { name: 'Apr', value: 1650000 }, { name: 'May', value: 1820000 }, { name: 'Jun', value: 2100000 },
-            { name: 'Jul', value: 2250000 }, { name: 'Aug', value: 2400000 }, { name: 'Sep', value: 2350000 },
-            { name: 'Oct', value: 2510000 }, { name: 'Nov', value: 420000 }, { name: 'Dec', value: 0 }
-        ],
-        Yearly: [
-            { name: '2020', value: 15000000 }, { name: '2021', value: 18500000 }, { name: '2022', value: 21000000 }, { name: '2023', value: 26500000 }
-        ]
+    // Analytics Data State
+    const [profitChartData, setProfitChartData] = useState<{ Weekly: any[], Monthly: any[], Yearly: any[] }>({ Weekly: [], Monthly: [], Yearly: [] });
+    const [tripHistoryData, setTripHistoryData] = useState<any[]>([]);
+    const [distanceData, setDistanceData] = useState<any[]>([]);
+    const [drivingHoursData, setDrivingHoursData] = useState<any[]>([]);
+    const [onTimeData, setOnTimeData] = useState<any[]>([]);
+
+    useEffect(() => {
+        const fetchAnalytics = async () => {
+            const [profit, trips, distance, hours, onTime] = await Promise.all([
+                ApiService.getDriverProfitStats(),
+                ApiService.getDriverTripHistoryStats(),
+                ApiService.getDriverDistanceStats(),
+                ApiService.getDriverHoursStats(),
+                ApiService.getDriverOnTimeStats()
+            ]);
+            setProfitChartData(profit);
+            setTripHistoryData(trips);
+            setDistanceData(distance);
+            setDrivingHoursData(hours);
+            setOnTimeData(onTime);
+        };
+        fetchAnalytics();
+    }, []);
+
+    // Fetch driver data
+    useEffect(() => {
+        const fetchDriverData = async () => {
+            const [notifs, txns, convos, posts, hirePosts, jobs, vehicles] = await Promise.all([
+                ApiService.getDriverNotifications(),
+                ApiService.getDriverTransactions(),
+                ApiService.getDriverConversations(),
+                ApiService.getDriverActivePosts(),
+                ApiService.getDriverHirePosts(),
+                ApiService.getDriverContractedJobs(),
+                ApiService.getDriverVehicles()
+            ]);
+            setNotifications(notifs);
+            setTransactions(txns);
+            setConversations(convos);
+            setActiveChatId(convos[0]?.id || '');
+            setActivePosts(posts);
+            setMyHirePosts(hirePosts);
+            setContractedJobs(jobs);
+            setMyVehicles(vehicles);
+        };
+        fetchDriverData();
+    }, []);
+
+    // Load subscription status
+    useEffect(() => {
+        const loadSubscriptionStatus = async () => {
+            try {
+                const response = await fetch('/api/subscriptions/status', {
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    setSubscriptionStatus(data);
+                }
+            } catch (error) {
+                console.error('Error loading subscription status:', error);
+            }
+        };
+        loadSubscriptionStatus();
+    }, []);
+
+    const handleSubscriptionSuccess = () => {
+        // Reload subscription status
+        const loadSubscriptionStatus = async () => {
+            try {
+                const response = await fetch('/api/subscriptions/status', {
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    setSubscriptionStatus(data);
+                }
+            } catch (error) {
+                console.error('Error loading subscription status:', error);
+            }
+        };
+        loadSubscriptionStatus();
     };
-
-    // Analytics Data
-    const tripHistoryData = [
-        { name: 'Week 1', share: 12, hire: 4 },
-        { name: 'Week 2', share: 15, hire: 5 },
-        { name: 'Week 3', share: 18, hire: 3 },
-        { name: 'Week 4', share: 22, hire: 7 },
-    ];
-
-    const distanceData = [
-        { name: 'Mon', km: 120 },
-        { name: 'Tue', km: 180 },
-        { name: 'Wed', km: 150 },
-        { name: 'Thu', km: 220 },
-        { name: 'Fri', km: 300 },
-        { name: 'Sat', km: 250 },
-        { name: 'Sun', km: 80 },
-    ];
-
-    const drivingHoursData = [
-        { name: 'Mon', day: 6, night: 2 },
-        { name: 'Tue', day: 7, night: 1 },
-        { name: 'Wed', day: 5, night: 3 },
-        { name: 'Thu', day: 8, night: 4 },
-        { name: 'Fri', day: 6, night: 5 },
-        { name: 'Sat', day: 4, night: 6 },
-        { name: 'Sun', day: 2, night: 0 },
-    ];
-
-    const onTimeData = [
-        { name: 'On Time', value: 85, color: '#22c55e' },
-        { name: 'Late (<15m)', value: 10, color: '#FACC15' },
-        { name: 'Late (>15m)', value: 5, color: '#ef4444' },
-    ];
 
 
     const weekDays = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
@@ -604,104 +680,62 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     const novDays = Array.from({ length: 30 }, (_, i) => i + 1);
 
     // Reusable Components
-    const MapWidget = () => (
-        <div className="bg-[#1E1E1E] rounded-3xl p-4 border border-[#2A2A2A] h-full relative min-h-[400px] shadow-lg shadow-black/20 hover:shadow-[0_0_30px_rgba(250,204,21,0.1)] hover:border-[#FACC15]/30 transition-all duration-300">
-            <div className="w-full h-full rounded-2xl bg-[#121212] relative overflow-hidden opacity-100 border border-[#333]">
-                <div className="absolute inset-0 bg-[radial-gradient(#333_1px,transparent_1px)] [background-size:16px_16px] opacity-30"></div>
-                <svg className="absolute inset-0 w-full h-full pointer-events-none">
-                    <path d="M100 400 L200 300 L250 320 L400 150 L600 180 L700 100" stroke="#333" strokeWidth="8" fill="none" />
-                    <path d="M100 400 L200 300 L250 320 L400 150 L600 180 L700 100" stroke="#FACC15" strokeWidth="3" fill="none" strokeDasharray="10 5" />
-                </svg>
 
-                {/* Online Pulse Indicator on Map */}
-                {isOnline && (
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        <div className="w-96 h-96 border border-[#FACC15]/20 rounded-full animate-ping"></div>
+
+    const CurrentTripWidget = () => {
+        const activeJob = contractedJobs.find(j => ['Inbound', 'Arrived', 'In Progress', 'Payment Due'].includes(j.status));
+
+        if (!activeJob) {
+            return (
+                <div className="bg-[#1E1E1E] rounded-3xl p-6 border border-[#2A2A2A] h-full shadow-lg shadow-black/20 flex flex-col items-center justify-center text-center hover:border-[#FACC15]/30 transition-all duration-300 min-h-[300px]">
+                    <div className="w-16 h-16 bg-[#252525] rounded-full flex items-center justify-center mb-4">
+                        <SteeringWheelIcon className="w-8 h-8 text-gray-500" />
                     </div>
-                )}
+                    <h3 className="text-lg font-bold text-white mb-2">No Active Trip</h3>
+                    <p className="text-sm text-gray-400">You are currently available for new jobs.</p>
+                </div>
+            );
+        }
 
-                <div className="absolute top-[150px] left-[400px] transform -translate-x-1/2 -translate-y-1/2">
+        return (
+            <div className="bg-[#1E1E1E] rounded-3xl p-6 border border-[#2A2A2A] h-full shadow-lg shadow-black/20 flex flex-col hover:shadow-[0_0_30px_rgba(250,204,21,0.1)] hover:border-[#FACC15]/30 transition-all duration-300">
+                <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-lg font-bold text-white">Current trip</h3>
+                    <div className="px-2 py-1 rounded bg-[#FACC15]/20 text-[#FACC15] text-xs font-bold uppercase">{activeJob.status}</div>
+                </div>
+
+                <div className="relative pl-4 space-y-6 flex-1 before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-[2px] before:bg-[#2A2A2A]">
                     <div className="relative">
-                        <div className="w-16 h-16 bg-[#FACC15]/20 rounded-full animate-ping absolute inset-0"></div>
-                        <div className="w-16 h-16 bg-[#FACC15]/10 rounded-full flex items-center justify-center relative z-10 backdrop-blur-sm border border-[#FACC15]/30">
-                            <div className="w-3 h-3 bg-[#FACC15] rounded-full shadow-[0_0_10px_#FACC15]"></div>
+                        <div className="absolute -left-[21px] top-1 w-4 h-4 rounded-full border-2 border-[#2A2A2A] bg-[#1E1E1E] flex items-center justify-center">
+                            <div className="w-2 h-2 rounded-full bg-transparent border border-[#FACC15]"></div>
                         </div>
-                        <div className="absolute top-10 left-1/2 transform -translate-x-1/2 mt-4 bg-[#1E1E1E] border border-[#FACC15]/50 text-white px-3 py-2 rounded-lg shadow-xl min-w-[180px]">
-                            <div className="flex items-center gap-2 mb-1">
-                                <LocationMarkerIcon className="w-4 h-4 text-[#FACC15]" />
-                                <span className="font-bold text-xs text-[#FACC15]">Current Location</span>
-                            </div>
-                            <div className="text-xs text-gray-300 font-medium">Area 18 Roundabout</div>
-                            <div className="text-[10px] text-gray-500">Lilongwe, Malawi</div>
+                        <p className="text-xs text-gray-500 mb-1">Origin</p>
+                        <div className="flex justify-between items-center">
+                            <span className="font-bold text-white">{activeJob.origin}</span>
                         </div>
                     </div>
-                </div>
 
-                <div className="absolute right-4 bottom-12 flex flex-col gap-2">
-                    <button className="w-8 h-8 bg-[#1E1E1E] border border-[#333] text-white rounded-lg flex items-center justify-center shadow-lg font-bold text-lg hover:bg-[#252525]">+</button>
-                    <button className="w-8 h-8 bg-[#1E1E1E] border border-[#333] text-white rounded-lg flex items-center justify-center shadow-lg font-bold text-lg hover:bg-[#252525]">-</button>
-                </div>
-                <div className="absolute right-4 bottom-4">
-                    <button className="w-8 h-8 bg-[#FACC15] text-black rounded-lg flex items-center justify-center shadow-lg hover:bg-[#EAB308]">
-                        <LocationMarkerIcon className="w-4 h-4" />
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-
-    const CurrentTripWidget = () => (
-        <div className="bg-[#1E1E1E] rounded-3xl p-6 border border-[#2A2A2A] h-full shadow-lg shadow-black/20 flex flex-col hover:shadow-[0_0_30px_rgba(250,204,21,0.1)] hover:border-[#FACC15]/30 transition-all duration-300">
-            <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-bold text-white">Current trip</h3>
-                <button className="p-1 bg-[#2A2A2A] rounded-lg text-gray-400"><MoreIcon className="w-4 h-4" /></button>
-            </div>
-
-            <div className="relative pl-4 space-y-6 flex-1 before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-[2px] before:bg-[#2A2A2A]">
-                {/* Trip steps - static for demo */}
-                <div className="relative">
-                    <div className="absolute -left-[21px] top-1 w-4 h-4 rounded-full border-2 border-[#2A2A2A] bg-[#1E1E1E] flex items-center justify-center">
-                        <div className="w-2 h-2 rounded-full bg-transparent border border-[#FACC15]"></div>
-                    </div>
-                    <p className="text-xs text-gray-500 mb-1">Departure</p>
-                    <div className="flex justify-between items-center">
-                        <span className="font-bold text-white">Blantyre</span>
-                        <span className="text-xs text-gray-400">12:45 PM</span>
-                    </div>
-                </div>
-                {/* ... Middle Stops ... */}
-                <div className="relative">
-                    <div className="absolute -left-[21px] top-1 w-4 h-4 rounded-full border-2 border-[#2A2A2A] bg-[#1E1E1E] flex items-center justify-center">
-                        <div className="w-2 h-2 rounded-full bg-[#FACC15]/20 flex items-center justify-center">
-                            <div className="w-1 h-1 bg-[#FACC15] rounded-full"></div>
+                    <div className="relative">
+                        <div className="absolute -left-[21px] top-1 w-4 h-4 rounded-full border-2 border-[#2A2A2A] bg-[#1E1E1E] flex items-center justify-center">
+                            <div className="w-2 h-2 rounded-full bg-gray-600"></div>
+                        </div>
+                        <p className="text-xs text-gray-500 mb-1">Destination</p>
+                        <div className="flex justify-between items-center">
+                            <span className="font-bold text-white">{activeJob.destination}</span>
                         </div>
                     </div>
-                    <p className="text-xs text-gray-500 mb-1">Stop</p>
-                    <div className="flex justify-between items-center">
-                        <span className="font-medium text-gray-300">Ntcheu</span>
-                        <span className="text-xs text-gray-400">15:45 PM</span>
-                    </div>
                 </div>
-                <div className="relative">
-                    <div className="absolute -left-[21px] top-1 w-4 h-4 rounded-full border-2 border-[#2A2A2A] bg-[#1E1E1E] flex items-center justify-center">
-                        <div className="w-2 h-2 rounded-full bg-gray-600"></div>
-                    </div>
-                    <p className="text-xs text-gray-500 mb-1">Arrival</p>
-                    <div className="flex justify-between items-center">
-                        <span className="font-bold text-white">Lilongwe, Area 3</span>
-                        <span className="text-xs text-gray-400">18:30 PM</span>
-                    </div>
-                </div>
-            </div>
 
-            <div className="mt-6 p-4 bg-[#252525] rounded-xl flex items-center text-[#FACC15] text-sm font-medium border border-[#FACC15]/20">
-                <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                Duration: 5 hours 45 min
+                <div className="mt-6 p-4 bg-[#252525] rounded-xl flex items-center justify-between text-sm font-medium border border-[#FACC15]/20">
+                    <div className="flex items-center text-[#FACC15]">
+                        <UsersIcon className="w-5 h-5 mr-2" />
+                        {activeJob.clientName || 'Client'}
+                    </div>
+                    <span className="text-white font-bold">MWK {activeJob.payout.toLocaleString()}</span>
+                </div>
             </div>
-        </div>
-    );
+        );
+    };
 
     return (
         <div className="flex h-screen bg-[#121212] text-white font-sans overflow-hidden selection:bg-[#FACC15] selection:text-black">
@@ -844,14 +878,14 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
 
                         <div className="h-8 w-[1px] bg-[#2A2A2A]"></div>
                         <div className="flex items-center gap-3">
-                            <img src={driverProfile.avatar} alt="Driver" className="w-9 h-9 rounded-full border border-[#FACC15]" />
+                            <img src={driverProfile?.avatar || '/default-avatar.png'} alt="Driver" className="w-9 h-9 rounded-full border border-[#FACC15]" />
                             <div className="hidden lg:block text-right">
-                                <div className="text-sm font-bold text-white">{driverProfile.name}</div>
+                                <div className="text-sm font-bold text-white">{driverProfile?.name || 'Driver'}</div>
                                 {/* DRIVER RATING IMPLEMENTATION */}
                                 <div className="flex items-center justify-end gap-1">
                                     <StarIcon className="w-3 h-3 text-[#FACC15]" />
-                                    <span className="text-[#FACC15] text-xs font-bold">{driverProfile.rating}</span>
-                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider ml-1">{driverProfile.role}</span>
+                                    <span className="text-[#FACC15] text-xs font-bold">{driverProfile?.rating || '5.0'}</span>
+                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider ml-1">{driverProfile?.role || 'DRIVER'}</span>
                                 </div>
                             </div>
                         </div>
@@ -866,7 +900,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                                 <div>
                                     <p className="text-gray-400 text-sm font-medium">Good morning,</p>
-                                    <h1 className="text-3xl font-bold text-white mt-1">{driverProfile.name}</h1>
+                                    <h1 className="text-3xl font-bold text-white mt-1">{driverProfile?.name || 'Driver'}</h1>
                                 </div>
                                 <div className="flex items-center gap-3 self-start md:self-auto">
                                     {/* Interactive Date Range */}
@@ -1210,7 +1244,9 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                     </div>
 
                                     <div className="lg:col-span-6 h-full">
-                                        <MapWidget />
+                                        <div className="lg:col-span-6 h-full relative min-h-[400px]">
+                                            <MapboxMap center={driverLocation} zoom={13} />
+                                        </div>
                                     </div>
                                 </div>
                             </>
@@ -1987,8 +2023,8 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                 <div className="lg:col-span-4 h-full">
                                     <CurrentTripWidget />
                                 </div>
-                                <div className="lg:col-span-8 h-full">
-                                    <MapWidget />
+                                <div className="lg:col-span-8 h-full bg-[#1E1E1E] rounded-3xl border border-[#2A2A2A] overflow-hidden">
+                                    <MapboxMap center={driverLocation} zoom={13} />
                                 </div>
                             </div>
                         )}

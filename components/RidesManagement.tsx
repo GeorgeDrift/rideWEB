@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Ride, RideStatus, View } from '../types';
 import { CarIcon, SteeringWheelIcon, TagIcon, MapIcon } from './Icons';
 import { ApiService } from '../services/api';
@@ -16,7 +16,7 @@ const RideStatusBadge: React.FC<{ status: RideStatus }> = ({ status }) => {
 };
 
 const SummaryCard = ({ title, value, icon: Icon, color, hoverClass, onClick }: { title: string, value: number, icon: any, color: string, hoverClass?: string, onClick?: () => void }) => (
-    <div 
+    <div
         onClick={onClick}
         className={`bg-white dark:bg-dark-800 p-6 rounded-xl shadow-sm border border-gray-300 dark:border-gray-700 flex items-center hover:shadow-lg transition-all duration-300 ${onClick ? `cursor-pointer ${hoverClass}` : ''}`}
     >
@@ -35,7 +35,15 @@ interface RidesManagementProps {
 }
 
 export const RidesManagement: React.FC<RidesManagementProps> = ({ onNavigate }) => {
-    const [rides] = useState<Ride[]>(ApiService.getRides());
+    const [rides, setRides] = useState<Ride[]>([]);
+
+    useEffect(() => {
+        const fetchRides = async () => {
+            const data = await ApiService.getRides();
+            setRides(data);
+        };
+        fetchRides();
+    }, []);
 
     const totalRides = rides.length;
     const rideShareCount = rides.filter(r => r.type === 'Ride Share').length;
@@ -44,27 +52,27 @@ export const RidesManagement: React.FC<RidesManagementProps> = ({ onNavigate }) 
     return (
         <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <SummaryCard 
-                    title="Total Rides" 
-                    value={totalRides} 
-                    icon={CarIcon} 
+                <SummaryCard
+                    title="Total Rides"
+                    value={totalRides}
+                    icon={CarIcon}
                     color="bg-primary-500"
                     hoverClass="hover:shadow-primary-500/40 hover:border-primary-500"
                     onClick={() => onNavigate('total-rides')}
                 />
-                <SummaryCard 
-                    title="Ride Share" 
-                    value={rideShareCount} 
-                    icon={SteeringWheelIcon} 
-                    color="bg-blue-500" 
+                <SummaryCard
+                    title="Ride Share"
+                    value={rideShareCount}
+                    icon={SteeringWheelIcon}
+                    color="bg-blue-500"
                     hoverClass="hover:shadow-blue-500/40 hover:border-blue-500"
                     onClick={() => onNavigate('ride-share')}
                 />
-                <SummaryCard 
-                    title="For Hire" 
-                    value={forHireCount} 
-                    icon={TagIcon} 
-                    color="bg-purple-500" 
+                <SummaryCard
+                    title="For Hire"
+                    value={forHireCount}
+                    icon={TagIcon}
+                    color="bg-purple-500"
                     hoverClass="hover:shadow-purple-500/40 hover:border-purple-500"
                     onClick={() => onNavigate('for-hire')}
                 />
@@ -74,10 +82,10 @@ export const RidesManagement: React.FC<RidesManagementProps> = ({ onNavigate }) 
                 <div className="flex flex-col sm:flex-row justify-between items-center mb-6 space-y-4 sm:space-y-0">
                     <h2 className="text-xl font-semibold text-gray-900 dark:text-white w-full sm:w-auto">All Rides</h2>
                     <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2 w-full sm:w-auto">
-                        <input 
-                            type="text" 
-                            placeholder="Search rides..." 
-                            className="w-full sm:w-64 bg-gray-50 dark:bg-dark-700 text-gray-900 dark:text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500 border border-gray-300 dark:border-dark-600 placeholder-gray-500 transition-colors" 
+                        <input
+                            type="text"
+                            placeholder="Search rides..."
+                            className="w-full sm:w-64 bg-gray-50 dark:bg-dark-700 text-gray-900 dark:text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500 border border-gray-300 dark:border-dark-600 placeholder-gray-500 transition-colors"
                         />
                         <button className="w-full sm:w-auto bg-primary-500 text-black font-bold px-4 py-2 rounded-lg hover:bg-primary-600 transition-colors shadow-sm">
                             Export CSV
@@ -161,7 +169,7 @@ export const RidesManagement: React.FC<RidesManagementProps> = ({ onNavigate }) 
                                         </span>
                                     </td>
                                     <td className="px-6 py-4">
-                                         <div className="flex items-center">
+                                        <div className="flex items-center">
                                             <img className="h-8 w-8 rounded-full object-cover ring-2 ring-white dark:ring-dark-800" src={ride.rider.avatar} alt={ride.rider.name} />
                                             <div className="pl-3">
                                                 <div className="font-semibold text-gray-900 dark:text-white">{ride.rider.name}</div>
@@ -169,7 +177,7 @@ export const RidesManagement: React.FC<RidesManagementProps> = ({ onNavigate }) 
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 hidden lg:table-cell">
-                                         <div className="flex items-center">
+                                        <div className="flex items-center">
                                             <img className="h-8 w-8 rounded-full object-cover ring-2 ring-white dark:ring-dark-800" src={ride.driver.avatar} alt={ride.driver.name} />
                                             <div className="pl-3">
                                                 <div className="font-semibold text-gray-900 dark:text-white">{ride.driver.name}</div>

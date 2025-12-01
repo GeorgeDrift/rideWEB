@@ -78,3 +78,35 @@ exports.verifyPayment = async (chargeId) => {
         throw error;
     }
 };
+
+/**
+ * Initiate a payout to a mobile money account
+ * @param {Object} data - Payout details
+ * @param {string} data.mobile - Mobile number to receive the money
+ * @param {string} data.mobile_money_operator_ref_id - Operator Ref ID
+ * @param {number} data.amount - Amount to send
+ * @param {string} data.charge_id - Unique charge ID for this payout
+ * @param {string} data.email - Optional email
+ * @param {string} data.first_name - Optional first name
+ * @param {string} data.last_name - Optional last name
+ */
+exports.initiatePayout = async (payoutData) => {
+    try {
+        const payload = {
+            mobile: payoutData.mobile,
+            amount: payoutData.amount,
+            mobile_money_operator_ref_id: payoutData.mobile_money_operator_ref_id,
+            charge_id: payoutData.charge_id,
+            email: payoutData.email,
+            first_name: payoutData.first_name,
+            last_name: payoutData.last_name
+        };
+
+        const response = await apiClient.post('/mobile-money/payouts/initialize', payload);
+        return response.data;
+    } catch (error) {
+        console.error('PayChangu initiatePayout Error:', error.response?.data || error.message);
+        throw error;
+    }
+};
+

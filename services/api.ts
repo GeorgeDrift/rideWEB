@@ -232,106 +232,393 @@ export const ApiService = {
         { id: 'rev', label: 'Revenue', subLabel: 'Financials', view: 'revenue', keywords: ['money', 'profit'] },
         { id: 'pricing', label: 'Pricing', subLabel: 'Settings', view: 'pricing', keywords: ['rates', 'surge'] },
     ],
-    getDashboardData: () => ({
-        weekly: [{ name: 'Mon', value: 1000 }, { name: 'Tue', value: 2000 }, { name: 'Wed', value: 1500 }, { name: 'Thu', value: 2500 }, { name: 'Fri', value: 3000 }, { name: 'Sat', value: 3500 }, { name: 'Sun', value: 2000 }],
-        lastWeek: [{ name: 'Mon', value: 800 }, { name: 'Tue', value: 1800 }, { name: 'Wed', value: 1300 }, { name: 'Thu', value: 2300 }, { name: 'Fri', value: 2800 }, { name: 'Sat', value: 3300 }, { name: 'Sun', value: 1800 }],
-        monthly: [{ name: 'Week 1', value: 10000 }, { name: 'Week 2', value: 12000 }, { name: 'Week 3', value: 11000 }, { name: 'Week 4', value: 14000 }],
-        mapVehicles: [
-            { id: 1, lat: 40.7589, lng: -73.9851, type: 'share' },
-            { id: 2, lat: 40.7489, lng: -73.9951, type: 'hire' }
-        ]
-    }),
-    getRides: (): Ride[] => [
-        { id: 'R-101', rider: { name: 'John Doe', avatar: 'https://ui-avatars.com/api/?name=John+Doe' }, driver: { name: 'Jane Smith', avatar: 'https://ui-avatars.com/api/?name=Jane+Smith' }, type: 'Ride Share', origin: 'Downtown', destination: 'Airport', fare: 25500, date: '2023-10-27', status: 'Completed' },
-        { id: 'R-102', rider: { name: 'Alice Cooper', avatar: 'https://ui-avatars.com/api/?name=Alice+Cooper' }, driver: { name: 'Bob Brown', avatar: 'https://ui-avatars.com/api/?name=Bob+Brown' }, type: 'For Hire', origin: 'Uptown', destination: 'Suburbs', fare: 45000, date: '2023-10-28', status: 'In Progress' },
-    ],
-    getDrivers: (): Driver[] => [
-        { id: 'D-001', name: 'Jane Smith', avatar: 'https://ui-avatars.com/api/?name=Jane+Smith', vehicle: 'Toyota Camry', licensePlate: 'ABC-123', totalRides: 1540, rating: 4.8, status: 'Approved', joinDate: '2022-01-15' },
-        { id: 'D-002', name: 'Bob Brown', avatar: 'https://ui-avatars.com/api/?name=Bob+Brown', vehicle: 'Ford F-150', licensePlate: 'XYZ-987', totalRides: 850, rating: 4.9, status: 'Approved', joinDate: '2022-05-20' },
-    ],
-    getRiders: (): Rider[] => [
-        { id: 'U-001', name: 'John Doe', avatar: 'https://ui-avatars.com/api/?name=John+Doe', totalRides: 45, memberSince: '2023-01-10', status: 'Active' },
-    ],
-    getRevenueData: () => ({
-        annual: [{ name: 'Jan', value: 50000 }, { name: 'Feb', value: 60000 }, { name: 'Mar', value: 55000 }, { name: 'Apr', value: 70000 }, { name: 'May', value: 80000 }, { name: 'Jun', value: 90000 }],
-        transactions: [
-            { id: 'TX-001', source: 'Ride #R-101', date: '2023-10-27', amount: 25500, status: 'Completed' },
-            { id: 'TX-002', source: 'Ride #R-102', date: '2023-10-28', amount: 45000, status: 'Pending' },
-        ] as Transaction[]
-    }),
-    getPricingZones: (): PricingZone[] => [
-        { id: 1, name: 'Downtown Zone', multiplier: 1.5, color: '#ef4444', coordinates: [[-73.99, 40.75], [-73.98, 40.76]] },
-    ],
-    getTotalRidesData: () => ({
-        weekly: [{ name: 'Mon', rides: 120, cancelled: 5 }, { name: 'Tue', rides: 140, cancelled: 8 }, { name: 'Wed', rides: 160, cancelled: 6 }, { name: 'Thu', rides: 180, cancelled: 10 }, { name: 'Fri', rides: 220, cancelled: 12 }, { name: 'Sat', rides: 250, cancelled: 15 }, { name: 'Sun', rides: 150, cancelled: 4 }],
-        monthly: [{ name: 'Jan', rides: 500, cancelled: 20 }, { name: 'Feb', rides: 600, cancelled: 25 }],
-        yearly: [{ name: '2022', rides: 6000, cancelled: 300 }, { name: '2023', rides: 7500, cancelled: 350 }],
-    }),
-    getRideShareData: () => ({
-        weekly: [{ name: 'Mon', rides: 80 }, { name: 'Tue', rides: 90 }, { name: 'Wed', rides: 110 }, { name: 'Thu', rides: 130 }, { name: 'Fri', rides: 150 }, { name: 'Sat', rides: 180 }, { name: 'Sun', rides: 100 }],
-        monthly: [{ name: 'Jan', rides: 300 }, { name: 'Feb', rides: 350 }],
-    }),
-    getForHireData: () => ({
-        weekly: [{ name: 'Mon', scheduled: 10, immediate: 5 }, { name: 'Tue', scheduled: 12, immediate: 6 }],
-        monthly: [{ name: 'Jan', scheduled: 40, immediate: 20 }, { name: 'Feb', scheduled: 50, immediate: 25 }],
-        categories: [
-            {
-                title: "Small Cars", icon: "🚗", count: 120, available: 85, examples: ["Toyota Corolla", "Honda Civic"],
-                stats: { activeRentals: 35, growth: 5.2, revenue: 1250000, avgRate: 25000, chartData: [{ day: 'Mon', value: 20 }, { day: 'Tue', value: 25 }] }
-            } as VehicleCategory
-        ]
-    }),
-    getConversations: (): Conversation[] => [
-        { id: 'C-1', name: 'Jane Smith', avatar: 'https://ui-avatars.com/api/?name=Jane+Smith', role: 'Driver', lastMessage: 'I am arriving in 5 mins.', time: '2m ago', unread: 1, status: 'online', messages: [{ id: 'm1', text: 'Hi, where are you?', sender: 'agent', timestamp: '10:00 AM' }, { id: 'm2', text: 'I am arriving in 5 mins.', sender: 'user', timestamp: '10:01 AM' }] },
-    ],
-    getMapVehicles: () => [
-        { id: 1, lat: 40.7589, lng: -73.9851, type: 'driver' },
-        { id: 2, lat: 40.7489, lng: -73.9951, type: 'rider' },
-    ],
-    getDriverProfile: () => ({
-        name: "Alex Driver", avatar: "https://ui-avatars.com/api/?name=Alex+Driver", rating: 4.9, role: "Pro Driver"
-    }),
-    getDriverNotifications: (): DriverNotification[] => [
-        { id: 1, title: "New Ride Request", msg: "Trip to Airport", time: "2m ago", unread: true },
-        { id: 2, title: "Payment Received", msg: "MWK 25,000 from Trip #123", time: "1h ago", unread: false },
-    ],
-    getDriverTransactions: (): DriverTransaction[] => [
-        { id: 101, type: 'Payment', desc: 'Trip #123 Payout', date: 'Oct 26', amount: 25000, method: 'Mobile Money', sub: 'Client: John' },
-    ],
-    getDriverVehicles: (): DriverVehicle[] => [
-        { id: 1, name: 'Toyota Hiace', plate: 'BS 1234', status: 'On-Route', category: 'Minibus', rate: 'MWK 45,000/day' },
-    ],
-    getDriverConversations: (): Conversation[] => [
-        { id: 'DC-1', name: 'Support', avatar: 'https://ui-avatars.com/api/?name=Support', role: 'Admin', lastMessage: 'Your documents are approved.', time: '1d ago', unread: 0, status: 'online', messages: [] },
-    ],
-    getDriverActivePosts: (): DriverRidePost[] => [
-        { id: 1, origin: 'Blantyre', destination: 'Lilongwe', date: '2023-10-30', time: '08:00', price: 25000, seats: 3 },
-    ],
-    getDriverHirePosts: (): DriverHirePost[] => [
-        { id: 1, title: '3-Ton Truck for Hire', category: 'Trucks & Logistics', location: 'Lilongwe', rate: 'MWK 150,000/day', status: 'Active' },
-    ],
-    getDriverContractedJobs: (): DriverContractedJob[] => [
-        { id: 1, title: 'Equipment Transport', origin: 'Lilongwe', destination: 'Mzuzu', date: '2023-11-01', payout: 450000, status: 'Scheduled', type: 'hire', clientName: 'BuildCo', clientId: 'CL-55' },
-    ],
-    getRiderConversations: (): Conversation[] => [
-        { id: 'RC-1', name: 'Alex Driver', avatar: 'https://ui-avatars.com/api/?name=Alex+Driver', role: 'Driver', lastMessage: 'On my way.', time: '5m ago', unread: 1, status: 'online', messages: [] },
-    ],
-    getRiderProfile: () => ({
-        name: "Rider User", avatar: "https://ui-avatars.com/api/?name=Rider+User", rating: 4.8
-    }),
-    getRiderStats: () => ({
-        totalSpend: 458500, totalRides: 24, totalDistance: 1407, chartData: [{ name: 'Jan', value: 50000 }, { name: 'Feb', value: 80000 }], rideTypes: [{ name: 'Share', value: 70, color: '#FACC15' }, { name: 'Hire', value: 30, color: '#3b82f6' }]
-    }),
-    getRiderHistory: () => [
-        { id: 1, date: 'Oct 25, 2023', time: '14:30', origin: 'Home', destination: 'Office', price: 15000, status: 'Completed', driver: 'Alex Driver', rating: 5 },
-    ],
-    getAllRideSharePosts: (): DriverRidePost[] => [
-        { id: 101, origin: 'Blantyre', destination: 'Lilongwe', date: 'Oct 30', time: '08:00', price: 25000, seats: 3, driverName: 'Alex Driver', driverRating: 4.9 },
-        { id: 102, origin: 'Zomba', destination: 'Blantyre', date: 'Oct 31', time: '10:00', price: 5000, seats: 2, driverName: 'John Doe', driverRating: 4.5 },
-    ],
-    getAllForHirePosts: (): DriverHirePost[] => [
-        { id: 201, title: '5-Ton Truck', category: 'Trucks', location: 'Lilongwe', rate: 'MWK 200,000/day', status: 'Active', driverName: 'Big Movers', driverRating: 4.7 },
-    ],
+
+    getDashboardData: async () => {
+        try {
+            const response = await fetch('/api/admin/dashboard', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch dashboard data');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return { weekly: [], lastWeek: [], monthly: [], mapVehicles: [] };
+        }
+    },
+
+    getRides: async (): Promise<Ride[]> => {
+        try {
+            const response = await fetch('/api/rides', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch rides');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return [];
+        }
+    },
+
+    getDrivers: async (): Promise<Driver[]> => {
+        try {
+            const response = await fetch('/api/driver/list', { // Assuming admin endpoint
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch drivers');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return [];
+        }
+    },
+
+    getRiders: async (): Promise<Rider[]> => {
+        try {
+            const response = await fetch('/api/rider/list', { // Assuming admin endpoint
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch riders');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return [];
+        }
+    },
+    getRevenueData: async () => {
+        try {
+            const response = await fetch('/api/admin/revenue', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch revenue data');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return { annual: [], transactions: [] };
+        }
+    },
+
+    getPricingZones: async (): Promise<PricingZone[]> => {
+        try {
+            const response = await fetch('/api/admin/zones', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch pricing zones');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return [];
+        }
+    },
+
+    getTotalRidesData: async () => {
+        try {
+            const response = await fetch('/api/admin/stats/rides', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch total rides data');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return { weekly: [], monthly: [], yearly: [] };
+        }
+    },
+
+    getRideShareData: async () => {
+        try {
+            const response = await fetch('/api/admin/stats/share', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch ride share data');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return { weekly: [], monthly: [] };
+        }
+    },
+
+    getForHireData: async () => {
+        try {
+            const response = await fetch('/api/admin/stats/hire', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch for hire data');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return { weekly: [], monthly: [], categories: [] };
+        }
+    },
+    getConversations: async (): Promise<Conversation[]> => {
+        try {
+            const response = await fetch('/api/chat/conversations', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch conversations');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return [];
+        }
+    },
+
+    getMapVehicles: async () => {
+        try {
+            const response = await fetch('/api/map/vehicles', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch map vehicles');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return [];
+        }
+    },
+
+    getDriverProfile: async () => {
+        try {
+            const response = await fetch('/api/driver/profile', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch driver profile');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return { name: "", avatar: "", rating: 0, role: "" };
+        }
+    },
+
+    getDriverNotifications: async (): Promise<DriverNotification[]> => {
+        try {
+            const response = await fetch('/api/driver/notifications', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch notifications');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return [];
+        }
+    },
+    getDriverTransactions: async (): Promise<DriverTransaction[]> => {
+        try {
+            const response = await fetch('/api/driver/transactions', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch transactions');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return [];
+        }
+    },
+
+    getDriverVehicles: async (): Promise<DriverVehicle[]> => {
+        try {
+            const response = await fetch('/api/driver/vehicles', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch vehicles');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return [];
+        }
+    },
+
+    getDriverConversations: async (): Promise<Conversation[]> => {
+        try {
+            const response = await fetch('/api/chat/conversations', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch driver conversations');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return [];
+        }
+    },
+
+    getDriverActivePosts: async (): Promise<DriverRidePost[]> => {
+        try {
+            const response = await fetch('/api/driver/posts/share', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch active posts');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return [];
+        }
+    },
+
+    getDriverHirePosts: async (): Promise<DriverHirePost[]> => {
+        try {
+            const response = await fetch('/api/driver/posts/hire', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch hire posts');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return [];
+        }
+    },
+
+    getDriverContractedJobs: async (): Promise<DriverContractedJob[]> => {
+        try {
+            const response = await fetch('/api/driver/jobs', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch contracted jobs');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return [];
+        }
+    },
+
+    // --- DRIVER ANALYTICS ---
+    getDriverProfitStats: async () => {
+        try {
+            const response = await fetch('/api/driver/stats/profit', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch profit stats');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return { Weekly: [], Monthly: [], Yearly: [] };
+        }
+    },
+
+    getDriverTripHistoryStats: async () => {
+        try {
+            const response = await fetch('/api/driver/stats/trips', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch trip history stats');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return [];
+        }
+    },
+
+    getDriverDistanceStats: async () => {
+        try {
+            const response = await fetch('/api/driver/stats/distance', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch distance stats');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return [];
+        }
+    },
+
+    getDriverHoursStats: async () => {
+        try {
+            const response = await fetch('/api/driver/stats/hours', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch hours stats');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return [];
+        }
+    },
+
+    getDriverOnTimeStats: async () => {
+        try {
+            const response = await fetch('/api/driver/stats/ontime', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch on-time stats');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return [];
+        }
+    },
+    getRiderConversations: async (): Promise<Conversation[]> => {
+        try {
+            const response = await fetch('/api/chat/conversations', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch rider conversations');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return [];
+        }
+    },
+
+    getRiderProfile: async () => {
+        try {
+            const response = await fetch('/api/rider/profile', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch rider profile');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return { name: "", avatar: "", rating: 0 };
+        }
+    },
+
+    getRiderStats: async () => {
+        try {
+            const response = await fetch('/api/rider/stats', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch rider stats');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return { totalSpend: 0, totalRides: 0, totalDistance: 0, chartData: [], rideTypes: [] };
+        }
+    },
+
+    getRiderHistory: async () => {
+        try {
+            const response = await fetch('/api/rider/history', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch rider history');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return [];
+        }
+    },
+
+    getAllRideSharePosts: async (): Promise<DriverRidePost[]> => {
+        try {
+            const response = await fetch('/api/rides/share', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch ride share posts');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return [];
+        }
+    },
+
+    getAllForHirePosts: async (): Promise<DriverHirePost[]> => {
+        try {
+            const response = await fetch('/api/rides/hire', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch for hire posts');
+            return await response.json();
+        } catch (error) {
+            console.error("API Error:", error);
+            return [];
+        }
+    },
 
     // --- PAYMENT FLOW API FUNCTIONS ---
     /**

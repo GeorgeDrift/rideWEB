@@ -23,8 +23,8 @@ const App: React.FC = () => {
     const [userRole, setUserRole] = useState<UserRole>('admin');
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [activeView, setActiveView] = useState<View>('dashboard');
-    // Default to dark mode as requested
-    const [isDarkMode, setIsDarkMode] = useState(true);
+    // Default to light mode for visibility
+    const [isDarkMode, setIsDarkMode] = useState(false);
 
     useEffect(() => {
         if (isDarkMode) {
@@ -98,16 +98,16 @@ const App: React.FC = () => {
     // Default Admin View
     return (
         <div className="h-screen overflow-hidden flex bg-gray-50 dark:bg-dark-900 text-gray-900 dark:text-gray-100 transition-colors duration-300">
-            <Sidebar 
-                activeView={activeView} 
-                setActiveView={setActiveView} 
-                isOpen={sidebarOpen} 
-                setIsOpen={setSidebarOpen} 
+            <Sidebar
+                activeView={activeView}
+                setActiveView={setActiveView}
+                isOpen={sidebarOpen}
+                setIsOpen={setSidebarOpen}
                 onLogout={handleLogout}
             />
             <div className="flex-1 flex flex-col transition-all duration-300 lg:ml-64">
-                <Header 
-                    title={getTitle(activeView)} 
+                <Header
+                    title={getTitle(activeView)}
                     onMenuClick={() => setSidebarOpen(true)}
                     isDarkMode={isDarkMode}
                     toggleTheme={toggleTheme}

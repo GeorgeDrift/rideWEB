@@ -45,11 +45,6 @@ exports.initiatePayment = async (req, res) => {
         });
 
         // 3. Update Transaction with PayChangu details
-        // Assuming response.data contains charge_id or similar
-        // Based on user snippet: response.data might be the charge object directly or nested
-        // Let's assume response.data.charge_id or response.data.data.charge_id
-        // We'll log it to be sure in dev, but for now map what we can.
-
         const chargeId = paymentResponse.data?.charge_id || paymentResponse.charge_id;
 
         await transaction.update({
@@ -91,12 +86,14 @@ exports.verifyPayment = async (req, res) => {
                 if (transaction.relatedId) {
                     const ride = await Ride.findByPk(transaction.relatedId);
                     if (ride) {
-                        const driverShare = transaction.amount * 0.9; // 90% to driver
+                        // 100% to Driver (No Platform Fee)
+                        const driverShare = transaction.amount;
 
                         await ride.update({
                             status: 'Completed',
                             paymentStatus: 'paid',
                             transactionRef: chargeId,
+                            platformFee: 0,
                             driverEarnings: driverShare
                         });
 
@@ -233,3 +230,88 @@ exports.handleWebhook = async (req, res) => {
         res.status(500).send('Internal Server Error');
     }
 };
+
+/**
+ * Request Payout (Driver Withdrawal)
+ */
+exports.requestPayout = async (req, res) => {
+    const { amount, mobileNumber, providerRefId } = req.body;
+    const userId = req.user.id;
+
+    console.log(`💸 [Payout] Driver ${userId} requesting ${amount} to ${mobileNumber}`);
+
+    try {
+        // 1. Validate Driver Role
+        const user = await User.findByPk(userId);
+        if (!user || user.role !== 'driver') {
+            return res.status(403).json({ error: 'Only drivers can request payouts' });
+        }
+
+        // 2. Check Wallet Balance
+        if (user.walletBalance < amount) {
+            return res.status(400).json({
+                error: 'Insufficient balance',
+                currentBalance: user.walletBalance,
+                requestedAmount: amount
+            });
+        }
+
+        // 3. Deduct from Wallet (Optimistic)
+        await user.decrement('walletBalance', { by: amount });
+
+        // 4. Create Payout Transaction
+        const chargeId = `PAYOUT-${uuidv4()}`;
+        const transaction = await Transaction.create({
+            userId: userId,
+            type: 'Payout',
+            amount: amount,
+            direction: 'credit',
+            status: 'pending',
+            reference: chargeId,
+            description: `Payout to ${mobileNumber}`
+        });
+
+        // 5. Call PayChangu Payout API
+        try {
+            const payoutResponse = await payChanguService.initiatePayout({
+                mobile: mobileNumber,
+                amount: amount,
+                mobile_money_operator_ref_id: providerRefId,
+                charge_id: chargeId,
+                email: user.email,
+                first_name: user.name.split(' ')[0],
+                last_name: user.name.split(' ')[1] || ''
+            });
+
+            // 6. Update Transaction Status
+            await transaction.update({
+                status: 'completed',
+                description: `Payout completed: ${payoutResponse.data?.ref_id || chargeId}`
+            });
+
+            res.json({
+                status: 'success',
+                message: 'Payout processed successfully',
+                data: payoutResponse,
+                newBalance: user.walletBalance - amount
+            });
+
+        } catch (payoutError) {
+            // 7. Rollback on Failure
+            console.error('Payout failed, rolling back:', payoutError);
+            await user.increment('walletBalance', { by: amount });
+            await transaction.update({ status: 'failed' });
+
+            res.status(500).json({
+                error: 'Payout failed',
+                message: payoutError.message,
+                balanceRestored: true
+            });
+        }
+
+    } catch (err) {
+        console.error("Payout Request Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+};
+

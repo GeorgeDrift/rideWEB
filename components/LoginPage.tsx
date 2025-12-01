@@ -194,8 +194,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                         type="button"
                         onClick={() => setSelectedRole('rider')}
                         className={`p-6 rounded-xl border-2 transition-all ${selectedRole === 'rider'
-                                ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
-                                : 'border-gray-200 dark:border-dark-700 hover:border-primary-300'
+                            ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+                            : 'border-gray-200 dark:border-dark-700 hover:border-primary-300'
                             }`}
                     >
                         <div className="text-4xl mb-2">🚶</div>
@@ -206,8 +206,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                         type="button"
                         onClick={() => setSelectedRole('driver')}
                         className={`p-6 rounded-xl border-2 transition-all ${selectedRole === 'driver'
-                                ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
-                                : 'border-gray-200 dark:border-dark-700 hover:border-primary-300'
+                            ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+                            : 'border-gray-200 dark:border-dark-700 hover:border-primary-300'
                             }`}
                     >
                         <div className="text-4xl mb-2">🚗</div>
@@ -600,8 +600,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
             </div>
 
             {/* Right Side: Visuals */}
-            <div className="hidden lg:block flex-1 relative bg-dark-900">
-                <div className="absolute inset-0 bg-gradient-to-br from-dark-800 to-black opacity-90"></div>
+            <div className="hidden lg:block flex-1 relative" style={{ backgroundColor: '#121212' }}>
+                <div className="absolute inset-0 bg-gradient-to-br from-gray-800 to-black opacity-90"></div>
                 <div className="absolute inset-0" style={{ backgroundImage: 'url("https://images.unsplash.com/photo-1449965408869-eaa3f722e40d?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80")', backgroundSize: 'cover', backgroundPosition: 'center', opacity: 0.3 }}></div>
                 <div className="relative h-full flex flex-col justify-center px-12 text-white">
                     <h1 className="text-5xl font-bold mb-6 leading-tight">

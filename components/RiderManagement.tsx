@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Rider, RiderStatus } from '../types';
 import { ApiService } from '../services/api';
 
@@ -13,13 +13,21 @@ const RiderStatusBadge: React.FC<{ status: RiderStatus }> = ({ status }) => {
 };
 
 export const RiderManagement: React.FC = () => {
-    const [riders, setRiders] = useState<Rider[]>(ApiService.getRiders());
+    const [riders, setRiders] = useState<Rider[]>([]);
+
+    useEffect(() => {
+        const fetchRiders = async () => {
+            const data = await ApiService.getRiders();
+            setRiders(data);
+        };
+        fetchRiders();
+    }, []);
 
     return (
         <div className="bg-white dark:bg-dark-800 p-4 sm:p-6 rounded-lg shadow-sm border border-gray-300 dark:border-dark-700">
             <div className="flex flex-col sm:flex-row justify-between items-center mb-6">
                 <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4 sm:mb-0">Rider Management</h2>
-                 <input type="text" placeholder="Search riders..." className="bg-gray-50 dark:bg-dark-700 text-gray-900 dark:text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500 border border-gray-300 dark:border-dark-600 placeholder-gray-500" />
+                <input type="text" placeholder="Search riders..." className="bg-gray-50 dark:bg-dark-700 text-gray-900 dark:text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500 border border-gray-300 dark:border-dark-600 placeholder-gray-500" />
             </div>
             <div className="overflow-x-auto no-scrollbar">
                 <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">

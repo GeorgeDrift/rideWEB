@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Driver, DriverStatus } from '../types';
 import { ApiService } from '../services/api';
+import { socketService } from '../services/socket';
 //new cahnges //
 const DriverStatusBadge: React.FC<{ status: DriverStatus }> = ({ status }) => {
     const baseClasses = "px-3 py-1 text-xs font-medium rounded-full inline-block border";
@@ -11,9 +12,38 @@ const DriverStatusBadge: React.FC<{ status: DriverStatus }> = ({ status }) => {
     };
     return <span className={`${baseClasses} ${statusClasses[status]}`}>{status}</span>;
 };
-
+//new code coming in through
 export const DriverManagement: React.FC = () => {
-    const [drivers, setDrivers] = useState<Driver[]>(ApiService.getDrivers());
+    const [drivers, setDrivers] = useState<Driver[]>([]);
+    const [loading, setLoading] = useState<boolean>(true);
+
+    // Fetch drivers on mount
+    useEffect(() => {
+        const fetchDrivers = async () => {
+            try {
+                const data = await ApiService.getDrivers();
+                setDrivers(data);
+            } catch (error) {
+                console.error('Failed to load drivers:', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchDrivers();
+
+        // Socket listeners for real-time updates
+        const handleStatusUpdate = (payload: { driverId: string; status: DriverStatus }) => {
+            setDrivers(prev => prev.map(d => d.id === payload.driverId ? { ...d, status: payload.status } : d));
+        };
+        socketService.on('driver_status_update', handleStatusUpdate);
+        return () => {
+            socketService.off('driver_status_update');
+        };
+    }, []);
+
+    if (loading) {
+        return <div className="p-4">Loading drivers...</div>;
+    }
 
     return (
         <div className="bg-white dark:bg-dark-800 p-4 sm:p-6 rounded-lg shadow-sm border border-gray-300 dark:border-dark-700">
