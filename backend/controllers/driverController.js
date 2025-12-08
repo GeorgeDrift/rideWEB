@@ -1,5 +1,5 @@
 
-const { Vehicle, Ride, User, sequelize } = require('../models');
+const { Vehicle, Ride, sequelize } = require('../models');
 const { Op } = require('sequelize');
 const locations = require('../data/locations.json');
 
@@ -54,31 +54,10 @@ exports.getStats = async (req, res) => {
 
         const result = stats[0];
 
-        // Fetch fresh user data for wallet balance
-        // Fetch fresh user data for wallet balance
-        const user = await User.findByPk(req.user.id);
-        console.log(`[DEBUG] Wallet Check - User: ${req.user.id}, Balance: ${user ? user.walletBalance : 'User Not Found'}, Name: ${user ? user.name : 'N/A'}`);
-        console.log('DRIVER AMOUNT:', user ? user.walletBalance : 0);
-
-        let currentBalance = user ? user.walletBalance : 0;
-        const totalEarnings = result.totalEarnings || 0;
-
-        // Lazy Fix: If wallet balance is 0 but total earnings exist (and assuming no withdrawals yet),
-        // sync the balance to match earnings. This fixes the "zero balance" issue for existing drivers.
-        if (currentBalance === 0 && totalEarnings > 0) {
-            console.log(`[getStats] Syncing walletBalance for user ${req.user.id} from 0 to ${totalEarnings}`);
-            if (user) {
-                user.walletBalance = totalEarnings;
-                await user.save();
-                currentBalance = totalEarnings;
-            }
-        }
-
         res.json({
-            totalEarnings: totalEarnings,
+            totalEarnings: result.totalEarnings || 0,
             count: parseInt(result.count) || 0,
-            avgRating: 4.9, // Static or fetch from User.rating
-            walletBalance: currentBalance
+            avgRating: 4.9 // Static or fetch from User.rating
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -129,36 +108,6 @@ exports.getProfitStats = async (req, res) => {
     }
 };
 
-// --- Get Driver Transactions ---
-exports.getTransactions = async (req, res) => {
-    try {
-        const { Transaction } = require('../models');
-        const transactions = await Transaction.findAll({
-            where: { userId: req.user.id },
-            order: [['createdAt', 'DESC']],
-            limit: 50 // Limit to last 50 for performance
-        });
-
-        // Map to frontend expected format
-        const formatted = transactions.map(t => ({
-            id: t.id,
-            type: t.type,
-            desc: t.description || t.type,
-            date: t.createdAt,
-            amount: t.amount,
-            method: t.reference ? 'Mobile/Bank' : 'System',
-            sub: t.reference || '-',
-            status: t.status,
-            direction: t.direction
-        }));
-
-        res.json(formatted);
-    } catch (err) {
-        console.error('getTransactions error:', err);
-        res.status(500).json({ error: err.message });
-    }
-};
-
 // Trip history stats: simple counts per day/week
 exports.getTripHistoryStats = async (req, res) => {
     try {
@@ -170,26 +119,8 @@ exports.getTripHistoryStats = async (req, res) => {
             const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
             const start = new Date(d.setHours(0, 0, 0, 0));
             const end = new Date(d.setHours(23, 59, 59, 999));
-
-            const shareCount = await Ride.count({
-                where: {
-                    driverId,
-                    type: 'share',
-                    status: 'Completed',
-                    createdAt: { [Op.between]: [start, end] }
-                }
-            });
-
-            const hireCount = await Ride.count({
-                where: {
-                    driverId,
-                    type: 'hire',
-                    status: 'Completed',
-                    createdAt: { [Op.between]: [start, end] }
-                }
-            });
-
-            weekly.push({ name: start.toLocaleDateString(), share: shareCount, hire: hireCount });
+            const count = await Ride.count({ where: { driverId, createdAt: { [Op.between]: [start, end] } } });
+            weekly.push({ name: start.toLocaleDateString(), share: Math.floor(count * 0.7), hire: Math.floor(count * 0.3) });
         }
         res.json(weekly);
     } catch (err) {
@@ -394,48 +325,35 @@ exports.getDriverPayoutDetails = async (req, res) => {
         const { User } = require('../models');
         const { driverId } = req.params;
 
-        console.log(`🔍 [Payout Details] Fetching for driverId: ${driverId}`);
-
         // Fetch driver from database
         const driver = await User.findByPk(driverId);
 
         if (!driver) {
-            console.log(`❌ [Payout Details] Driver ${driverId} not found in DB`);
             return res.status(404).json({ error: 'Driver not found' });
         }
 
+        // Check if driver has configured payout details
         if (!driver.payoutMethod) {
-            console.log(`⚠️ [Payout Details] Driver ${driverId} has no payout details configured.`);
+            return res.status(404).json({
+                error: 'Driver has not configured payout details yet'
+            });
         }
 
-        // Map Model fields to Frontend expected fields
-        // Model: airtelMoneyNumber, mpambaNumber, bankAccountNumber, bankAccountName
-        // Frontend expects: payoutMobileNumber, payoutAccountNumber, accountHolderName
-
-        let mobileNumber = null;
-        if (driver.payoutMethod === 'Airtel Money') mobileNumber = driver.airtelMoneyNumber;
-        else if (driver.payoutMethod === 'Mpamba') mobileNumber = driver.mpambaNumber;
-        else mobileNumber = driver.airtelMoneyNumber || driver.mpambaNumber; // Fallback
-
+        // Return payout details based on method
         const payoutDetails = {
             driverId: driver.id,
             driverName: driver.name,
-            payoutMethod: driver.payoutMethod || null,
-            bankName: driver.bankName || null,
-            payoutAccountNumber: driver.bankAccountNumber || null, // FIX: Use bankAccountNumber
-            accountHolderName: driver.bankAccountName || driver.name, // FIX: Use bankAccountName
-            payoutMobileNumber: mobileNumber || null
+            payoutMethod: driver.payoutMethod
         };
 
-        console.log(`✅ [Payout Details] Sending details for driver ${driverId}`, { ...payoutDetails, walletBalance: driver.walletBalance });
-        console.log('DRIVER AMOUNT:', driver.walletBalance);
-        console.log('REGISTERED BANK DETAILS:', {
-            bank: driver.bankName,
-            account: driver.bankAccountNumber,
-            holder: driver.bankAccountName,
-            airtel: driver.airtelMoneyNumber,
-            mpamba: driver.mpambaNumber
-        });
+        if (driver.payoutMethod === 'Bank') {
+            payoutDetails.bankName = driver.bankName;
+            payoutDetails.payoutAccountNumber = driver.payoutAccountNumber;
+            payoutDetails.accountHolderName = driver.accountHolderName || driver.name;
+        } else {
+            // Airtel Money or Mpamba
+            payoutDetails.payoutMobileNumber = driver.payoutMobileNumber;
+        }
 
         res.json(payoutDetails);
     } catch (err) {
@@ -452,18 +370,10 @@ exports.saveDriverPayoutDetails = async (req, res) => {
         const { User } = require('../models');
         const { payoutMethod, bankName, bankAccountNumber, bankAccountName, airtelMoneyNumber, mpambaNumber } = req.body;
 
-        console.log(`🏦 [Payout Details] Saving for driver ${req.user.id}:`, {
-            method: payoutMethod,
-            bank: bankName,
-            account: bankAccountNumber,
-            mobile: airtelMoneyNumber || mpambaNumber
-        });
-
         // Fetch driver from database
         const driver = await User.findByPk(req.user.id);
 
         if (!driver) {
-            console.log(`❌ [Payout Details] Driver ${req.user.id} not found`);
             return res.status(404).json({ error: 'Driver not found' });
         }
 
@@ -472,22 +382,25 @@ exports.saveDriverPayoutDetails = async (req, res) => {
 
         if (payoutMethod === 'Bank') {
             driver.bankName = bankName;
-            driver.bankAccountNumber = bankAccountNumber; // FIX: Use bankAccountNumber
-            driver.bankAccountName = bankAccountName; // FIX: Use bankAccountName
+            driver.payoutAccountNumber = bankAccountNumber;
+            driver.accountHolderName = bankAccountName;
+            // Clear mobile money fields
+            driver.payoutMobileNumber = null;
         } else if (payoutMethod === 'Airtel Money') {
-            driver.airtelMoneyNumber = airtelMoneyNumber; // FIX: Use airtelMoneyNumber
+            driver.payoutMobileNumber = airtelMoneyNumber;
+            // Clear bank fields
+            driver.bankName = null;
+            driver.payoutAccountNumber = null;
+            driver.accountHolderName = null;
         } else if (payoutMethod === 'Mpamba') {
-            driver.mpambaNumber = mpambaNumber; // FIX: Use mpambaNumber
+            driver.payoutMobileNumber = mpambaNumber;
+            // Clear bank fields
+            driver.bankName = null;
+            driver.payoutAccountNumber = null;
+            driver.accountHolderName = null;
         }
 
-        // Ensure we save the fields if they are provided, even if not the primary method (optional enhancement, but for now just updating active method fields is fine, just don't clear the others)
-        // Actually, the form sends everything. If I switch to Bank, the form might send empty strings for mobile if I didn't type unique state.
-        // But the user issue is probable that they SAVED 'Bank', so 'Mobile' was cleared.
-        // Now if I remove the clearing, old data persists.
-
-
         await driver.save();
-        console.log(`✅ [Payout Details] Driver ${req.user.id} updated successfully.`);
 
         res.json({
             message: 'Payout details saved successfully',
@@ -495,9 +408,9 @@ exports.saveDriverPayoutDetails = async (req, res) => {
                 id: driver.id,
                 payoutMethod: driver.payoutMethod,
                 bankName: driver.bankName,
-                payoutAccountNumber: driver.bankAccountNumber,
-                accountHolderName: driver.bankAccountName,
-                payoutMobileNumber: driver.airtelMoneyNumber || driver.mpambaNumber
+                payoutAccountNumber: driver.payoutAccountNumber,
+                accountHolderName: driver.accountHolderName,
+                payoutMobileNumber: driver.payoutMobileNumber
             }
         });
     } catch (err) {

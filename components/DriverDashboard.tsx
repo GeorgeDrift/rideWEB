@@ -5,7 +5,7 @@ import {
     SearchIcon, CloseIcon, MenuIcon, PlusIcon, CheckBadgeIcon,
     PencilIcon, TrashIcon, CreditCardIcon, PhoneIcon, ChatIcon, SendIcon,
     BriefcaseIcon, TruckIcon, PackageIcon, HandshakeIcon, StarIcon, DocumentIcon,
-    UsersIcon, ExclamationTriangleIcon
+    UsersIcon
 } from './Icons';
 import {
     AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, PieChart, Pie, Legend
@@ -97,16 +97,16 @@ const hireCategories = VEHICLE_CATEGORIES;
 import { ThemeToggle } from './ThemeToggle';
 
 const subscriptionPlans = {
-    'monthly': { id: 'monthly', label: 'Monthly', price: 49900, discount: 0, billing: 'Billed monthly' },
-    'quarterly': { id: 'quarterly', label: 'Quarterly', price: 134900, discount: 10, billing: 'Billed every 3 months' },
-    'biannual': { id: 'biannual', label: 'Bi-Annual', price: 254900, discount: 15, billing: 'Billed every 6 months' },
-    'yearly': { id: 'yearly', label: 'Yearly', price: 479900, discount: 20, billing: 'Billed annually' }
+    '1m': { id: '1m', label: 'Monthly', price: 49900, discount: 0, billing: 'Billed monthly' },
+    '3m': { id: '3m', label: 'Quarterly', price: 134900, discount: 10, billing: 'Billed every 3 months' },
+    '6m': { id: '6m', label: 'Bi-Annual', price: 254900, discount: 15, billing: 'Billed every 6 months' },
+    '1y': { id: '1y', label: 'Yearly', price: 479900, discount: 20, billing: 'Billed annually' }
 };
 
 export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) => {
     // Global State
     const [sidebarOpen, setSidebarOpen] = useState(false);
-    const [activeTab, setActiveTab] = useState<'overview' | 'jobs' | 'tracking' | 'history' | 'subscription' | 'trips' | 'distance' | 'hours' | 'ontime' | 'inventory' | 'messages' | 'documents' | 'requests' | 'settings'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'jobs' | 'tracking' | 'history' | 'subscription' | 'trips' | 'distance' | 'hours' | 'ontime' | 'inventory' | 'messages' | 'documents' | 'requests'>('overview');
     const [driverProfile, setDriverProfile] = useState<any>(null);
     const [pendingApprovals, setPendingApprovals] = useState<any[]>([]);
     const [driverLocation, setDriverLocation] = useState<[number, number]>([33.7741, -13.9626]);
@@ -124,47 +124,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
             setDriverProfile(profile);
         };
         loadProfile();
-        loadProfile();
     }, []);
-
-    // Load Transactions when Settings tab is active
-    // Load Transactions & Wallet Data when Settings tab is active
-    useEffect(() => {
-        if (activeTab === 'settings') {
-            const loadSettingsData = async () => {
-                // Fetch Transactions
-                const txs = await ApiService.getDriverTransactions();
-                setTransactions(txs);
-
-                // Fetch Fresh Wallet Stats (triggers lazy fix if needed)
-                try {
-                    const stats = await ApiService.getDriverStats();
-                    if (stats) setSummaryStats(stats);
-                } catch (e) { console.warn('Refresh stats failed', e); }
-
-                // Fetch Payout Details
-                try {
-                    const driverId = driverProfile?.id || (JSON.parse(atob(localStorage.getItem('token')!.split('.')[1])).id);
-                    const payoutRes = await ApiService.getDriverPayoutDetails(driverId);
-                    if (payoutRes && payoutRes.payoutMethod) {
-                        setPayoutMethod(payoutRes.payoutMethod);
-                        setPayoutDetails({
-                            bankName: payoutRes.bankName,
-                            accountNumber: payoutRes.payoutAccountNumber,
-                            accountName: payoutRes.accountHolderName,
-                            mobileNumber: payoutRes.payoutMobileNumber
-                        });
-                        // Auto-select destination based on configured method
-                        if (payoutRes.payoutMethod === 'Bank') setWithdrawDestination('bank');
-                        else setWithdrawDestination('mobile');
-                    }
-                } catch (e) {
-                    console.warn('Refresh payout details failed', e);
-                }
-            };
-            loadSettingsData();
-        }
-    }, [activeTab, driverProfile]);
 
     // Initialize Socket Connection
     useEffect(() => {
@@ -343,7 +303,9 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     const unreadCount = notifications.filter(n => n.unread).length;
 
     // Subscription Page State
-
+    const [selectedDuration, setSelectedDuration] = useState<'1m' | '3m' | '6m' | '1y'>('1m');
+    const [paymentMethod, setPaymentMethod] = useState<'card' | 'mobile' | null>(null);
+    const [mobileProvider, setMobileProvider] = useState<'airtel' | 'mpamba'>('airtel');
     const [isSubscriptionPaid, setIsSubscriptionPaid] = useState(false);
     const [subStartDate] = useState(new Date().getDate() < 15 ? new Date(new Date().setMonth(new Date().getMonth() - 1)) : new Date());
     const [subEndDate] = useState(new Date(new Date().setMonth(subStartDate.getMonth() + 1)));
@@ -409,74 +371,6 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     // Subscription Modal State
     const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
     const [subscriptionStatus, setSubscriptionStatus] = useState<any>(null);
-
-    // Subscription Payment State
-    const [selectedDuration, setSelectedDuration] = useState<'monthly' | 'quarterly' | 'biannual' | 'yearly'>('monthly');
-    const [paymentMethod, setPaymentMethod] = useState<string | null>(null);
-    const [mobileProvider, setMobileProvider] = useState<string>('airtel');
-    const [mobileNumber, setMobileNumber] = useState<string>('');
-    const [isPaymentLoading, setIsPaymentLoading] = useState<boolean>(false);
-
-    // Handle Subscription Payment (Using same logic as for hire payments)
-    const handlePayment = async () => {
-        if (!paymentMethod) {
-            alert('Please select a payment method');
-            return;
-        }
-
-        if (paymentMethod === 'mobile' && !mobileNumber) {
-            alert('Please enter your mobile number');
-            return;
-        }
-
-        setIsPaymentLoading(true);
-        console.log('🚀 Initiating subscription payment...');
-        console.log('Plan:', selectedDuration);
-        console.log('Amount:', subscriptionPlans[selectedDuration].price);
-
-        try {
-            const response = await fetch('/api/subscriptions/initiate', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                },
-                body: JSON.stringify({
-                    plan: selectedDuration,
-                    mobileNumber: mobileNumber,
-                    providerRefId: mobileProvider === 'airtel' 
-                        ? '20be6c20-adeb-4b5b-a7ba-0769820df4fb'  // Real Airtel Money ID from PayChangu
-                        : '27494cb5-ba9e-437f-a114-4e7a7686bcca'   // Real TNM Mpamba ID from PayChangu
-                })
-            });
-
-            const data = await response.json();
-            console.log('Response:', data);
-
-            if (response.ok) {
-                // Show success message
-                alert('✅ Payment initiated successfully!\n\nPlease check your phone to approve the payment.\n\nYou will receive a notification once payment is confirmed.');
-                
-                // Reset form
-                setPaymentMethod(null);
-                setMobileNumber('');
-                
-                // Refresh subscription status
-                const statusRes = await fetch('/api/subscriptions/status', {
-                    headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-                });
-                const status = await statusRes.json();
-                setSubscriptionStatus(status);
-            } else {
-                alert('❌ Payment failed\n\n' + (data.error || 'Unknown error') + '\n\nPlease try again.');
-            }
-        } catch (error) {
-            console.error('Payment error:', error);
-            alert('❌ Payment failed\n\nPlease check your connection and try again.');
-        } finally {
-            setIsPaymentLoading(false);
-        }
-    };
 
     // --- Interactive Logic ---
 
@@ -611,13 +505,6 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
 
                 if (currentStatus === 'Active') {
                     alert('Rental is active. Use return/complete actions when finished.');
-                    return;
-                }
-
-                if (currentStatus === 'Return Pending') {
-                    await ApiService.confirmVehicleReturn(idStr);
-                    setContractedJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'Completed' } : j));
-                    alert('Vehicle return confirmed! Ride completed.');
                     return;
                 }
 
@@ -845,57 +732,6 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
         }
     };
 
-    // Socket Listeners for Job Updates
-    useEffect(() => {
-        socketService.on('return_requested', (data) => {
-            const rideId = data.rideId || data.id;
-            if (rideId) {
-                setContractedJobs(prev => prev.map(j => j.id === rideId ? { ...j, status: 'Return Pending' } : j));
-                setNotifications(prev => [{
-                    title: 'Vehicle Return Requested',
-                    msg: data.message || 'Rider wants to return the vehicle.',
-                    time: 'Just now',
-                    unread: true
-                }, ...prev]);
-            }
-        });
-
-        socketService.on('handover_completed', (data) => {
-            console.log('🔔 [DriverDashboard] Received handover_completed event:', data);
-            const rideId = data.rideId || data.id;
-            if (rideId) {
-                console.log(`✅ [DriverDashboard] Updating job ${rideId} to status: Active`);
-                setContractedJobs(prev => {
-                    const updated = prev.map(j => j.id === rideId ? { ...j, status: 'Active' } : j);
-                    console.log('[DriverDashboard] Updated contractedJobs:', updated);
-                    return updated;
-                });
-                setNotifications(prev => [{
-                    title: 'Handover Completed',
-                    msg: data.message || 'Vehicle handover confirmed. Trip is active.',
-                    time: 'Just now',
-                    unread: true
-                }, ...prev]);
-
-                // FORCE REFRESH: Fetch latest jobs from backend to ensure sync
-                (async () => {
-                    try {
-                        const latestJobs = await ApiService.getDriverContractedJobs();
-                        console.log('🔄 [DriverDashboard] Force refreshed jobs from backend:', latestJobs);
-                        setContractedJobs(latestJobs);
-                    } catch (e) {
-                        console.error('[DriverDashboard] Force refresh failed:', e);
-                    }
-                })();
-            }
-        });
-
-        return () => {
-            socketService.off('return_requested');
-            socketService.off('handover_completed');
-        };
-    }, []);
-
     // Fetch pending approvals when tab is active
     useEffect(() => {
         if (activeTab === 'requests') {
@@ -1065,6 +901,14 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
         setSettleDesc('');
     };
 
+    const handlePayment = () => {
+        setTimeout(() => {
+            setIsSubscriptionPaid(true);
+            setPaymentMethod(null);
+            alert('Payment processed successfully! Calendar updated.');
+        }, 1000);
+    };
+
     const handleSendMessage = (e: React.FormEvent) => {
         e.preventDefault();
         if (!messageInput.trim()) return;
@@ -1112,32 +956,11 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
         e.preventDefault();
         setDocumentsSaving(true);
 
-        // Simulate API call to save documents (License only)
+        // Simulate API call to save documents
         setTimeout(() => {
             setDocumentsSaving(false);
-            alert("Driver license uploaded successfully! Verification pending.");
+            alert("Documents saved successfully! Your verification is pending admin approval.");
         }, 1500);
-    };
-
-    const handleSavePayoutDetails = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setDocumentsSaving(true);
-        try {
-            await ApiService.saveDriverPayoutDetails({
-                payoutMethod,
-                bankName: payoutDetails.bankName,
-                bankAccountNumber: payoutDetails.accountNumber,
-                bankAccountName: payoutDetails.accountName,
-                airtelMoneyNumber: payoutDetails.mobileNumber, // Assuming mapped in backend
-                mpambaNumber: payoutDetails.mobileNumber       // Assuming mapped in backend
-            });
-            alert("Payout details saved successfully!");
-        } catch (error) {
-            console.error(error);
-            alert("Failed to save payout details.");
-        } finally {
-            setDocumentsSaving(false);
-        }
     };
 
 
@@ -1152,49 +975,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     const [onTimeData, setOnTimeData] = useState<any[]>([]);
 
     // Summary stats fetched from backend (/api/driver/stats)
-    const [summaryStats, setSummaryStats] = useState<{ totalEarnings: number; count: number; avgRating: number; walletBalance?: number }>({ totalEarnings: 0, count: 0, avgRating: 5, walletBalance: 0 });
-
-    const [withdrawAmount, setWithdrawAmount] = useState('');
-    const [isWithdrawing, setIsWithdrawing] = useState(false);
-    const [withdrawDestination, setWithdrawDestination] = useState<'mobile' | 'bank'>('mobile');
-
-    const handleWithdraw = async () => {
-        if (!withdrawAmount || isWithdrawing) return;
-
-        // Basic validation depending on destination
-        if (withdrawDestination === 'mobile' && !payoutDetails.mobileNumber) {
-            alert('Please configure Mobile Money details in the Payout Details tab first.');
-            return;
-        }
-        if (withdrawDestination === 'bank' && !payoutDetails.bankName) {
-            alert('Please configure Bank Details in the Payout Details tab first.');
-            return;
-        }
-
-        setIsWithdrawing(true);
-        try {
-            const amount = parseFloat(withdrawAmount);
-            let mobile = payoutDetails.mobileNumber || "0999123456";
-
-            // If bank is selected, we might want to pass a flag or handle differently
-            // For now, the API requestPayout expects a mobile number for PayChangu
-            // If it's a bank, we probably just create a manual request or use a specific flow.
-            // Assuming simplified flow where API handles routing based on provided details or just creating a withdrawal request.
-            // We will pass the destination type to the API (need to update API service if not supported, or just use mobile number as key for now)
-
-            await ApiService.requestPayout(amount, mobile, 'AIRTEL', withdrawDestination);
-            alert(`Withdrawal of MWK ${amount.toLocaleString()} initiated via ${withdrawDestination === 'mobile' ? 'Mobile Money' : 'Bank Transfer'}!`);
-            setWithdrawAmount('');
-            // Refresh stats to update balance
-            const stats = await ApiService.getDriverStats();
-            setSummaryStats(stats || { totalEarnings: 0, count: 0, avgRating: 5, walletBalance: 0 });
-        } catch (error: any) {
-            console.error(error);
-            alert(error.message || "Withdrawal failed");
-        } finally {
-            setIsWithdrawing(false);
-        }
-    };
+    const [summaryStats, setSummaryStats] = useState<{ totalEarnings: number; count: number; avgRating: number }>({ totalEarnings: 0, count: 0, avgRating: 5 });
 
     useEffect(() => {
         const fetchAnalytics = async () => {
@@ -1222,46 +1003,23 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     // Fetch driver data
     useEffect(() => {
         const fetchDriverData = async () => {
-            try {
-                const driverId = driverProfile?.id || (JSON.parse(atob(localStorage.getItem('token')!.split('.')[1])).id);
-
-                const [notifs, txns, convos, posts, hirePosts, jobs, vehicles, payoutRes] = await Promise.all([
-                    ApiService.getDriverNotifications(),
-                    ApiService.getDriverTransactions(),
-                    ApiService.getDriverConversations(),
-                    ApiService.getDriverActivePosts(),
-                    ApiService.getDriverHirePosts(),
-                    ApiService.getDriverContractedJobs(),
-                    ApiService.getDriverVehicles(),
-                    ApiService.getDriverPayoutDetails(driverId).catch(() => ({})) // Fail gracefully if no details yet
-                ]);
-
-                setNotifications(notifs);
-                setTransactions(txns);
-                setConversations(convos);
-                if (convos.length > 0) setActiveChatId(convos[0].id);
-                setActivePosts(posts);
-                setMyHirePosts(hirePosts);
-                setContractedJobs(jobs);
-                setMyVehicles(vehicles);
-
-                // Populate payout details from backend
-                if (payoutRes && payoutRes.payoutMethod) {
-                    setPayoutMethod(payoutRes.payoutMethod);
-                    setPayoutDetails({
-                        bankName: payoutRes.bankName,
-                        accountNumber: payoutRes.payoutAccountNumber,
-                        accountName: payoutRes.accountHolderName,
-                        mobileNumber: payoutRes.payoutMobileNumber
-                    });
-
-                    // Auto-select destination based on configured method
-                    if (payoutRes.payoutMethod === 'Bank') setWithdrawDestination('bank');
-                    else setWithdrawDestination('mobile');
-                }
-            } catch (error) {
-                console.error("Error fetching driver data:", error);
-            }
+            const [notifs, txns, convos, posts, hirePosts, jobs, vehicles] = await Promise.all([
+                ApiService.getDriverNotifications(),
+                ApiService.getDriverTransactions(),
+                ApiService.getDriverConversations(),
+                ApiService.getDriverActivePosts(),
+                ApiService.getDriverHirePosts(),
+                ApiService.getDriverContractedJobs(),
+                ApiService.getDriverVehicles()
+            ]);
+            setNotifications(notifs);
+            setTransactions(txns);
+            setConversations(convos);
+            setActiveChatId(convos[0]?.id || '');
+            setActivePosts(posts);
+            setMyHirePosts(hirePosts);
+            setContractedJobs(jobs);
+            setMyVehicles(vehicles);
         };
         fetchDriverData();
     }, []);
@@ -1561,14 +1319,6 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                     <button onClick={() => setActiveTab('documents')} className={`flex items-center w-full px-4 py-3 rounded-xl font-medium transition-colors ${activeTab === 'documents' ? 'text-white bg-[#2A2A2A]' : 'text-gray-400 hover:text-white hover:bg-[#2A2A2A]'}`}>
                         <DocumentIcon className="w-5 h-5 mr-3" /> Documents
                     </button>
-                    <button onClick={() => setActiveTab('settings')} className={`flex items-center w-full px-4 py-3 rounded-xl font-medium transition-colors ${activeTab === 'settings' ? 'text-white bg-[#2A2A2A]' : 'text-gray-400 hover:text-white hover:bg-[#2A2A2A]'}`}>
-                        <svg className="w-5 h-5 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        </svg>
-                        Settings
-                    </button>
-
                     <button onClick={() => setActiveTab('subscription')} className={`flex items-center w-full px-4 py-3 rounded-xl font-medium transition-colors ${activeTab === 'subscription' ? 'text-white bg-[#2A2A2A]' : 'text-gray-400 hover:text-white hover:bg-[#2A2A2A]'}`}>
                         <CreditCardIcon className="w-5 h-5 mr-3" /> Subscription
                     </button>
@@ -1588,7 +1338,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                             <MenuIcon className="h-6 w-6" />
                         </button>
                         <div className="hidden md:flex items-center space-x-4">
-                            {['overview', 'jobs', 'messages', 'inventory', 'tracking', 'history', 'settings'].map(tab => (
+                            {['overview', 'jobs', 'messages', 'inventory', 'tracking', 'history'].map(tab => (
                                 <button
                                     key={tab}
                                     onClick={() => setActiveTab(tab as any)}
@@ -2320,9 +2070,9 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                             </div>
                         )}
 
-                        {/* --- Documents (Now Payout Details) Page --- */}
+                        {/* --- Documents/Verification Page --- */}
                         {activeTab === 'documents' && (
-                            <div className="animate-fadeIn space-y-6 max-w-3xl mx-auto">
+                            <div className="animate-fadeIn space-y-6 max-w-5xl mx-auto">
                                 <div className="flex items-center gap-4 mb-6">
                                     <button
                                         onClick={() => setActiveTab('overview')}
@@ -2331,200 +2081,160 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                         <ArrowLeftIcon className="w-5 h-5" />
                                     </button>
                                     <div>
-                                        <h2 className="text-2xl font-bold text-white">Payout Details</h2>
-                                        <p className="text-sm text-gray-400">Manage your bank or mobile money details.</p>
+                                        <h2 className="text-2xl font-bold text-white">Documents & Verification</h2>
+                                        <p className="text-sm text-gray-400">Upload your driver's license and payment details for verification.</p>
                                     </div>
                                 </div>
 
-                                <form onSubmit={handleSavePayoutDetails} className="space-y-6">
-                                    <div className="bg-[#1E1E1E] rounded-3xl p-6 border border-[#2A2A2A] relative overflow-hidden">
-                                        <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                                            <CreditCardIcon className="w-5 h-5 text-[#FACC15]" />
-                                            Payout Method
-                                        </h3>
+                                <form onSubmit={handleDocumentsSave} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                                    {/* Left Column: Payment Details */}
+                                    <div className="lg:col-span-2 space-y-6">
+                                        {/* Payment Configuration Card */}
+                                        <div className="bg-[#1E1E1E] rounded-3xl p-6 border border-[#2A2A2A] relative overflow-hidden">
+                                            <div className="absolute top-0 right-0 w-32 h-32 bg-green-500/5 rounded-bl-full -mr-10 -mt-10 pointer-events-none"></div>
+                                            <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                                                <CreditCardIcon className="w-5 h-5 text-green-500" />
+                                                Payment Details
+                                            </h3>
 
-                                        <div className="mb-6">
-                                            <label className="text-xs text-gray-500 mb-2 block uppercase font-bold">Preferred Method</label>
-                                            <div className="flex bg-[#252525] p-1 rounded-xl border border-[#333]">
-                                                {['Bank', 'Airtel Money', 'Mpamba'].map((method) => (
-                                                    <button
-                                                        key={method}
-                                                        type="button"
-                                                        onClick={() => setPayoutMethod(method as any)}
-                                                        className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${payoutMethod === method ? 'bg-[#FACC15] text-black shadow-lg' : 'text-gray-400 hover:text-white hover:bg-[#333]'}`}
-                                                    >
-                                                        {method}
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        </div>
-
-                                        {payoutMethod === 'Bank' ? (
-                                            <div className="space-y-4 animate-fadeIn">
-                                                <div className="grid grid-cols-2 gap-4">
-                                                    <div>
-                                                        <label className="text-xs text-gray-500 mb-1 block">Bank Name</label>
-                                                        <select
-                                                            value={payoutDetails.bankName || ''}
-                                                            onChange={(e) => setPayoutDetails({ ...payoutDetails, bankName: e.target.value })}
-                                                            className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]"
-                                                            required
+                                            <div className="mb-6">
+                                                <label className="text-xs text-gray-500 mb-2 block uppercase font-bold">Preferred Payment Method</label>
+                                                <div className="flex bg-[#252525] p-1 rounded-xl border border-[#333]">
+                                                    {['Bank', 'Airtel Money', 'Mpamba'].map((method) => (
+                                                        <button
+                                                            key={method}
+                                                            type="button"
+                                                            onClick={() => setPayoutMethod(method as any)}
+                                                            className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${payoutMethod === method ? 'bg-[#FACC15] text-black shadow-lg' : 'text-gray-400 hover:text-white hover:bg-[#333]'}`}
                                                         >
-                                                            <option value="">Select Bank</option>
-                                                            <option value="National Bank">National Bank of Malawi</option>
-                                                            <option value="Standard Bank">Standard Bank</option>
-                                                            <option value="FDH Bank">FDH Bank</option>
-                                                            <option value="NBS Bank">NBS Bank</option>
-                                                        </select>
+                                                            {method}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            {payoutMethod === 'Bank' ? (
+                                                <div className="space-y-4 animate-fadeIn">
+                                                    <div className="grid grid-cols-2 gap-4">
+                                                        <div>
+                                                            <label className="text-xs text-gray-500 mb-1 block">Bank Name</label>
+                                                            <select
+                                                                value={payoutDetails.bankName || ''}
+                                                                onChange={(e) => setPayoutDetails({ ...payoutDetails, bankName: e.target.value })}
+                                                                className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]"
+                                                                required
+                                                            >
+                                                                <option value="">Select Bank</option>
+                                                                <option value="National Bank">National Bank of Malawi</option>
+                                                                <option value="Standard Bank">Standard Bank</option>
+                                                                <option value="FDH Bank">FDH Bank</option>
+                                                                <option value="NBS Bank">NBS Bank</option>
+                                                            </select>
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-xs text-gray-500 mb-1 block">Account Number</label>
+                                                            <input
+                                                                type="text"
+                                                                value={payoutDetails.accountNumber || ''}
+                                                                onChange={(e) => setPayoutDetails({ ...payoutDetails, accountNumber: e.target.value })}
+                                                                className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]"
+                                                                placeholder="0000000000"
+                                                                required
+                                                            />
+                                                        </div>
                                                     </div>
                                                     <div>
-                                                        <label className="text-xs text-gray-500 mb-1 block">Account Number</label>
+                                                        <label className="text-xs text-gray-500 mb-1 block">Account Holder Name</label>
                                                         <input
                                                             type="text"
-                                                            value={payoutDetails.accountNumber || ''}
-                                                            onChange={(e) => setPayoutDetails({ ...payoutDetails, accountNumber: e.target.value })}
+                                                            value={payoutDetails.accountName || ''}
+                                                            onChange={(e) => setPayoutDetails({ ...payoutDetails, accountName: e.target.value })}
                                                             className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]"
-                                                            placeholder="0000000000"
+                                                            placeholder="Full Name"
                                                             required
                                                         />
                                                     </div>
                                                 </div>
-                                                <div>
-                                                    <label className="text-xs text-gray-500 mb-1 block">Account Holder Name</label>
-                                                    <input
-                                                        type="text"
-                                                        value={payoutDetails.accountName || ''}
-                                                        onChange={(e) => setPayoutDetails({ ...payoutDetails, accountName: e.target.value })}
-                                                        className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]"
-                                                        placeholder="Full Name"
-                                                        required
-                                                    />
+                                            ) : (
+                                                <div className="animate-fadeIn">
+                                                    <label className="text-xs text-gray-500 mb-1 block">Mobile Number ({payoutMethod})</label>
+                                                    <div className="relative">
+                                                        <PhoneIcon className="w-5 h-5 text-gray-500 absolute left-4 top-3" />
+                                                        <input
+                                                            type="text"
+                                                            value={payoutDetails.mobileNumber || ''}
+                                                            onChange={(e) => setPayoutDetails({ ...payoutDetails, mobileNumber: e.target.value })}
+                                                            className="w-full bg-[#252525] border border-[#333] rounded-xl pl-12 pr-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]"
+                                                            placeholder="+265..."
+                                                            required
+                                                        />
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ) : (
-                                            <div className="animate-fadeIn">
-                                                <label className="text-xs text-gray-500 mb-1 block">Mobile Number ({payoutMethod})</label>
-                                                <div className="relative">
-                                                    <PhoneIcon className="w-5 h-5 text-gray-500 absolute left-4 top-3" />
-                                                    <input
-                                                        type="text"
-                                                        value={payoutDetails.mobileNumber || ''}
-                                                        onChange={(e) => setPayoutDetails({ ...payoutDetails, mobileNumber: e.target.value })}
-                                                        className="w-full bg-[#252525] border border-[#333] rounded-xl pl-12 pr-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]"
-                                                        placeholder="+265..."
-                                                        required
-                                                    />
-                                                </div>
-                                            </div>
-                                        )}
+                                            )}
+                                        </div>
                                     </div>
 
-                                    <button
-                                        type="submit"
-                                        disabled={documentsSaving}
-                                        className="w-full bg-[#FACC15] text-black font-bold py-4 rounded-xl hover:bg-[#EAB308] transition-all shadow-lg shadow-[#FACC15]/20 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
-                                    >
-                                        {documentsSaving ? <SpinnerIcon className="w-5 h-5" /> : <CheckBadgeIcon className="w-5 h-5" />}
-                                        {documentsSaving ? 'Saving...' : 'Save Details'}
-                                    </button>
+                                    {/* Right Column: License Upload */}
+                                    <div className="space-y-6">
+                                        <div className="bg-[#1E1E1E] rounded-3xl p-6 border border-[#2A2A2A] flex flex-col h-full">
+                                            <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                                                <DocumentIcon className="w-5 h-5 text-[#FACC15]" />
+                                                Driver's License
+                                            </h3>
+
+                                            <div className="mb-6">
+                                                <label className="text-xs text-gray-500 mb-2 block">Upload License (Front)</label>
+
+                                                {licensePreview ? (
+                                                    <div className="relative group rounded-xl overflow-hidden border border-[#333]">
+                                                        <img src={licensePreview} alt="License Preview" className="w-full h-40 object-cover" />
+                                                        <div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => { setLicensePreview(null); setLicenseFile(null); }}
+                                                                className="bg-red-600 text-white px-4 py-2 rounded-lg text-xs font-bold"
+                                                            >
+                                                                Remove
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <label className="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-[#333] rounded-xl cursor-pointer hover:border-[#FACC15] hover:bg-[#252525] transition-all">
+                                                        <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                                                            <svg className="w-8 h-8 mb-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+                                                            <p className="mb-2 text-sm text-gray-400"><span className="font-semibold text-[#FACC15]">Click to upload</span> or drag and drop</p>
+                                                            <p className="text-xs text-gray-500">PNG, JPG, PDF (MAX. 5MB)</p>
+                                                        </div>
+                                                        <input type="file" className="hidden" onChange={handleLicenseUpload} accept="image/*,application/pdf" required />
+                                                    </label>
+                                                )}
+                                            </div>
+
+                                            <div className="mt-auto bg-[#252525] p-4 rounded-xl border border-[#333]">
+                                                <div className="flex justify-between items-center mb-1">
+                                                    <span className="text-gray-400 text-xs">Verification Status</span>
+                                                    <span className="text-yellow-400 text-xs font-bold bg-yellow-900/30 px-2 py-0.5 rounded">Pending</span>
+                                                </div>
+                                                <p className="text-[10px] text-gray-500">
+                                                    Upload your license to unlock verified status and access premium jobs.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="lg:col-span-3">
+                                        <button
+                                            type="submit"
+                                            disabled={documentsSaving}
+                                            className="w-full bg-[#FACC15] text-black font-bold py-4 rounded-xl hover:bg-[#EAB308] transition-all shadow-lg shadow-[#FACC15]/20 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                                        >
+                                            {documentsSaving ? <SpinnerIcon className="w-5 h-5" /> : <CheckBadgeIcon className="w-5 h-5" />}
+                                            {documentsSaving ? 'Saving Documents...' : 'Save & Submit for Verification'}
+                                        </button>
+                                    </div>
                                 </form>
                             </div>
                         )}
-
-                        {/* --- Settings (Wallet Only) Page --- */}
-                        {activeTab === 'settings' && (
-                            <div className="animate-fadeIn space-y-6 max-w-3xl mx-auto">
-                                <div className="flex items-center gap-4 mb-6">
-                                    <button
-                                        onClick={() => setActiveTab('overview')}
-                                        className="p-2 rounded-xl bg-[#252525] hover:bg-[#333] text-gray-400 hover:text-white transition-colors"
-                                    >
-                                        <ArrowLeftIcon className="w-5 h-5" />
-                                    </button>
-                                    <div>
-                                        <h2 className="text-2xl font-bold text-white">Wallet & Settings</h2>
-                                        <p className="text-sm text-gray-400">Manage your wallet and balance.</p>
-                                    </div>
-                                </div>
-
-                                {/* Wallet Section */}
-                                <div className="bg-[#1E1E1E] rounded-3xl p-6 border border-[#2A2A2A] relative overflow-hidden">
-                                    <div className="flex justify-between items-center mb-6">
-                                        <div>
-                                            <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                                                <CreditCardIcon className="w-5 h-5 text-[#FACC15]" />
-                                                Wallet Balance
-                                            </h3>
-                                            <p className="text-sm text-gray-400">Available earnings for withdrawal.</p>
-                                        </div>
-                                        <div className="text-right">
-                                            <div className="text-2xl font-bold text-[#FACC15]">MWK {(summaryStats.walletBalance || 0).toLocaleString()}</div>
-                                            <div className="text-xs text-gray-500">Available</div>
-                                        </div>
-                                    </div>
-
-                                    <div className="flex gap-4">
-                                        <div className="relative flex-1">
-                                            <span className="absolute left-4 top-3.5 text-gray-400 text-sm">MWK</span>
-                                            <input
-                                                type="number"
-                                                value={withdrawAmount}
-                                                onChange={e => setWithdrawAmount(e.target.value)}
-                                                className="w-full bg-[#252525] border border-[#333] rounded-xl pl-12 pr-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]"
-                                                placeholder="0.00"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    {/* Withdrawal Destination Selection */}
-                                    <div className="mt-6 mb-6">
-                                        <label className="text-xs text-gray-500 mb-2 block uppercase font-bold">Withdraw To</label>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            <div
-                                                onClick={() => setWithdrawDestination('mobile')}
-                                                className={`p-4 rounded-xl border cursor-pointer transition-all ${withdrawDestination === 'mobile' ? 'bg-[#FACC15]/10 border-[#FACC15] ring-1 ring-[#FACC15]' : 'bg-[#252525] border-[#333] hover:border-[#666]'}`}
-                                            >
-                                                <div className="flex justify-between items-center mb-2">
-                                                    <span className={`font-bold ${withdrawDestination === 'mobile' ? 'text-[#FACC15]' : 'text-white'}`}>Mobile Money</span>
-                                                    {withdrawDestination === 'mobile' && <CheckBadgeIcon className="w-5 h-5 text-[#FACC15]" />}
-                                                </div>
-                                                <div className="text-sm text-gray-400 truncate">
-                                                    {payoutDetails.mobileNumber ? `${payoutDetails.payoutMethod || 'Mobile'}: ${payoutDetails.mobileNumber}` : 'Not configured'}
-                                                </div>
-                                            </div>
-
-                                            <div
-                                                onClick={() => setWithdrawDestination('bank')}
-                                                className={`p-4 rounded-xl border cursor-pointer transition-all ${withdrawDestination === 'bank' ? 'bg-[#FACC15]/10 border-[#FACC15] ring-1 ring-[#FACC15]' : 'bg-[#252525] border-[#333] hover:border-[#666]'}`}
-                                            >
-                                                <div className="flex justify-between items-center mb-2">
-                                                    <span className={`font-bold ${withdrawDestination === 'bank' ? 'text-[#FACC15]' : 'text-white'}`}>Bank Transfer</span>
-                                                    {withdrawDestination === 'bank' && <CheckBadgeIcon className="w-5 h-5 text-[#FACC15]" />}
-                                                </div>
-                                                <div className="text-sm text-gray-400 truncate">
-                                                    {payoutDetails.bankName ? `${payoutDetails.bankName} - ${payoutDetails.accountNumber}` : 'Not configured'}
-                                                </div>
-                                            </div>
-                                        </div>
-                                        {((withdrawDestination === 'mobile' && !payoutDetails.mobileNumber) || (withdrawDestination === 'bank' && !payoutDetails.bankName)) && (
-                                            <div className="mt-2 text-xs text-red-500 flex items-center gap-1">
-                                                <ExclamationTriangleIcon className="w-4 h-4" />
-                                                Selected method is not configured. Please go to Payout Details tab.
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <button
-                                        onClick={handleWithdraw}
-                                        disabled={!withdrawAmount || parseFloat(withdrawAmount) <= 0 || parseFloat(withdrawAmount) > (summaryStats.walletBalance || 0) || isWithdrawing || (withdrawDestination === 'mobile' && !payoutDetails.mobileNumber) || (withdrawDestination === 'bank' && !payoutDetails.bankName)}
-                                        className="w-full bg-[#FACC15] text-black font-bold py-4 rounded-xl hover:bg-[#EAB308] transition-all shadow-lg shadow-[#FACC15]/20 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
-                                    >
-                                        {isWithdrawing ? 'Processing...' : 'Withdraw Funds'}
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-
 
                         {/* --- New: Total Trips Page --- */}
                         {activeTab === 'trips' && (
@@ -2610,20 +2320,15 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                         </div>
                                         <div className="bg-[#1E1E1E] rounded-3xl p-6 border border-[#2A2A2A]">
                                             <h3 className="text-lg font-bold text-white mb-4">Recent Activity</h3>
-                                            <div className="space-y-3 text-sm max-h-[300px] overflow-y-auto no-scrollbar">
-                                                {(transactions || []).map(tx => (
-                                                    <div key={tx.id} className="flex justify-between items-center text-gray-300 p-2 hover:bg-[#252525] rounded-lg transition-colors border-b border-[#333] last:border-0">
-                                                        <div>
-                                                            <div className="font-bold text-white">{tx.desc}</div>
-                                                            <div className="text-[10px] text-gray-500">{new Date(tx.date).toLocaleDateString()} • {tx.type} • <span className={`uppercase font-bold ${tx.status === 'completed' ? 'text-green-500' : 'text-yellow-500'}`}>{tx.status}</span></div>
-                                                        </div>
-                                                        <span className={`font-bold ${tx.direction === 'credit' ? 'text-green-400' : 'text-red-400'}`}>
-                                                            {tx.direction === 'credit' ? '+' : '-'} MWK {(tx.amount ?? 0).toLocaleString()}
-                                                        </span>
+                                            <div className="space-y-3 text-sm">
+                                                {(transactions || []).slice(0, 2).map(tx => (
+                                                    <div key={tx.id} className="flex justify-between text-gray-300">
+                                                        <span>{tx.desc}</span>
+                                                        <span className="text-[#FACC15]">+MWK {(tx.amount ?? 0).toLocaleString()}</span>
                                                     </div>
                                                 ))}
                                                 {(transactions || []).length === 0 && (
-                                                    <div className="text-gray-500 text-center py-4">No recent activity</div>
+                                                    <div className="text-gray-500">No recent activity</div>
                                                 )}
                                             </div>
                                         </div>
@@ -2833,141 +2538,74 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-fadeIn h-[calc(100vh-140px)]">
                                 {/* Left Column: Calendar & Status */}
                                 <div className="lg:col-span-7 flex flex-col gap-6 h-full overflow-y-auto pr-2 no-scrollbar">
-                                    <div className="bg-[#1E1E1E] rounded-2xl p-8 border border-[#FACC15]/30 relative">
-                                        <div className="absolute -right-10 -top-10 w-32 h-32 bg-[#FACC15]/10 rounded-full blur-2xl"></div>
+                                    <div className="bg-[#1E1E1E] rounded-3xl p-8 border border-[#FACC15]/30 relative overflow-hidden">
+                                        <div className="absolute -right-10 -top-10 w-40 h-40 bg-[#FACC15]/10 rounded-full blur-2xl"></div>
 
                                         <div className="flex items-center gap-4 mb-6 relative z-10">
-                                            <div className={`w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 border ${isSubscriptionPaid ? 'bg-green-500/20 border-green-500 text-green-500' : 'bg-red-500/20 border-red-500 text-red-500'}`}>
+                                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center border ${isSubscriptionPaid ? 'bg-green-500/20 border-green-500 text-green-500' : 'bg-red-500/20 border-red-500 text-red-500'}`}>
                                                 {isSubscriptionPaid ? <CheckBadgeIcon className="w-6 h-6" /> : <CreditCardIcon className="w-6 h-6" />}
                                             </div>
-                                            <div className="flex-1">
-                                                <h2 className="text-base font-bold text-white whitespace-nowrap">Professional Plan</h2>
-                                                <p className={`text-sm font-medium whitespace-nowrap ${isSubscriptionPaid ? 'text-green-400' : 'text-red-400'}`}>
+                                            <div>
+                                                <h2 className="text-2xl font-bold text-white">Professional Plan</h2>
+                                                <p className={`font-medium ${isSubscriptionPaid ? 'text-green-400' : 'text-red-400'}`}>
                                                     {isSubscriptionPaid ? 'Active Subscription' : 'Payment Pending'}
                                                 </p>
                                             </div>
                                         </div>
 
                                         <div className="flex gap-4 mb-4 relative z-10">
-                                            <div className="bg-[#252525] p-3 rounded-xl flex-1 border border-[#333]">
-                                                <p className="text-[10px] text-gray-400 uppercase font-bold">Cycle Start</p>
-                                                <p className="text-sm font-bold text-white">{subStartDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
+                                            <div className="bg-[#252525] p-4 rounded-2xl flex-1 border border-[#333]">
+                                                <p className="text-xs text-gray-400 uppercase font-bold">Cycle Start</p>
+                                                <p className="text-lg font-bold text-white">{subStartDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
                                             </div>
-                                            <div className="bg-[#252525] p-3 rounded-xl flex-1 border border-[#333]">
-                                                <p className="text-[10px] text-gray-400 uppercase font-bold">Cycle End</p>
-                                                <p className="text-sm font-bold text-white">{subEndDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
+                                            <div className="bg-[#252525] p-4 rounded-2xl flex-1 border border-[#333]">
+                                                <p className="text-xs text-gray-400 uppercase font-bold">Cycle End</p>
+                                                <p className="text-lg font-bold text-white">{subEndDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
                                             </div>
                                         </div>
                                     </div>
 
-                                    {/* Visual Calendar - Multi-Month Support */}
-                                    <div className="bg-[#1E1E1E] rounded-2xl p-3 border border-[#2A2A2A] flex-1 flex flex-col overflow-hidden">
-                                        <div className="flex items-center justify-between mb-2">
-                                            <h3 className="text-sm font-bold text-white">Coverage Calendar</h3>
+                                    {/* Visual Calendar */}
+                                    <div className="bg-[#1E1E1E] rounded-3xl p-6 border border-[#2A2A2A] flex-1 flex flex-col">
+                                        <div className="flex items-center justify-between mb-6">
+                                            <h3 className="text-lg font-bold text-white">Coverage Calendar</h3>
                                             <div className="flex items-center gap-2">
-                                                <div className="flex items-center gap-1 text-[10px] text-gray-400"><span className="w-1.5 h-1.5 rounded-full bg-[#FACC15]"></span> Paid</div>
-                                                <div className="flex items-center gap-1 text-[10px] text-gray-400"><span className="w-1.5 h-1.5 rounded-full bg-[#333]"></span> Unpaid</div>
+                                                <div className="flex items-center gap-1 text-xs text-gray-400"><span className="w-2 h-2 rounded-full bg-[#FACC15]"></span> Paid</div>
+                                                <div className="flex items-center gap-1 text-xs text-gray-400"><span className="w-2 h-2 rounded-full bg-[#333]"></span> Unpaid</div>
                                             </div>
                                         </div>
 
-                                        <div className="flex-1 overflow-y-auto">
-                                            {(() => {
-                                                const now = new Date();
-                                                const today = now.getDate();
-                                                const currentMonth = now.getMonth();
-                                                const currentYear = now.getFullYear();
-
-                                                // Get subscription dates from API
-                                                const subStart = subscriptionStatus?.startDate ? new Date(subscriptionStatus.startDate) : null;
-                                                const subEnd = subscriptionStatus?.expiryDate ? new Date(subscriptionStatus.expiryDate) : null;
-                                                const isActive = subscriptionStatus?.status === 'active';
-
-                                                // Calculate how many months to show
-                                                let monthsToShow = 1;
-                                                if (subStart && subEnd && isActive) {
-                                                    const diffMonths = (subEnd.getFullYear() - subStart.getFullYear()) * 12 + (subEnd.getMonth() - subStart.getMonth()) + 1;
-                                                    monthsToShow = Math.min(diffMonths, 6); // Max 6 months to display
-                                                }
-
-                                                const calendarMonths = [];
-
-                                                for (let monthOffset = 0; monthOffset < monthsToShow; monthOffset++) {
-                                                    const displayMonth = currentMonth + monthOffset;
-                                                    const displayYear = currentYear + Math.floor(displayMonth / 12);
-                                                    const adjustedMonth = displayMonth % 12;
-
-                                                    const monthName = new Date(displayYear, adjustedMonth, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-                                                    const firstDay = new Date(displayYear, adjustedMonth, 1).getDay();
-                                                    const daysInMonth = new Date(displayYear, adjustedMonth + 1, 0).getDate();
-
-                                                    const cells = [];
-
-                                                    // Empty cells before month starts
-                                                    for (let i = 0; i < firstDay; i++) {
-                                                        cells.push(<div key={`empty-${i}`}></div>);
-                                                    }
-
-                                                    // Days of the month
-                                                    for (let day = 1; day <= daysInMonth; day++) {
-                                                        const dayDate = new Date(displayYear, adjustedMonth, day);
-                                                        const isToday = day === today && adjustedMonth === currentMonth && displayYear === currentYear;
-
-                                                        // Check if within subscription period
-                                                        const isPaidDay = isActive && subStart && subEnd &&
-                                                            dayDate >= subStart && dayDate <= subEnd;
-
-                                                        const isStartDate = subStart && dayDate.toDateString() === subStart.toDateString();
-                                                        const isEndDate = subEnd && dayDate.toDateString() === subEnd.toDateString();
-
-                                                        cells.push(
-                                                            <div
-                                                                key={day}
-                                                                className={`
-                                                                    aspect-square rounded-md flex items-center justify-center text-[10px] font-bold border transition-all relative
-                                                                    ${isToday ? 'ring-2 ring-blue-400 ring-offset-1 ring-offset-[#1E1E1E]' : ''}
-                                                                    ${isPaidDay
-                                                                        ? 'bg-[#FACC15]/20 border-[#FACC15] text-[#FACC15] shadow-[0_0_6px_rgba(250,204,21,0.15)]'
-                                                                        : 'bg-[#252525] border-[#333] text-gray-500'}
-                                                                    ${(isStartDate || isEndDate) ? 'animate-pulse' : ''}
-                                                                `}
-                                                            >
-                                                                {day}
-                                                                {isStartDate && (
-                                                                    <span className="absolute -top-1 -right-1 text-[8px] bg-green-500 text-white px-1 rounded">START</span>
-                                                                )}
-                                                                {isEndDate && (
-                                                                    <span className="absolute -bottom-1 -right-1 text-[8px] bg-red-500 text-white px-1 rounded">END</span>
-                                                                )}
-                                                            </div>
-                                                        );
-                                                    }
-
-                                                    calendarMonths.push(
-                                                        <div key={monthOffset} className="mb-4 last:mb-0">
-                                                            <h4 className="text-xs font-bold text-white mb-2">{monthName}</h4>
-                                                            <div className="grid grid-cols-7 gap-0.5 text-center mb-1.5 border-b border-[#333] pb-1.5">
-                                                                {weekDays.map((d, i) => <span key={i} className="text-gray-500 font-bold text-[10px]">{d}</span>)}
-                                                            </div>
-                                                            <div className="grid grid-cols-7 gap-0.5">
-                                                                {cells}
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                }
-
-                                                return calendarMonths;
-                                            })()}
+                                        <div className="grid grid-cols-7 gap-2 text-center mb-2 border-b border-[#333] pb-4">
+                                            {weekDays.map((d, i) => <span key={i} className="text-gray-500 font-bold text-sm">{d}</span>)}
                                         </div>
 
-                                        {subscriptionStatus?.status === 'active' && subscriptionStatus?.startDate && subscriptionStatus?.expiryDate && (
-                                            <div className="mt-2 pt-2 border-t border-[#333]">
-                                                <p className="text-center text-[9px] text-gray-400">
-                                                    Active: {new Date(subscriptionStatus.startDate).toLocaleDateString()} - {new Date(subscriptionStatus.expiryDate).toLocaleDateString()}
-                                                </p>
-                                                <p className="text-center text-[9px] text-[#FACC15] font-bold">
-                                                    {subscriptionStatus.daysLeft} days remaining
-                                                </p>
-                                            </div>
+                                        <div className="grid grid-cols-7 gap-2 flex-1 content-start">
+                                            {/* Mocking current month days */}
+                                            {Array.from({ length: 3 }).map((_, i) => <div key={`pre-${i}`}></div>)}
+                                            {Array.from({ length: 30 }).map((_, i) => {
+                                                const day = i + 1;
+                                                const isPaidDay = isSubscriptionPaid && (day >= 15 || day <= 15);
+
+                                                return (
+                                                    <div
+                                                        key={day}
+                                                        className={`
+                                                            aspect-square rounded-xl flex items-center justify-center text-sm font-bold border transition-all
+                                                            ${isPaidDay
+                                                                ? 'bg-[#FACC15]/20 border-[#FACC15] text-[#FACC15] shadow-[0_0_10px_rgba(250,204,21,0.2)]'
+                                                                : 'bg-[#252525] border-[#333] text-gray-500'}
+                                                        `}
+                                                    >
+                                                        {day}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+
+                                        {isSubscriptionPaid && (
+                                            <p className="text-center text-xs text-gray-400 mt-4">
+                                                Your subscription is active from {subStartDate.toLocaleDateString()} to {subEndDate.toLocaleDateString()}.
+                                            </p>
                                         )}
                                     </div>
                                 </div>
@@ -3075,13 +2713,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                                     </div>
                                                     <div>
                                                         <label className="text-xs font-bold text-gray-400 uppercase mb-2 block">Phone Number</label>
-                                                        <input
-                                                            type="text"
-                                                            placeholder="+265..."
-                                                            value={mobileNumber}
-                                                            onChange={(e) => setMobileNumber(e.target.value)}
-                                                            className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white outline-none focus:border-[#FACC15]"
-                                                        />
+                                                        <input type="text" placeholder="+265..." className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white outline-none focus:border-[#FACC15]" />
                                                     </div>
                                                 </div>
                                             )}
@@ -3101,24 +2733,9 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
 
                                             <button
                                                 onClick={handlePayment}
-                                                disabled={isPaymentLoading}
-                                                className={`w-full mt-auto font-bold py-4 rounded-xl transition-transform transform shadow-lg flex items-center justify-center gap-2 ${
-                                                    isPaymentLoading 
-                                                        ? 'bg-gray-600 text-gray-300 cursor-not-allowed' 
-                                                        : 'bg-[#FACC15] text-black hover:bg-[#EAB308] active:scale-95 shadow-[#FACC15]/20'
-                                                }`}
+                                                className="w-full mt-auto bg-[#FACC15] text-black font-bold py-4 rounded-xl hover:bg-[#EAB308] transition-transform transform active:scale-95 shadow-lg shadow-[#FACC15]/20"
                                             >
-                                                {isPaymentLoading ? (
-                                                    <>
-                                                        <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                                        </svg>
-                                                        Processing Payment...
-                                                    </>
-                                                ) : (
-                                                    'Confirm Payment'
-                                                )}
+                                                Confirm Payment
                                             </button>
                                         </div>
                                     )}
@@ -3638,19 +3255,9 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                                                         Confirm Payment
                                                                     </button>
                                                                 )}
-                                                                {job.status === 'Active' && (
-                                                                    <button className="px-3 py-1.5 bg-gray-700 text-gray-300 text-xs font-bold rounded-lg cursor-not-allowed" disabled>
-                                                                        Waiting for Return...
-                                                                    </button>
-                                                                )}
-                                                                {job.status === 'Return Pending' && (
-                                                                    <button onClick={() => handleJobAction(job.id, 'Return Pending', job.type)} className="px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-500 animate-pulse shadow-lg shadow-blue-600/20">
-                                                                        Confirm Return
-                                                                    </button>
-                                                                )}
 
                                                                 {/* Fallback for Waiting for Pickup and other unhandled statuses */}
-                                                                {!['Pending', 'Approved', 'Inbound', 'Arrived', 'Boarded', 'In Progress', 'Payment Due', 'Awaiting Payment Selection', 'Handover Pending', 'Scheduled', 'Active', 'Return Pending'].includes(job.status || '') && (
+                                                                {!['Pending', 'Approved', 'Inbound', 'Arrived', 'Boarded', 'In Progress', 'Payment Due', 'Awaiting Payment Selection', 'Handover Pending', 'Scheduled'].includes(job.status || '') && (
                                                                     <button
                                                                         onClick={() => handleJobAction(job.id, 'Scheduled', job.type)}
                                                                         className="px-3 py-1.5 bg-[#FACC15] text-black text-xs font-bold rounded-xl hover:bg-[#EAB308] shadow-lg"
@@ -3698,7 +3305,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                             </div>
                         )}
                     </div>
-                </div >
+                </div>
             </main >
 
             {/* Booking Modal */}
