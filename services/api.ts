@@ -78,6 +78,7 @@ export interface Conversation {
     unread: number;
     status: 'online' | 'offline';
     messages: Message[];
+    participants?: string[];
 }
 
 export interface DriverVehicle {
@@ -102,6 +103,7 @@ export interface DriverRidePost {
     negotiable?: boolean;
     minPrice?: number;
     maxPrice?: number;
+    type?: 'share' | 'hire';
 }
 
 export interface DriverHirePost {
@@ -141,10 +143,12 @@ export interface DriverPayoutDetails {
 }
 
 export interface MobileMoneyOperator {
-    id: string;
+    id: number;
     name: string;
-    code: string;
     ref_id: string;
+    short_code: string;
+    supports_withdrawals: boolean;
+    logo: string | null;
 }
 
 export interface PaymentInitiationRequest {
@@ -174,60 +178,11 @@ export interface PaymentVerificationResponse {
 }
 
 
-// --- MAPBOX SPECIFIC TYPES ---
-export interface MapBoxRouteResponse {
-    routes: {
-        geometry: {
-            coordinates: number[][];
-            type: string;
-        };
-        duration: number;
-        distance: number;
-    }[];
-    waypoints: any[];
-}
 
-// --- MAPBOX SERVICE LOGIC ---
-export const MapService = {
-    /**
-     * Fetches a driving route between two coordinates using Mapbox Directions API.
-     * @param start [lng, lat]
-     * @param end [lng, lat]
-     * @param accessToken Mapbox Public Access Token
-     */
-    getDirections: async (start: [number, number], end: [number, number], accessToken: string): Promise<MapBoxRouteResponse | null> => {
-        try {
-            const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${start[0]},${start[1]};${end[0]},${end[1]}?steps=false&geometries=geojson&access_token=${accessToken}`;
-            const response = await fetch(url);
-            if (!response.ok) throw new Error('Failed to fetch route');
-            return await response.json();
-        } catch (error) {
-            console.error("MapService Error:", error);
-            return null;
-        }
-    },
-
-    /**
-     * Retrieves tracking data.
-     */
-    trackDevice: async (deviceId: string, accessToken: string): Promise<MapBoxRouteResponse | null> => {
-        // Simulation Logic
-        const baseLng = -73.9851;
-        const baseLat = 40.7589;
-
-        const offset1 = 0.01;
-        const offset2 = 0.02;
-
-        const start: [number, number] = [baseLng + offset1, baseLat + offset1];
-        const end: [number, number] = [baseLng - offset2, baseLat - offset2];
-
-        return MapService.getDirections(start, end, accessToken);
-    }
-};
 
 // --- ApiService ---
 export const ApiService = {
-    login: async (email, password) => {
+    login: async (email: string, password: string): Promise<any> => {
         const response = await fetch('/api/auth/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -281,6 +236,19 @@ export const ApiService = {
             console.error("API Error:", error);
             return [];
         }
+    },
+
+    updateRideStatus: async (rideId: string | number, status: string) => {
+        const response = await fetch(`/api/rides/${rideId}/status`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ status })
+        });
+        if (!response.ok) throw new Error('Failed to update ride status');
+        return await response.json();
     },
 
     getDrivers: async (): Promise<Driver[]> => {
@@ -372,6 +340,25 @@ export const ApiService = {
             return { weekly: [], monthly: [], categories: [] };
         }
     },
+    // --- Conversation API ---
+    createConversation: async (recipientId: string): Promise<Conversation> => {
+        try {
+            const response = await fetch('/api/chat/conversations', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ recipientId })
+            });
+            if (!response.ok) throw new Error('Failed to create conversation');
+            return await response.json();
+        } catch (error) {
+            console.error('API Error:', error);
+            throw error;
+        }
+    },
+
     getConversations: async (): Promise<Conversation[]> => {
         try {
             const response = await fetch('/api/chat/conversations', {
@@ -500,6 +487,19 @@ export const ApiService = {
             body: JSON.stringify(postData)
         });
         if (!response.ok) throw new Error('Failed to create share post');
+        return await response.json();
+    },
+
+    createManualJob: async (jobData: any) => {
+        const response = await fetch('/api/driver/jobs', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(jobData)
+        });
+        if (!response.ok) throw new Error('Failed to create manual job');
         return await response.json();
     },
 
@@ -649,7 +649,7 @@ export const ApiService = {
 
     getAllRideSharePosts: async (): Promise<DriverRidePost[]> => {
         try {
-            const response = await fetch('/api/rides/share', {
+            const response = await fetch('/api/rider/marketplace/share', {
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
             });
             if (!response.ok) throw new Error('Failed to fetch ride share posts');
@@ -662,7 +662,8 @@ export const ApiService = {
 
     getAllForHirePosts: async (): Promise<DriverHirePost[]> => {
         try {
-            const response = await fetch('/api/rides/hire', {
+            // Backend rider marketplace route for hire listings
+            const response = await fetch('/api/rider/marketplace/hire', {
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
             });
             if (!response.ok) throw new Error('Failed to fetch for hire posts');
@@ -677,32 +678,14 @@ export const ApiService = {
     /**
      * Fetch driver payout details from backend
      */
-    getDriverPayoutDetails: async (driverId: string): Promise<DriverPayoutDetails | null> => {
-        try {
-            const response = await fetch(`/api/drivers/${driverId}/payout-details`, {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
-                    'Content-Type': 'application/json'
-                }
-            });
 
-            if (!response.ok) {
-                throw new Error('Failed to fetch driver payout details');
-            }
-
-            return await response.json();
-        } catch (error) {
-            console.error('Error fetching driver payout details:', error);
-            return null;
-        }
-    },
 
     /**
      * Get available mobile money operators from PayChangu
      */
     getMobileMoneyOperators: async (): Promise<MobileMoneyOperator[]> => {
         try {
-            const response = await fetch('/api/payments/operators', {
+            const response = await fetch('/api/payment/operators', {
                 headers: {
                     'Authorization': `Bearer ${localStorage.getItem('token')}`,
                     'Content-Type': 'application/json'
@@ -726,7 +709,7 @@ export const ApiService = {
      */
     initiatePayment: async (paymentData: PaymentInitiationRequest): Promise<PaymentInitiationResponse> => {
         try {
-            const response = await fetch('/api/payments/initiate', {
+            const response = await fetch('/api/payment/initiate', {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -755,7 +738,7 @@ export const ApiService = {
      */
     verifyPayment: async (chargeId: string): Promise<PaymentVerificationResponse> => {
         try {
-            const response = await fetch(`/api/payments/verify/${chargeId}`, {
+            const response = await fetch(`/api/payment/verify/${chargeId}`, {
                 headers: {
                     'Authorization': `Bearer ${localStorage.getItem('token')}`,
                     'Content-Type': 'application/json'
@@ -906,7 +889,20 @@ export const ApiService = {
         return await response.json();
     },
 
-    selectPaymentMethod: async (rideId: string, paymentType: 'online' | 'physical') => {
+    cancelRide: async (rideId: string) => {
+        const response = await fetch(`/api/rides/${rideId}/status`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ status: 'Cancelled' })
+        });
+        if (!response.ok) throw new Error('Failed to cancel ride');
+        return await response.json();
+    },
+
+    selectPaymentMethod: async (rideId: string, paymentType: 'online' | 'physical' | 'later') => {
         const response = await fetch(`/api/rides/${rideId}/payment-method`, {
             method: 'POST',
             headers: {
@@ -915,7 +911,7 @@ export const ApiService = {
             },
             body: JSON.stringify({ paymentType })
         });
-        if (!response.ok) throw new Error('Failed to select payment method');
+        if (!response.ok) throw new Error('Failed to end trip');
         return await response.json();
     },
 
@@ -928,6 +924,190 @@ export const ApiService = {
             }
         });
         if (!response.ok) throw new Error('Failed to confirm pickup');
+        return await response.json();
+    },
+
+    confirmHandover: async (rideId: string) => {
+        const response = await fetch(`/api/rides/${rideId}/confirm-handover`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        if (!response.ok) throw new Error('Failed to confirm handover');
+        return await response.json();
+    },
+
+    completeHandover: async (rideId: string, paymentMethod: string) => {
+        const response = await fetch(`/api/rides/${rideId}/complete-handover`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ paymentMethod })
+        });
+        if (!response.ok) throw new Error('Failed to complete handover');
+        return await response.json();
+    },
+
+    requestVehicleReturn: async (rideId: string) => {
+        const response = await fetch(`/api/rides/${rideId}/request-return`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        if (!response.ok) throw new Error('Failed to request vehicle return');
+        return await response.json();
+    },
+
+    confirmVehicleReturn: async (rideId: string) => {
+        const response = await fetch(`/api/rides/${rideId}/confirm-return`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        if (!response.ok) throw new Error('Failed to confirm vehicle return');
+        return await response.json();
+    },
+
+    // Pickup flow endpoints
+    startPickup: async (rideId: string) => {
+        const response = await fetch(`/api/rides/${rideId}/start-pickup`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        if (!response.ok) throw new Error('Failed to start pickup');
+        return await response.json();
+    },
+
+    arriveAtPickup: async (rideId: string) => {
+        const response = await fetch(`/api/rides/${rideId}/arrive-at-pickup`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        if (!response.ok) throw new Error('Failed to arrive at pickup');
+        return await response.json();
+    },
+
+
+
+    boardPassenger: async (rideId: string, passengerIndex?: number) => {
+        const response = await fetch(`/api/rides/${rideId}/board-passenger`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ passengerIndex })
+        });
+        if (!response.ok) throw new Error('Failed to board passenger');
+        return await response.json();
+    },
+
+    confirmBoarding: async (rideId: string) => {
+        const response = await fetch(`/api/rides/${rideId}/confirm-boarding`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({}) // Some backends require body even if empty
+        });
+        if (!response.ok) throw new Error('Failed to confirm boarding');
+        return await response.json();
+    },
+
+    startTrip: async (rideId: string) => {
+        const response = await fetch(`/api/rides/${rideId}/start-trip`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        if (!response.ok) throw new Error('Failed to start trip');
+        return await response.json();
+    },
+
+    selectPaymentTiming: async (rideId: string, paymentTiming: 'now' | 'pickup') => {
+        const response = await fetch(`/api/rides/${rideId}/payment-timing`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ paymentTiming })
+        });
+        if (!response.ok) throw new Error('Failed to select payment timing');
+        return await response.json();
+    },
+
+    saveDriverDocuments: async (formData: FormData) => {
+        const response = await fetch('/api/driver/documents', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+                // Note: Don't set Content-Type for FormData, browser will set it automatically with boundary
+            },
+            body: formData
+        });
+        if (!response.ok) throw new Error('Failed to save driver documents');
+        return await response.json();
+    },
+
+    saveDriverPayoutDetails: async (details: any) => {
+        const response = await fetch('/api/driver/payout-details', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(details)
+        });
+        if (!response.ok) throw new Error('Failed to save payout details');
+        return await response.json();
+    },
+
+    getDriverPayoutDetails: async (driverId: string) => {
+        console.log(`🔍 [API] fetching payout details for driverId: "${driverId}"`);
+        const response = await fetch(`/api/driver/${driverId}/payout-details`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+        });
+        if (!response.ok) {
+            const text = await response.text();
+            console.error(`❌ [API] Failed to fetch driver payout details. Status: ${response.status}. Response:`, text.substring(0, 100)); // Log first 100 chars
+            throw new Error(`Failed to fetch driver payout details: ${response.status}`);
+        }
+        return await response.json();
+    },
+
+    requestPayout: async (amount: number, mobileNumber: string, providerRefId: string = 'AIRTEL', payoutMethod: 'mobile' | 'bank' = 'mobile') => {
+        const response = await fetch('/api/payment/payout', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ amount, mobileNumber, providerRefId, payoutMethod })
+        });
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || error.message || 'Payout failed');
+        }
         return await response.json();
     }
 };

@@ -300,8 +300,8 @@
                 SELECT * FROM "RideShareVehicles";<br><br>
                 -- Check HireVehicles (should have Tractor)<br>
                 SELECT * FROM "HireVehicles";<br><br>
-                -- Check Jobs (should have your job posting)<br>
-                SELECT * FROM "Jobs";<br><br>
+                    -- Check Rides table for hire-type requests (Jobs were consolidated into Rides)
+                    SELECT * FROM "Rides" WHERE type = 'hire';<br><br>
                 -- Check Subscriptions (if you purchased one)<br>
                 SELECT * FROM "Subscriptions";
             </div>

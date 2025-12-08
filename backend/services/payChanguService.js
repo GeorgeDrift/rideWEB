@@ -19,7 +19,9 @@ const apiClient = axios.create({
 exports.getMobileMoneyOperators = async () => {
     try {
         const response = await apiClient.get('/mobile-money');
-        return response.data;
+        // PayChangu returns { status: 'success', data: [...] }
+        // We only want the array
+        return response.data.data || [];
     } catch (error) {
         console.error('PayChangu getOperators Error:', error.response?.data || error.message);
         throw error;
@@ -48,17 +50,35 @@ exports.getMobileMoneyOperators = async () => {
  * }
  */
 exports.initiatePayment = async (paymentData) => {
+    const crypto = require('crypto');
     try {
+        // Format mobile number: PayChangu expects 9 digits (265 prefix removed)
+        let formattedMobile = paymentData.mobile.replace(/\D/g, ''); // Remove non-digits
+
+        // Handle 265 prefix (12 digits) -> strip 265
+        if (formattedMobile.startsWith('265') && formattedMobile.length === 12) {
+            formattedMobile = formattedMobile.substring(3);
+        }
+        // Handle 0 prefix (10 digits) -> strip 0
+        else if (formattedMobile.startsWith('0') && formattedMobile.length === 10) {
+            formattedMobile = formattedMobile.substring(1);
+        }
+
+        // Create a unique charge_id if not provided
+        const chargeId = paymentData.charge_id || crypto.randomUUID();
+
         // Construct payload
         const payload = {
-            mobile: paymentData.mobile,
+            mobile: formattedMobile,
             amount: paymentData.amount,
             mobile_money_operator_ref_id: paymentData.mobile_money_operator_ref_id,
-            // Add other required fields if any, e.g., email, name if needed
+            charge_id: chargeId
         };
 
         const response = await apiClient.post('/mobile-money/payments/initialize', payload);
-        return response.data;
+
+        // Ensure we return the charge_id so controller can save it
+        return { ...response.data, charge_id: chargeId };
     } catch (error) {
         console.error('PayChangu initiatePayment Error:', error.response?.data || error.message);
         throw error;
@@ -92,8 +112,20 @@ exports.verifyPayment = async (chargeId) => {
  */
 exports.initiatePayout = async (payoutData) => {
     try {
+        // Format mobile number: PayChangu expects 9 digits (265 prefix removed)
+        let formattedMobile = payoutData.mobile.replace(/\D/g, ''); // Remove non-digits
+
+        // Handle 265 prefix (12 digits) -> strip 265
+        if (formattedMobile.startsWith('265') && formattedMobile.length === 12) {
+            formattedMobile = formattedMobile.substring(3);
+        }
+        // Handle 0 prefix (10 digits) -> strip 0
+        else if (formattedMobile.startsWith('0') && formattedMobile.length === 10) {
+            formattedMobile = formattedMobile.substring(1);
+        }
+
         const payload = {
-            mobile: payoutData.mobile,
+            mobile: formattedMobile,
             amount: payoutData.amount,
             mobile_money_operator_ref_id: payoutData.mobile_money_operator_ref_id,
             charge_id: payoutData.charge_id,
@@ -102,10 +134,19 @@ exports.initiatePayout = async (payoutData) => {
             last_name: payoutData.last_name
         };
 
+        console.log('💸 [PayChangu] Initiating payout with payload:', JSON.stringify(payload, null, 2));
+
         const response = await apiClient.post('/mobile-money/payouts/initialize', payload);
+
+        console.log('✅ [PayChangu] Payout response:', JSON.stringify(response.data, null, 2));
         return response.data;
     } catch (error) {
-        console.error('PayChangu initiatePayout Error:', error.response?.data || error.message);
+        console.error('❌ [PayChangu] initiatePayout Error - Full Details:', JSON.stringify({
+            status: error.response?.status,
+            statusText: error.response?.statusText,
+            data: error.response?.data,
+            message: error.message
+        }, null, 2));
         throw error;
     }
 };

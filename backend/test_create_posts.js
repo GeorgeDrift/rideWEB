@@ -39,7 +39,7 @@ async function run() {
     };
 
     const hirePayload = {
-      title: 'Test Hire Job',
+      title: 'Test Hire',
       category: 'Moving',
       location: 'City Center',
       rate: 'per day',

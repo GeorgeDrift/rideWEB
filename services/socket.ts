@@ -48,7 +48,7 @@ class SocketService {
         this.socket?.emit('join_ride', rideId);
     }
 
-    public updateDriverLocation(userId: string, location: { lat: number; lng: number; heading?: number }) {
+    public updateDriverLocation(userId: string, location: { lat: number; lng: number; heading?: number; precision?: 'precise' | 'approximate' }) {
         this.socket?.emit('driver_online', { userId, location });
         this.socket?.emit('update_location', { driverId: userId, ...location });
     }
@@ -61,8 +61,16 @@ class SocketService {
         this.socket?.on(event, callback);
     }
 
-    public off(event: string) {
-        this.socket?.off(event);
+    public off(event: string, callback?: (data: any) => void) {
+        if (callback) {
+            this.socket?.off(event, callback);
+        } else {
+            this.socket?.off(event);
+        }
+    }
+
+    public emit(event: string, data: any) {
+        this.socket?.emit(event, data);
     }
 }
 

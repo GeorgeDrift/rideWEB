@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { LineChart, XAxis, YAxis, CartesianGrid, Tooltip, Line, ResponsiveContainer } from 'recharts';
 import { DocumentIcon, MoneyIcon, SteeringWheelIcon, CarIcon, ExclamationCircleIcon, MapIcon, ExpandIcon, CloseIcon } from './Icons';
 import { ApiService } from '../services/api';
+import { pollingService } from '../services/polling';
 
 type Metric = 'revenue' | 'subscriptions' | 'trials' | 'reactivations';
 type TimeRange = 'This Week' | 'Last Week' | 'This Month';
@@ -77,6 +78,25 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
         };
         load();
         return () => { mounted = false; };
+    }, []);
+
+    // Auto-poll admin dashboard data for real-time updates
+    useEffect(() => {
+        // Poll dashboard metrics every 10 seconds
+        pollingService.startPolling('admin-dashboard', {
+            interval: 10000,
+            onPoll: async () => {
+                try {
+                    const data = await ApiService.getDashboardData();
+                    setDashboardData(data || { users: 0, activeDrivers: 0, rides: 0, revenue: 0, weekly: [], lastWeek: [], monthly: [], mapVehicles: [] });
+                } catch (e) { console.warn('Polling dashboard data failed', e); }
+            }
+        });
+
+        // Cleanup: stop polling when component unmounts
+        return () => {
+            pollingService.stopPolling('admin-dashboard');
+        };
     }, []);
 
     const getCurrentData = () => {

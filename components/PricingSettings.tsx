@@ -301,8 +301,13 @@ export const PricingSettings: React.FC = () => {
                                         type="number"
                                         step="0.1"
                                         value={zone.multiplier}
-                                        className="w-16 bg-white dark:bg-dark-800 border border-gray-300 dark:border-dark-500 rounded px-2 py-1 text-sm text-center text-gray-900 dark:text-white font-bold"
-                                        readOnly
+                                        onChange={(e) => {
+                                            const newMultiplier = parseFloat(e.target.value) || 0;
+                                            setZones(zones.map(z =>
+                                                z.id === zone.id ? { ...z, multiplier: newMultiplier } : z
+                                            ));
+                                        }}
+                                        className="w-16 bg-white dark:bg-dark-800 border border-gray-300 dark:border-dark-500 rounded px-2 py-1 text-sm text-center text-gray-900 dark:text-white font-bold focus:ring-2 focus:ring-primary-500 outline-none"
                                     />
                                 </div>
                             </div>
@@ -332,8 +337,8 @@ export const PricingSettings: React.FC = () => {
             {/* Mapbox Map Container */}
             <div
                 className={`bg-white dark:bg-dark-800 rounded-xl border border-gray-300 dark:border-dark-700 shadow-sm overflow-hidden transition-all duration-500 ease-in-out flex flex-col ${isExpanded
-                        ? 'fixed inset-4 z-50 h-auto shadow-2xl border-2 border-primary-500/50'
-                        : 'relative h-96 w-full'
+                    ? 'fixed inset-4 z-50 h-auto shadow-2xl border-2 border-primary-500/50'
+                    : 'relative h-96 w-full'
                     }`}
             >
                 <div className="p-4 border-b border-gray-200 dark:border-dark-700 flex justify-between items-center bg-gray-50 dark:bg-dark-700/50 shrink-0">

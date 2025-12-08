@@ -35,6 +35,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        console.log('Login form submitted for:', email);
         setError('');
         if (!email || !password) {
             setError('Please enter both email and password');
@@ -43,12 +44,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
 
         setLoading(true);
         try {
+            console.log('Calling ApiService.login...');
             const user = await ApiService.login(email, password);
+            console.log('ApiService.login returned:', user);
             if (!user) throw new Error('Invalid login response');
             // Use the role returned by the server
             const role = (user.role || 'admin') as any;
+            console.log('Calling onLogin with role:', role);
             onLogin(role);
         } catch (err: any) {
+            console.error('Login error in component:', err);
             setError(err.message || 'Login failed');
         } finally {
             setLoading(false);

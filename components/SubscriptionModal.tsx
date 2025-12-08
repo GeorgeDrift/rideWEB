@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { CloseIcon, CheckCircleIcon, WalletIcon, CreditCardIcon } from './Icons';
 import { ApiService, MobileMoneyOperator } from '../services/api';
+import { socketService } from '../services/socket';
 
 interface SubscriptionModalProps {
     isOpen: boolean;
@@ -39,6 +40,26 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
         }
     }, [isOpen]);
 
+    // Listen for socket events for real-time payment confirmation
+    useEffect(() => {
+        if (step === 'processing' || chargeId) {
+            const handleSubscriptionActivated = (data: any) => {
+                console.log('🎉 Subscription Activated via Socket:', data);
+                setStep('success');
+                setTimeout(() => {
+                    onSuccess();
+                    handleClose();
+                }, 3000);
+            };
+
+            socketService.on('subscription_activated', handleSubscriptionActivated);
+
+            return () => {
+                socketService.off('subscription_activated', handleSubscriptionActivated);
+            };
+        }
+    }, [step, chargeId, onSuccess]);
+
     const loadPlansAndOperators = async () => {
         try {
             const [plansData, operatorsData] = await Promise.all([
@@ -74,7 +95,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
 
         try {
             const provider = operators.find(op =>
-                op.code.toLowerCase() === mobileProvider
+                op.short_code.toLowerCase() === mobileProvider ||
+                op.name.toLowerCase().includes(mobileProvider)
             );
 
             if (!provider) {
@@ -176,34 +198,34 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
                 </div>
 
                 {/* Content */}
-                <div className="p-6">
+                <div className="p-4">
                     {/* Step 1: Plan Selection */}
                     {step === 'plan' && plans && (
-                        <div className="space-y-6">
+                        <div className="space-y-4">
                             {trialDays > 0 && (
-                                <div className="bg-[#FACC15]/10 border border-[#FACC15]/30 rounded-xl p-4 text-center">
-                                    <p className="text-[#FACC15] font-bold">🎉 {trialDays} Days Free Trial Available!</p>
-                                    <p className="text-gray-400 text-sm mt-1">Start accepting rides immediately</p>
+                                <div className="bg-[#FACC15]/10 border border-[#FACC15]/30 rounded-lg p-3 text-center">
+                                    <p className="text-[#FACC15] font-bold text-sm">🎉 {trialDays} Days Free Trial Available!</p>
+                                    <p className="text-gray-400 text-xs mt-0.5">Start accepting rides immediately</p>
                                 </div>
                             )}
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 {/* Monthly Plan */}
                                 <div
                                     onClick={() => handlePlanSelect('monthly')}
-                                    className="bg-[#252525] border-2 border-[#333] rounded-2xl p-6 cursor-pointer hover:border-[#FACC15] transition-all group"
+                                    className="bg-[#252525] border-2 border-[#333] rounded-xl p-4 cursor-pointer hover:border-[#FACC15] transition-all group"
                                 >
                                     <div className="text-center">
-                                        <h3 className="text-xl font-bold text-white mb-2">{plans.monthly.name}</h3>
-                                        <div className="text-4xl font-bold text-[#FACC15] mb-2">
+                                        <h3 className="text-base font-bold text-white mb-1.5">{plans.monthly.name}</h3>
+                                        <div className="text-3xl font-bold text-[#FACC15] mb-1.5">
                                             MWK {(plans.monthly.price ?? 0).toLocaleString()}
                                         </div>
-                                        <p className="text-gray-400 text-sm mb-4">{plans.monthly.description}</p>
-                                        <div className="text-gray-500 text-xs">
+                                        <p className="text-gray-400 text-xs mb-3">{plans.monthly.description}</p>
+                                        <div className="text-gray-500 text-[10px]">
                                             ~MWK {Math.round((plans.monthly.price ?? 0) / 30).toLocaleString()} per day
                                         </div>
                                     </div>
-                                    <button className="w-full mt-6 py-3 bg-[#333] group-hover:bg-[#FACC15] text-white group-hover:text-black font-bold rounded-xl transition-colors">
+                                    <button className="w-full mt-4 py-2 bg-[#333] group-hover:bg-[#FACC15] text-white group-hover:text-black font-bold text-sm rounded-lg transition-colors">
                                         Select Plan
                                     </button>
                                 </div>
@@ -211,22 +233,22 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
                                 {/* Yearly Plan */}
                                 <div
                                     onClick={() => handlePlanSelect('yearly')}
-                                    className="bg-[#252525] border-2 border-[#FACC15] rounded-2xl p-6 cursor-pointer hover:border-[#FACC15] hover:shadow-[0_0_30px_rgba(250,204,21,0.3)] transition-all group relative"
+                                    className="bg-[#252525] border-2 border-[#FACC15] rounded-xl p-4 cursor-pointer hover:border-[#FACC15] hover:shadow-[0_0_20px_rgba(250,204,21,0.25)] transition-all group relative"
                                 >
-                                    <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-[#FACC15] text-black text-xs font-bold px-3 py-1 rounded-full">
+                                    <div className="absolute -top-2 left-1/2 transform -translate-x-1/2 bg-[#FACC15] text-black text-[10px] font-bold px-2 py-0.5 rounded-full">
                                         BEST VALUE
                                     </div>
                                     <div className="text-center">
-                                        <h3 className="text-xl font-bold text-white mb-2">{plans.yearly.name}</h3>
-                                        <div className="text-4xl font-bold text-[#FACC15] mb-2">
+                                        <h3 className="text-base font-bold text-white mb-1.5">{plans.yearly.name}</h3>
+                                        <div className="text-3xl font-bold text-[#FACC15] mb-1.5">
                                             MWK {(plans.yearly.price ?? 0).toLocaleString()}
                                         </div>
-                                        <p className="text-gray-400 text-sm mb-4">{plans.yearly.description}</p>
-                                        <div className="text-green-400 text-xs font-bold">
+                                        <p className="text-gray-400 text-xs mb-3">{plans.yearly.description}</p>
+                                        <div className="text-green-400 text-[10px] font-bold">
                                             Save MWK {(((plans.monthly.price ?? 0) * 12) - (plans.yearly.price ?? 0)).toLocaleString()}
                                         </div>
                                     </div>
-                                    <button className="w-full mt-6 py-3 bg-[#FACC15] text-black font-bold rounded-xl hover:bg-[#EAB308] transition-colors">
+                                    <button className="w-full mt-4 py-2 bg-[#FACC15] text-black font-bold text-sm rounded-lg hover:bg-[#EAB308] transition-colors">
                                         Select Plan
                                     </button>
                                 </div>
@@ -236,80 +258,80 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
 
                     {/* Step 2: Payment Details */}
                     {step === 'payment' && plans && (
-                        <div className="space-y-6">
-                            <div className="bg-[#252525] rounded-xl p-4 border border-[#333]">
+                        <div className="space-y-4">
+                            <div className="bg-[#252525] rounded-lg p-3 border border-[#333]">
                                 <div className="flex justify-between items-center">
-                                    <span className="text-gray-400">Selected Plan:</span>
-                                    <span className="text-white font-bold">{plans[selectedPlan].name}</span>
+                                    <span className="text-gray-400 text-xs">Selected Plan:</span>
+                                    <span className="text-white font-bold text-sm">{plans[selectedPlan].name}</span>
                                 </div>
-                                <div className="flex justify-between items-center mt-2">
-                                    <span className="text-gray-400">Amount:</span>
-                                    <span className="text-[#FACC15] font-bold text-xl">
+                                <div className="flex justify-between items-center mt-1.5">
+                                    <span className="text-gray-400 text-xs">Amount:</span>
+                                    <span className="text-[#FACC15] font-bold text-base">
                                         MWK {(plans[selectedPlan].price ?? 0).toLocaleString()}
                                     </span>
                                 </div>
                             </div>
 
                             {error && (
-                                <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 text-red-400 text-sm">
+                                <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-red-400 text-xs">
                                     {error}
                                 </div>
                             )}
 
                             <div>
-                                <label className="block text-sm font-bold text-gray-400 mb-3">Payment Method</label>
-                                <div className="grid grid-cols-2 gap-3">
+                                <label className="block text-xs font-bold text-gray-400 mb-2">Payment Method</label>
+                                <div className="grid grid-cols-2 gap-2">
                                     <button
                                         onClick={() => setMobileProvider('airtel')}
-                                        className={`p-4 rounded-xl border-2 transition-all ${mobileProvider === 'airtel'
-                                                ? 'border-[#FACC15] bg-[#FACC15]/10'
-                                                : 'border-[#333] bg-[#252525] hover:border-[#444]'
+                                        className={`p-3 rounded-lg border-2 transition-all ${mobileProvider === 'airtel'
+                                            ? 'border-[#FACC15] bg-[#FACC15]/10'
+                                            : 'border-[#333] bg-[#252525] hover:border-[#444]'
                                             }`}
                                     >
                                         <div className="text-center">
-                                            <div className="text-2xl mb-2">📱</div>
-                                            <div className="text-white font-bold text-sm">Airtel Money</div>
+                                            <div className="text-xl mb-1">📱</div>
+                                            <div className="text-white font-bold text-xs">Airtel Money</div>
                                         </div>
                                     </button>
                                     <button
                                         onClick={() => setMobileProvider('mpamba')}
-                                        className={`p-4 rounded-xl border-2 transition-all ${mobileProvider === 'mpamba'
-                                                ? 'border-[#FACC15] bg-[#FACC15]/10'
-                                                : 'border-[#333] bg-[#252525] hover:border-[#444]'
+                                        className={`p-3 rounded-lg border-2 transition-all ${mobileProvider === 'mpamba'
+                                            ? 'border-[#FACC15] bg-[#FACC15]/10'
+                                            : 'border-[#333] bg-[#252525] hover:border-[#444]'
                                             }`}
                                     >
                                         <div className="text-center">
-                                            <div className="text-2xl mb-2">💳</div>
-                                            <div className="text-white font-bold text-sm">Mpamba</div>
+                                            <div className="text-xl mb-1">💳</div>
+                                            <div className="text-white font-bold text-xs">Mpamba</div>
                                         </div>
                                     </button>
                                 </div>
                             </div>
 
                             <div>
-                                <label className="block text-sm font-bold text-gray-400 mb-2">Mobile Number</label>
+                                <label className="block text-xs font-bold text-gray-400 mb-1.5">Mobile Number</label>
                                 <input
                                     type="tel"
                                     value={mobileNumber}
                                     onChange={(e) => setMobileNumber(e.target.value)}
                                     placeholder="e.g. 0991234567"
-                                    className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white focus:border-[#FACC15] outline-none"
+                                    className="w-full bg-[#252525] border border-[#333] rounded-lg px-3 py-2 text-sm text-white focus:border-[#FACC15] outline-none"
                                 />
-                                <p className="text-gray-500 text-xs mt-2">
+                                <p className="text-gray-500 text-[10px] mt-1.5">
                                     You will receive a push notification to approve the payment
                                 </p>
                             </div>
 
-                            <div className="flex gap-3">
+                            <div className="flex gap-2">
                                 <button
                                     onClick={() => setStep('plan')}
-                                    className="flex-1 py-3 bg-[#252525] text-white rounded-xl font-bold hover:bg-[#333] transition-colors"
+                                    className="flex-1 py-2 bg-[#252525] text-white text-sm rounded-lg font-bold hover:bg-[#333] transition-colors"
                                 >
                                     Back
                                 </button>
                                 <button
                                     onClick={handleInitiatePayment}
-                                    className="flex-1 py-3 bg-[#FACC15] text-black rounded-xl font-bold hover:bg-[#EAB308] transition-colors"
+                                    className="flex-1 py-2 bg-[#FACC15] text-black text-sm rounded-lg font-bold hover:bg-[#EAB308] transition-colors"
                                 >
                                     Pay Now
                                 </button>
@@ -319,23 +341,23 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
 
                     {/* Step 3: Processing */}
                     {step === 'processing' && (
-                        <div className="text-center py-12">
-                            <div className="w-20 h-20 border-4 border-[#FACC15] border-t-transparent rounded-full animate-spin mx-auto mb-6"></div>
-                            <h3 className="text-xl font-bold text-white mb-2">Processing Payment...</h3>
-                            <p className="text-gray-400 mb-4">Please check your phone and approve the payment</p>
-                            <p className="text-gray-500 text-sm">This may take a few moments</p>
+                        <div className="text-center py-8">
+                            <div className="w-16 h-16 border-4 border-[#FACC15] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                            <h3 className="text-base font-bold text-white mb-1.5">Processing Payment...</h3>
+                            <p className="text-gray-400 text-xs mb-3">Please check your phone and approve the payment</p>
+                            <p className="text-gray-500 text-[10px]">This may take a few moments</p>
                         </div>
                     )}
 
                     {/* Step 4: Success */}
                     {step === 'success' && (
-                        <div className="text-center py-12">
-                            <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-6">
-                                <CheckCircleIcon className="w-12 h-12 text-white" />
+                        <div className="text-center py-8">
+                            <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <CheckCircleIcon className="w-10 h-10 text-white" />
                             </div>
-                            <h3 className="text-2xl font-bold text-white mb-2">Subscription Activated!</h3>
-                            <p className="text-gray-400 mb-4">You can now start accepting rides</p>
-                            <p className="text-green-400 text-sm">Redirecting...</p>
+                            <h3 className="text-lg font-bold text-white mb-1.5">Subscription Activated!</h3>
+                            <p className="text-gray-400 text-xs mb-3">You can now start accepting rides</p>
+                            <p className="text-green-400 text-[10px]">Redirecting...</p>
                         </div>
                     )}
                 </div>

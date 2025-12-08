@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 interface PaymentSelectionModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onSelectPayment: (paymentType: 'online' | 'physical') => void;
+    onSelectPayment: (paymentType: 'online' | 'physical' | 'later') => void | Promise<void>;
     amount: number;
     rideDetails: {
         type: 'share' | 'hire';
@@ -20,13 +20,13 @@ const PaymentSelectionModal: React.FC<PaymentSelectionModalProps> = ({
     amount,
     rideDetails
 }) => {
-    const [selectedMethod, setSelectedMethod] = useState<'online' | 'physical' | null>(null);
+    const [selectedMethod, setSelectedMethod] = useState<'online' | 'physical' | 'later' | null>(null);
 
     if (!isOpen) return null;
 
-    const handleConfirm = () => {
+    const handleConfirm = async () => {
         if (selectedMethod) {
-            onSelectPayment(selectedMethod);
+            await onSelectPayment(selectedMethod);
             onClose();
         }
     };
@@ -67,8 +67,8 @@ const PaymentSelectionModal: React.FC<PaymentSelectionModalProps> = ({
                         <button
                             onClick={() => setSelectedMethod('online')}
                             className={`w-full p-4 rounded-lg border-2 transition ${selectedMethod === 'online'
-                                    ? 'border-blue-600 bg-blue-50'
-                                    : 'border-gray-200 hover:border-blue-300'
+                                ? 'border-blue-600 bg-blue-50'
+                                : 'border-gray-200 hover:border-blue-300'
                                 }`}
                         >
                             <div className="flex items-center gap-4">
@@ -92,8 +92,8 @@ const PaymentSelectionModal: React.FC<PaymentSelectionModalProps> = ({
                         <button
                             onClick={() => setSelectedMethod('physical')}
                             className={`w-full p-4 rounded-lg border-2 transition ${selectedMethod === 'physical'
-                                    ? 'border-green-600 bg-green-50'
-                                    : 'border-gray-200 hover:border-green-300'
+                                ? 'border-green-600 bg-green-50'
+                                : 'border-gray-200 hover:border-green-300'
                                 }`}
                         >
                             <div className="flex items-center gap-4">
@@ -112,6 +112,33 @@ const PaymentSelectionModal: React.FC<PaymentSelectionModalProps> = ({
                                 </svg>
                             </div>
                         </button>
+
+                        {/* Pay Later Option (for rideshare) */}
+                        {rideDetails.type === 'share' && (
+                            <button
+                                onClick={() => setSelectedMethod('later')}
+                                className={`w-full p-4 rounded-lg border-2 transition ${selectedMethod === 'later'
+                                    ? 'border-yellow-600 bg-yellow-50'
+                                    : 'border-gray-200 hover:border-yellow-300'
+                                    }`}
+                            >
+                                <div className="flex items-center gap-4">
+                                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${selectedMethod === 'later' ? 'border-yellow-600' : 'border-gray-300'
+                                        }`}>
+                                        {selectedMethod === 'later' && (
+                                            <div className="w-3 h-3 rounded-full bg-yellow-600" />
+                                        )}
+                                    </div>
+                                    <div className="flex-1 text-left">
+                                        <div className="font-medium text-gray-900">Pay Later</div>
+                                        <div className="text-sm text-gray-500">Pay after trip completion</div>
+                                    </div>
+                                    <svg className="w-8 h-8 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                </div>
+                            </button>
+                        )}
                     </div>
 
                     {/* Actions */}

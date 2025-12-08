@@ -80,23 +80,32 @@ exports.register = async (req, res) => {
 };
 
 exports.login = async (req, res) => {
+    console.log('Login request received:', req.body.email);
     try {
         const { email, password } = req.body;
         const user = await User.findOne({ where: { email } });
 
-        if (!user) return res.status(404).json({ error: 'User not found' });
+        if (!user) {
+            console.log('User not found:', email);
+            return res.status(404).json({ error: 'User not found' });
+        }
 
         const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) return res.status(400).json({ error: 'Invalid credentials' });
+        if (!isMatch) {
+            console.log('Invalid password for:', email);
+            return res.status(400).json({ error: 'Invalid credentials' });
+        }
 
         const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
+
+        console.log('Login successful for:', email);
 
         res.json({
             token,
             user: { id: user.id, name: user.name, role: user.role, avatar: user.avatar }
         });
     } catch (err) {
-        console.error(err);
+        console.error('Login error:', err);
         res.status(500).json({ error: err.message });
     }
 };

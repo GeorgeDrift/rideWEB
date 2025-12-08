@@ -5,7 +5,7 @@ require('dotenv').config();
 // Ensure you have a PostgreSQL database running and DATABASE_URL set in .env
 const sequelize = new Sequelize(process.env.DATABASE_URL, {
     dialect: 'postgres',
-    logging: false, // Set to console.log to see raw SQL queries
+    logging: console.log, // TEMPORARILY ENABLED to debug save issues
     pool: {
         max: 5,
         min: 0,
@@ -39,6 +39,9 @@ const User = sequelize.define('User', {
     // Driver License
     driverLicenseUrl: { type: DataTypes.STRING },
 
+    // Payout Method
+    payoutMethod: { type: DataTypes.ENUM('Bank', 'Airtel Money', 'Mpamba'), allowNull: true },
+
     // Payment Details
     airtelMoneyNumber: { type: DataTypes.STRING },
     mpambaNumber: { type: DataTypes.STRING },
@@ -71,7 +74,7 @@ const Vehicle = sequelize.define('Vehicle', {
     status: { type: DataTypes.ENUM('Available', 'On-Route', 'Maintenance', 'Rented'), defaultValue: 'Available' }
 });
 
-// --- Ride/Job Model ---
+// --- Ride Model (includes 'hire' requests) ---
 const Ride = sequelize.define('Ride', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
     type: { type: DataTypes.ENUM('share', 'hire'), allowNull: false },
@@ -96,13 +99,35 @@ const Ride = sequelize.define('Ride', {
     duration: { type: DataTypes.STRING },
 
     status: {
-        type: DataTypes.ENUM('Pending', 'Scheduled', 'Inbound', 'Arrived', 'Boarded', 'In Progress', 'Payment Due', 'Completed', 'Cancelled'),
+        type: DataTypes.ENUM('Pending', 'Scheduled', 'Inbound', 'Arrived', 'Boarded', 'In Progress', 'Payment Due', 'Completed', 'Cancelled', 'Awaiting Payment Selection', 'Waiting for Pickup', 'Handover Pending', 'Active', 'Return Pending'),
         defaultValue: 'Pending'
     },
+
+    // Negotiation & Approval Workflow
+    negotiationStatus: {
+        type: DataTypes.ENUM('pending', 'negotiating', 'approved', 'rejected', 'completed'),
+        defaultValue: 'pending'
+    },
+    offeredPrice: { type: DataTypes.FLOAT },
+    acceptedPrice: { type: DataTypes.FLOAT },
+    pickupLocation: { type: DataTypes.STRING },
+    paymentType: {
+        type: DataTypes.ENUM('online', 'physical', 'pending'),
+        defaultValue: 'pending'
+    },
+    approvedAt: { type: DataTypes.DATE },
+    approvedBy: { type: DataTypes.UUID }, // References User(id)
+    pickupTime: { type: DataTypes.DATE },
+    returnTime: { type: DataTypes.DATE },
 
     paymentStatus: { type: DataTypes.ENUM('pending', 'paid', 'failed', 'refunded'), defaultValue: 'pending' },
     paymentMethod: { type: DataTypes.STRING },
     transactionRef: { type: DataTypes.STRING },
+
+    // Passenger Boarding Tracking (for Ride Share)
+    totalPassengers: { type: DataTypes.INTEGER, defaultValue: 1 },
+    boardedPassengers: { type: DataTypes.INTEGER, defaultValue: 0 },
+    passengerBoardingList: { type: DataTypes.JSON }, // Array of { passengerId, name, boarded: boolean, boardedAt: timestamp }
 
     // Rider Feedback
     rating: { type: DataTypes.INTEGER, validate: { min: 1, max: 5 } },
@@ -142,7 +167,10 @@ const Transaction = sequelize.define('Transaction', {
 const Message = sequelize.define('Message', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
     text: { type: DataTypes.TEXT, allowNull: false },
-    readBy: { type: DataTypes.JSON } // Array of user IDs
+    readBy: { type: DataTypes.JSON }, // Array of user IDs
+    conversationId: { type: DataTypes.UUID, allowNull: true },
+    rideId: { type: DataTypes.UUID, allowNull: true },
+    senderId: { type: DataTypes.UUID, allowNull: false }
 });
 
 // --- Ride Share Vehicle Model ---
@@ -174,17 +202,6 @@ const HireVehicle = sequelize.define('HireVehicle', {
     status: { type: DataTypes.ENUM('Available', 'Rented', 'Maintenance'), defaultValue: 'Available' }
 });
 
-// --- Job Model (For Hire) ---
-const Job = sequelize.define('Job', {
-    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
-    title: { type: DataTypes.STRING, allowNull: false },
-    description: { type: DataTypes.TEXT },
-    location: { type: DataTypes.STRING, allowNull: false },
-    startDate: { type: DataTypes.DATE },
-    endDate: { type: DataTypes.DATE },
-    budget: { type: DataTypes.FLOAT },
-    status: { type: DataTypes.ENUM('Open', 'In Progress', 'Completed', 'Cancelled'), defaultValue: 'Open' }
-});
 
 // --- Subscription Model ---
 const Subscription = sequelize.define('Subscription', {
@@ -303,13 +320,6 @@ RideShareVehicle.belongsTo(User, { foreignKey: 'driverId', as: 'driver' });
 User.hasMany(HireVehicle, { foreignKey: 'driverId', as: 'hireVehicles' });
 HireVehicle.belongsTo(User, { foreignKey: 'driverId', as: 'driver' });
 
-// User <-> Job
-User.hasMany(Job, { foreignKey: 'driverId', as: 'driverJobs' });
-User.hasMany(Job, { foreignKey: 'clientId', as: 'clientJobs' });
-Job.belongsTo(User, { foreignKey: 'driverId', as: 'driver' });
-Job.belongsTo(User, { foreignKey: 'clientId', as: 'client' });
-HireVehicle.hasMany(Job, { foreignKey: 'vehicleId', as: 'jobs' });
-Job.belongsTo(HireVehicle, { foreignKey: 'vehicleId', as: 'vehicle' });
 
 // User <-> Subscription
 User.hasMany(Subscription, { foreignKey: 'userId', as: 'subscriptions' });
@@ -380,7 +390,6 @@ module.exports = {
     Vehicle,
     RideShareVehicle,
     HireVehicle,
-    Job,
     Subscription,
     Ride,
     PricingZone,

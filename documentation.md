@@ -77,7 +77,7 @@ npm run dev
     *   **Drivers**: Approve applications, view vehicle documents, suspend accounts.
     *   **Riders**: Monitor customer activity and ratings.
 5.  **Ride Management**:
-    *   View detailed history of Ride Share and Vehicle Hire jobs.
+    *   View detailed history of Ride Share and Vehicle Hire trips (hire requests are stored in the `Rides` table with `type = 'hire'`).
     *   Handle disputes and cancellations.
 
 ---
@@ -124,10 +124,10 @@ npm run dev
 | `POST` | `/api/auth/login` | Login user | `email`, `password` |
 | `GET` | `/api/auth/me` | Get current profile | (Requires Token) |
 
-### 🚗 Rides & Jobs
+### 🚗 Rides & Hire (consolidated)
 | Method | Endpoint | Description | Body Params |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/api/rides` | Request a ride | `origin`, `destination`, `type` ('share'/'hire'), `price` |
+| `POST` | `/api/rides` | Request a ride (share or hire). Note: legacy "Jobs" entries were consolidated into the `Rides` table with `type = 'hire'` | `origin`, `destination`, `type` ('share'/'hire'), `price` |
 | `GET` | `/api/rides/my-rides` | Get user's history | - |
 | `GET` | `/api/rides/marketplace/share` | Get available shared rides | - |
 | `PUT` | `/api/rides/:id/status` | Update ride status | `status` (e.g. 'In Progress', 'Completed') |

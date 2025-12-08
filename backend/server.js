@@ -53,12 +53,49 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/vehicles', vehicleRoutes);
+app.use('/api/chat', require('./routes/chatRoutes'));
 
 // --- Database Connection & Server Start ---
 // sync({ force: false }) creates tables if they don't exist
 sequelize.sync({ force: false })
-    .then(() => {
+    .then(async () => {
         console.log('✅ PostgreSQL Connected & Models Synced');
+
+        // Manual Migration: Add conversationId if missing (safe fix for view dependency error)
+        try {
+            await sequelize.query(`
+                ALTER TABLE "Messages" 
+                ADD COLUMN IF NOT EXISTS "conversationId" UUID;
+            `);
+            console.log('✅ Schema patch applied: conversationId added to Messages');
+        } catch (e) {
+            console.warn('⚠️ Schema patch warning (conversationId):', e.message);
+        }
+
+        // Manual Migration 2: Fix Enum/Check Constraint for Ride Status
+        // The outdated check constraint prevents new statuses like 'Awaiting Payment Selection'
+        try {
+            await sequelize.query(`
+                ALTER TABLE "Rides" DROP CONSTRAINT IF EXISTS "Rides_status_check";
+            `);
+            console.log('✅ Schema patch applied: Dropped restrictive Rides_status_check');
+        } catch (e) {
+            console.warn('⚠️ Schema patch warning (Rides_status_check):', e.message);
+        }
+
+        // Manual Migration 3: Attempt to add enum value if it is a native enum (fail safe)
+        try {
+            await sequelize.query(`ALTER TYPE "enum_Rides_status" ADD VALUE IF NOT EXISTS 'Awaiting Payment Selection';`);
+            await sequelize.query(`ALTER TYPE "enum_Rides_status" ADD VALUE IF NOT EXISTS 'Waiting for Pickup';`);
+            await sequelize.query(`ALTER TYPE "enum_Rides_status" ADD VALUE IF NOT EXISTS 'Handover Pending';`);
+            await sequelize.query(`ALTER TYPE "enum_Rides_status" ADD VALUE IF NOT EXISTS 'Active';`);
+            await sequelize.query(`ALTER TYPE "enum_Rides_status" ADD VALUE IF NOT EXISTS 'Return Pending';`);
+            console.log('✅ Schema patch applied: Added Active and Return Pending to enum');
+        } catch (e) {
+            // Ignore - likely means it's not a native enum or already exists or is using check constraint only
+            console.warn('⚠️ Enum migration note:', e.message);
+        }
+
         server.listen(PORT, () => {
             console.log(`🚀 Ridex Backend running on port ${PORT}`);
         });

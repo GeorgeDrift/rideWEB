@@ -5,19 +5,28 @@ import {
     SearchIcon, CloseIcon, MenuIcon, PlusIcon, CheckBadgeIcon,
     PencilIcon, TrashIcon, CreditCardIcon, PhoneIcon, ChatIcon, SendIcon,
     BriefcaseIcon, TruckIcon, PackageIcon, HandshakeIcon, StarIcon, DocumentIcon,
-    UsersIcon
+    UsersIcon, ExclamationTriangleIcon
 } from './Icons';
 import {
     AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, PieChart, Pie, Legend
 } from 'recharts';
 import { ApiService, Conversation, Message } from '../services/api';
 import { socketService } from '../services/socket';
+import { pollingService } from '../services/polling';
 
-import { MapboxMap, LocationInfo } from './MapboxMap';
+// Map rendering removed - using manual pickup/drop-off flow instead
+// LocationInfo type (kept locally for state typing)
+interface LocationInfo {
+    address: string;
+    city: string;
+    country: string;
+    coordinates: [number, number];
+}
 import { geocodeAddress, calculateDistance } from '../services/mapUtils';
 import { SubscriptionModal } from './SubscriptionModal';
 import { VEHICLE_CATEGORIES, POPULAR_MAKES, POPULAR_MODELS, VehicleCategory } from '../types/vehicle';
 import RequestApprovalCard from './RequestApprovalCard';
+import LocationInput from './LocationInput';
 
 // --- Local Icon Definitions ---
 
@@ -97,14 +106,14 @@ const subscriptionPlans = {
 export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) => {
     // Global State
     const [sidebarOpen, setSidebarOpen] = useState(false);
-    const [activeTab, setActiveTab] = useState<'overview' | 'jobs' | 'tracking' | 'history' | 'subscription' | 'trips' | 'distance' | 'hours' | 'ontime' | 'inventory' | 'messages' | 'documents' | 'requests'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'jobs' | 'tracking' | 'history' | 'subscription' | 'trips' | 'distance' | 'hours' | 'ontime' | 'inventory' | 'messages' | 'documents' | 'requests' | 'settings'>('overview');
     const [driverProfile, setDriverProfile] = useState<any>(null);
     const [pendingApprovals, setPendingApprovals] = useState<any[]>([]);
     const [driverLocation, setDriverLocation] = useState<[number, number]>([33.7741, -13.9626]);
     const [mapStyle, setMapStyle] = useState<'street' | 'satellite'>('street');
     const [locationInfo, setLocationInfo] = useState<LocationInfo | null>(null);
     const [isMapExpanded, setIsMapExpanded] = useState(false);
-    const [currentTrip, setCurrentTrip] = useState<{ destination: [number, number], status: string } | null>(null);
+    const [currentTrip, setCurrentTrip] = useState<{ destination: [number, number], status: string, id?: number } | null>(null);
     const [tripCoordinates, setTripCoordinates] = useState<{ origin: [number, number] | null, destination: [number, number] | null }>({ origin: null, destination: null });
     const [tripDistance, setTripDistance] = useState<number | null>(null);
 
@@ -115,7 +124,47 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
             setDriverProfile(profile);
         };
         loadProfile();
+        loadProfile();
     }, []);
+
+    // Load Transactions when Settings tab is active
+    // Load Transactions & Wallet Data when Settings tab is active
+    useEffect(() => {
+        if (activeTab === 'settings') {
+            const loadSettingsData = async () => {
+                // Fetch Transactions
+                const txs = await ApiService.getDriverTransactions();
+                setTransactions(txs);
+
+                // Fetch Fresh Wallet Stats (triggers lazy fix if needed)
+                try {
+                    const stats = await ApiService.getDriverStats();
+                    if (stats) setSummaryStats(stats);
+                } catch (e) { console.warn('Refresh stats failed', e); }
+
+                // Fetch Payout Details
+                try {
+                    const driverId = driverProfile?.id || (JSON.parse(atob(localStorage.getItem('token')!.split('.')[1])).id);
+                    const payoutRes = await ApiService.getDriverPayoutDetails(driverId);
+                    if (payoutRes && payoutRes.payoutMethod) {
+                        setPayoutMethod(payoutRes.payoutMethod);
+                        setPayoutDetails({
+                            bankName: payoutRes.bankName,
+                            accountNumber: payoutRes.payoutAccountNumber,
+                            accountName: payoutRes.accountHolderName,
+                            mobileNumber: payoutRes.payoutMobileNumber
+                        });
+                        // Auto-select destination based on configured method
+                        if (payoutRes.payoutMethod === 'Bank') setWithdrawDestination('bank');
+                        else setWithdrawDestination('mobile');
+                    }
+                } catch (e) {
+                    console.warn('Refresh payout details failed', e);
+                }
+            };
+            loadSettingsData();
+        }
+    }, [activeTab, driverProfile]);
 
     // Initialize Socket Connection
     useEffect(() => {
@@ -151,6 +200,36 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
             }, ...prev]);
         });
 
+        // Also listen for hire-request and ride_request events targeted at this driver
+        socketService.on('hire_request', (ride) => {
+            setPendingApprovals(prev => [ride, ...prev]);
+            setNotifications(prev => [{ title: 'New Hire Request', msg: 'You have received a hire request', time: 'Just now', unread: true }, ...prev]);
+        });
+
+        socketService.on('ride_request', (ride) => {
+            setPendingApprovals(prev => [ride, ...prev]);
+            setNotifications(prev => [{ title: 'New Ride Request', msg: 'You have received a ride request', time: 'Just now', unread: true }, ...prev]);
+        });
+
+        // Keep ride-share and hire posts up-to-date in the driver's active listings
+        socketService.on('rideshare_post_added', (post) => {
+            try {
+                // Ensure the post belongs to this driver before adding to active posts
+                // Normalize to string comparison to support non-numeric IDs like 'driver_123'
+                if (post.driverId && userId && String(post.driverId) === String(userId)) {
+                    setActivePosts(prev => [post, ...prev]);
+                }
+            } catch (e) { console.warn('rideshare_post_added handler error', e); }
+        });
+
+        socketService.on('hire_post_added', (post) => {
+            try {
+                if (post.driverId && userId && String(post.driverId) === String(userId)) {
+                    setMyHirePosts(prev => [post, ...prev]);
+                }
+            } catch (e) { console.warn('hire_post_added handler error', e); }
+        });
+
         return () => {
             socketService.off('notification');
             socketService.off('new_ride_request');
@@ -158,7 +237,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
         };
     }, []);
 
-    // Interactive Features State
+    // Interactive Features State - Declare early for use in effects
     const [isOnline, setIsOnline] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -166,6 +245,95 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     const [isExporting, setIsExporting] = useState(false);
     const [notificationsOpen, setNotificationsOpen] = useState(false);
     const [selectedTimeRange, setSelectedTimeRange] = useState<'Last Week' | 'Last Month' | 'This Year'>('Last Week');
+
+    // Driver geolocation tracking refs and helpers
+    const driverWatchIdRef = useRef<number | null>(null);
+
+    const startLocationTracking = async () => {
+        const driverId = driverProfile?.id || (() => {
+            const token = localStorage.getItem('token');
+            if (!token) return null;
+            try { return JSON.parse(atob(token.split('.')[1])).id; } catch { return null; }
+        })();
+        if (!driverId) return;
+
+        // Ask for precise geolocation permission via browser API
+        if ('geolocation' in navigator) {
+            try {
+                navigator.geolocation.getCurrentPosition(async (pos) => {
+                    const lat = pos.coords.latitude;
+                    const lng = pos.coords.longitude;
+                    setDriverLocation([lng, lat]);
+                    // Inform server (driver_online + update_location) - mark as precise
+                    socketService.updateDriverLocation(String(driverId), { lat, lng, heading: pos.coords.heading || 0, precision: 'precise' });
+
+                    // Start continuous watch
+                    const watchId = navigator.geolocation.watchPosition((p) => {
+                        const plat = p.coords.latitude;
+                        const plng = p.coords.longitude;
+                        setDriverLocation([plng, plat]);
+                        socketService.updateDriverLocation(String(driverId), { lat: plat, lng: plng, heading: p.coords.heading || 0, precision: 'precise' });
+                    }, (err) => {
+                        console.warn('watchPosition error', err);
+                    }, { enableHighAccuracy: true, maximumAge: 3000, timeout: 10000 });
+
+                    driverWatchIdRef.current = watchId as unknown as number;
+                }, async (err) => {
+                    console.warn('Geolocation getCurrentPosition error', err);
+                    // If permission denied, ask user if they consent to approximate IP-based location
+                    const allowIp = window.confirm('Precise location permission denied. Allow approximate location via IP lookup? (less accurate)');
+                    if (allowIp) {
+                        try {
+                            const resp = await fetch('https://ipapi.co/json/');
+                            const data = await resp.json();
+                            if (data && data.latitude && data.longitude) {
+                                const lat = parseFloat(data.latitude);
+                                const lng = parseFloat(data.longitude);
+                                setDriverLocation([lng, lat]);
+                                // IP-based lookup is approximate
+                                socketService.updateDriverLocation(String(driverId), { lat, lng, precision: 'approximate' });
+                            }
+                        } catch (e) { console.error('IP geolocation error', e); }
+                    }
+                }, { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 });
+            } catch (e) {
+                console.error('startLocationTracking error', e);
+            }
+        } else {
+            // No geolocation API - fallback to IP if user agrees
+            const allowIp = window.confirm('Browser does not support precise geolocation. Allow approximate location via IP lookup?');
+            if (allowIp) {
+                try {
+                    const resp = await fetch('https://ipapi.co/json/');
+                    const data = await resp.json();
+                    if (data && data.latitude && data.longitude) {
+                        const lat = parseFloat(data.latitude);
+                        const lng = parseFloat(data.longitude);
+                        setDriverLocation([lng, lat]);
+                        socketService.updateDriverLocation(String(driverId), { lat, lng, precision: 'approximate' });
+                    }
+                } catch (e) { console.error('IP geolocation error', e); }
+            }
+        }
+    };
+
+    const stopLocationTracking = () => {
+        if (driverWatchIdRef.current !== null && 'geolocation' in navigator) {
+            try { navigator.geolocation.clearWatch(driverWatchIdRef.current as number); } catch (e) { }
+            driverWatchIdRef.current = null;
+        }
+    };
+
+    // Start/stop tracking when driver toggles online status
+    useEffect(() => {
+        if (isOnline) {
+            startLocationTracking();
+        } else {
+            stopLocationTracking();
+        }
+        // cleanup on unmount
+        return () => { stopLocationTracking(); };
+    }, [isOnline, driverProfile]);
 
     const searchInputRef = useRef<HTMLInputElement>(null);
     const notificationRef = useRef<HTMLDivElement>(null);
@@ -231,6 +399,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     const [newHireJob, setNewHireJob] = useState({ title: '', category: 'Small Cars (Sedans & Hatchbacks)', location: '', rate: '' });
     const [myHirePosts, setMyHirePosts] = useState<any[]>([]);
     const [contractedJobs, setContractedJobs] = useState<any[]>([]);
+    const [jobsFilter, setJobsFilter] = useState<'active' | 'history' | 'cancelled'>('active');
 
     // Documents/Verification Page State
     const [payoutMethod, setPayoutMethod] = useState<'Bank' | 'Airtel Money' | 'Mpamba'>('Bank');
@@ -275,74 +444,149 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
         return () => clearTimeout(delayDebounceFn);
     }, [searchQuery]);
 
-    // Geocoding Helper
-    const geocodeAddress = async (address: string): Promise<[number, number] | null> => {
+    // Use centralized geocoding helper from `services/mapUtils` (imported as `geocodeAddress`).
+
+    const handleJobAction = async (jobId: number, currentStatus: string, type: 'share' | 'hire') => {
+        // Ensure jobId is string when calling API helpers that expect strings
+        const idStr = String(jobId);
+
         try {
-            const token = (import.meta as any).env?.VITE_MAPBOX_TOKEN || 'pk.eyJ1IjoicGF0cmljay0xIiwiYSI6ImNtaTh0cGR2ajBmbmUybnNlZTk1dGV1NGEifQ.UCC5FLCAdiDj0EL93gnekg';
-            const response = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(address)}.json?access_token=${token}`);
-            const data = await response.json();
-            if (data.features && data.features.length > 0) {
-                return data.features[0].center;
-            }
-            return null;
-        } catch (error) {
-            console.error("Geocoding error:", error);
-            return null;
-        }
-    };
+            // RIDE SHARE FLOW actions map to specific API endpoints
+            if (type === 'share') {
+                if (currentStatus === 'Approved') {
+                    // Driver is starting pickup (heading towards rider)
+                    const res = await ApiService.startPickup(idStr);
+                    // Update local job state
+                    setContractedJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: res?.status || 'Inbound' } : j));
+                    return;
+                }
 
-    const handleJobAction = async (jobId: number, currentStatus: string) => {
-        let nextStatus = currentStatus;
-        if (currentStatus === 'Scheduled') nextStatus = 'Inbound';
-        else if (currentStatus === 'Inbound') nextStatus = 'Arrived';
-        else if (currentStatus === 'Arrived') nextStatus = 'In Progress'; // Ideally waits for rider
-        else if (currentStatus === 'Boarded') nextStatus = 'In Progress';
-        else if (currentStatus === 'In Progress') nextStatus = 'Payment Due';
-        else if (currentStatus === 'Payment Due') nextStatus = 'Completed';
+                if (currentStatus === 'Scheduled') {
+                    // Driver is starting pickup (heading towards rider)
+                    const res = await ApiService.startPickup(idStr);
+                    // Update local job state
+                    setContractedJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: res?.status || 'Inbound' } : j));
+                    return;
+                }
 
-        setContractedJobs(prev => prev.map(j =>
-            j.id === jobId ? { ...j, status: nextStatus } : j
-        ));
+                if (currentStatus === 'Inbound') {
+                    // Driver arrived at pickup
+                    const res = await ApiService.arriveAtPickup(idStr);
+                    setContractedJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: res?.status || 'Arrived' } : j));
+                    return;
+                }
 
-        // Handle Trip Tracking
-        if (nextStatus === 'Inbound' || nextStatus === 'In Progress') {
-            const job = contractedJobs.find(j => j.id === jobId);
-            if (job && job.destination) {
-                const destCoords = await geocodeAddress(job.destination);
-                const originCoords = job.origin ? await geocodeAddress(job.origin) : null;
-
-                if (destCoords) {
-                    setCurrentTrip({ destination: destCoords, status: nextStatus });
-                    setTripCoordinates({ origin: originCoords, destination: destCoords });
-
-                    if (originCoords) {
-                        const dist = calculateDistance(originCoords, destCoords);
-                        setTripDistance(dist);
+                if (currentStatus === 'Arrived') {
+                    // Board passenger (if multiple passengers, pass index in the future)
+                    try {
+                        const res = await ApiService.boardPassenger(idStr);
+                        setContractedJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: res?.status || 'Boarded' } : j));
+                        return;
+                    } catch (e) {
+                        console.warn('Board passenger failed', e);
+                        alert('Failed to mark passenger as boarded. Try again.');
+                        return;
                     }
+                }
 
-                    setIsMapExpanded(true);
-                    setActiveTab('overview');
+                if (currentStatus === 'Boarded') {
+                    // Start trip
+                    const res = await ApiService.startTrip(idStr);
+                    // move to tracking/current trip if destination exists
+                    const job = contractedJobs.find(j => j.id === jobId);
+                    setContractedJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: res?.status || 'In Progress' } : j));
+
+                    if (job && job.destination) {
+                        const destCoords = await geocodeAddress(job.destination);
+                        const originCoords = job.origin ? await geocodeAddress(job.origin) : null;
+                        if (destCoords) {
+                            setCurrentTrip({ destination: destCoords, status: res?.status || 'In Progress', id: jobId });
+                            setTripCoordinates({ origin: originCoords, destination: destCoords });
+                            if (originCoords) {
+                                const dist = calculateDistance(originCoords, destCoords);
+                                setTripDistance(dist);
+                            }
+                            setActiveTab('tracking');
+                        }
+                    }
+                    return;
+                }
+
+                if (currentStatus === 'In Progress') {
+                    // Complete trip -> mark as Payment Due
+                    await ApiService.updateRideStatus(idStr, 'Payment Due');
+                    setContractedJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'Payment Due' } : j));
+                    return;
+                }
+
+                if (currentStatus === 'Payment Due') {
+                    alert('Waiting for rider to complete payment.');
+                    return;
+                }
+            } else {
+                // FOR HIRE FLOW
+                if (currentStatus === 'Scheduled') {
+                    // For hire: confirm handover
+                    const res = await ApiService.confirmHandover(idStr);
+                    // remove or update job depending on backend response
+                    if (res && res.removed) {
+                        setContractedJobs(prev => prev.filter(j => j.id !== jobId));
+                    } else {
+                        setContractedJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: res?.status || 'Handover Pending' } : j));
+                    }
+                    alert('Handover confirmed!');
+                    return;
+                }
+
+                if (currentStatus === 'Handover Pending') {
+                    alert('Waiting for rider to complete payment and confirm handover.');
+                    return;
+                }
+
+                if (currentStatus === 'Active') {
+                    alert('Rental is active. Use return/complete actions when finished.');
+                    return;
+                }
+
+                if (currentStatus === 'Return Pending') {
+                    await ApiService.confirmVehicleReturn(idStr);
+                    setContractedJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'Completed' } : j));
+                    alert('Vehicle return confirmed! Ride completed.');
+                    return;
+                }
+
+                if (currentStatus === 'In Progress') {
+                    await ApiService.updateRideStatus(idStr, 'Payment Due');
+                    setContractedJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'Payment Due' } : j));
+                    return;
                 }
             }
-        } else if (nextStatus === 'Completed') {
-            setCurrentTrip(null);
-            setTripCoordinates({ origin: null, destination: null });
-            setTripDistance(null);
-            setIsMapExpanded(false);
+        } catch (err) {
+            console.error('Job action failed', err);
+            alert('Action failed. Please try again.');
         }
     };
 
     // Filtered Transactions based on Search
     const filteredTransactions = transactions.filter(t =>
-        t.desc.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        t.amount.toString().includes(searchQuery)
+        (t.desc?.toLowerCase() || '').includes((searchQuery || '').toLowerCase()) ||
+        (t.amount?.toString() || '').includes(searchQuery || '')
     );
 
-    // Filtered Jobs based on Search
-    const filteredContractedJobs = contractedJobs.filter(j =>
-        j.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        j.destination.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    // Filtered Jobs based on Search and Status
+    const filteredContractedJobs = contractedJobs.filter(j => {
+        const matchesSearch = (j.title?.toLowerCase() || '').includes((searchQuery || '').toLowerCase()) ||
+            (j.destination?.toLowerCase() || '').includes((searchQuery || '').toLowerCase());
+
+        if (jobsFilter === 'active') {
+            return matchesSearch && j.status !== 'Completed' && j.status !== 'Cancelled';
+        } else if (jobsFilter === 'history') {
+            return matchesSearch && j.status === 'Completed';
+        } else if (jobsFilter === 'cancelled') {
+            return matchesSearch && j.status === 'Cancelled';
+        }
+        return matchesSearch;
+    });
 
     const handleExportCSV = () => {
         setIsExporting(true);
@@ -484,48 +728,107 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
         setIsBookingModalOpen(true);
     };
 
-    const handleConfirmBooking = (e: React.FormEvent) => {
+    const handleConfirmBooking = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!bookingItem) return;
 
+        let newJobPayload: any = {};
+
         if (bookingType === 'share') {
-            const newJob = {
-                id: Date.now(),
+            newJobPayload = {
                 title: `Ride Share Request`,
                 origin: bookingItem.origin,
                 destination: bookingItem.destination,
                 date: bookingItem.date,
-                payout: bookingItem.price,
-                status: 'Scheduled',
+                price: bookingItem.price,
                 type: 'share',
                 clientName: clientInfo.name,
                 clientId: clientInfo.id
             };
-            // @ts-ignore
-            setContractedJobs([newJob, ...contractedJobs]);
-            setActivePosts(activePosts.filter(p => p.id !== bookingItem.id));
         } else {
-            const newJob = {
-                id: Date.now(),
+            newJobPayload = {
                 title: bookingItem.title,
                 origin: bookingItem.location,
                 destination: 'Client Site', // Generic placeholder
                 date: new Date().toISOString().split('T')[0], // Assume effective immediately
-                payout: parseFloat(bookingItem.rate.replace(/[^0-9.]/g, '')) || 150,
-                status: 'Scheduled',
+                price: parseFloat(bookingItem.rate.replace(/[^0-9.]/g, '')) || 150,
                 type: 'hire',
                 clientName: clientInfo.name,
                 clientId: clientInfo.id
             };
-            // @ts-ignore
-            setContractedJobs([newJob, ...contractedJobs]);
-            setMyHirePosts(myHirePosts.filter(p => p.id !== bookingItem.id));
         }
 
-        if (editingId === bookingItem.id) cancelEdit();
-        setIsBookingModalOpen(false);
-        setBookingItem(null);
+        try {
+            const createdJob = await ApiService.createManualJob(newJobPayload);
+            // @ts-ignore
+            setContractedJobs([createdJob, ...contractedJobs]);
+
+            if (bookingType === 'share') {
+                setActivePosts(activePosts.filter(p => p.id !== bookingItem.id));
+            } else {
+                setMyHirePosts(myHirePosts.filter(p => p.id !== bookingItem.id));
+            }
+
+            if (editingId === bookingItem.id) cancelEdit();
+            setIsBookingModalOpen(false);
+            setBookingItem(null);
+            alert('Booking confirmed and saved!');
+        } catch (error) {
+            console.error("Failed to create manual job", error);
+            alert('Failed to save booking. Please try again.');
+        }
     };
+
+    // Socket Listeners for Job Updates
+    useEffect(() => {
+        socketService.on('return_requested', (data) => {
+            const rideId = data.rideId || data.id;
+            if (rideId) {
+                setContractedJobs(prev => prev.map(j => j.id === rideId ? { ...j, status: 'Return Pending' } : j));
+                setNotifications(prev => [{
+                    title: 'Vehicle Return Requested',
+                    msg: data.message || 'Rider wants to return the vehicle.',
+                    time: 'Just now',
+                    unread: true
+                }, ...prev]);
+            }
+        });
+
+        socketService.on('handover_completed', (data) => {
+            console.log('🔔 [DriverDashboard] Received handover_completed event:', data);
+            const rideId = data.rideId || data.id;
+            if (rideId) {
+                console.log(`✅ [DriverDashboard] Updating job ${rideId} to status: Active`);
+                setContractedJobs(prev => {
+                    const updated = prev.map(j => j.id === rideId ? { ...j, status: 'Active' } : j);
+                    console.log('[DriverDashboard] Updated contractedJobs:', updated);
+                    return updated;
+                });
+                setNotifications(prev => [{
+                    title: 'Handover Completed',
+                    msg: data.message || 'Vehicle handover confirmed. Trip is active.',
+                    time: 'Just now',
+                    unread: true
+                }, ...prev]);
+
+                // FORCE REFRESH: Fetch latest jobs from backend to ensure sync
+                (async () => {
+                    try {
+                        const latestJobs = await ApiService.getDriverContractedJobs();
+                        console.log('🔄 [DriverDashboard] Force refreshed jobs from backend:', latestJobs);
+                        setContractedJobs(latestJobs);
+                    } catch (e) {
+                        console.error('[DriverDashboard] Force refresh failed:', e);
+                    }
+                })();
+            }
+        });
+
+        return () => {
+            socketService.off('return_requested');
+            socketService.off('handover_completed');
+        };
+    }, []);
 
     // Fetch pending approvals when tab is active
     useEffect(() => {
@@ -543,10 +846,35 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     }, [activeTab]);
 
     const handleApproveRequest = async (requestId: string) => {
+        console.log('🔘 handleApproveRequest called with ID:', requestId);
+        console.log('📋 Current pendingApprovals:', pendingApprovals);
+
         try {
-            await ApiService.approveRequest(requestId, { approved: true });
-            setPendingApprovals(prev => prev.filter(r => r.id !== requestId));
-            alert('Request Approved!');
+            const res = await ApiService.approveRequest(requestId, { approved: true });
+            console.log('✅ API Approval Success:', res);
+
+            setPendingApprovals(prev => {
+                const updated = prev.filter(r => {
+                    const id = r.id || r.rideId;
+                    // Force string comparison to be safe
+                    const match = String(id) === String(requestId);
+                    if (match) console.log('🗑️ Removing item:', r);
+                    return !match;
+                });
+                console.log('📉 New pendingApprovals length:', updated.length);
+                return updated;
+            });
+
+            // Add the approved request to contractedJobs so it appears in the Jobs tab
+            if (res.ride) {
+                console.log('➕ Adding to Contracted Jobs:', res.ride);
+                // Ensure the status is set to Scheduled so pickup/handover actions are available
+                const newJob = { ...res.ride, status: 'Scheduled' };
+                // @ts-ignore
+                setContractedJobs(prev => [newJob, ...prev]);
+            }
+
+            alert('Request Approved! Check your Jobs tab to start the trip.');
         } catch (error) {
             console.error("Approval failed", error);
         }
@@ -568,6 +896,42 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
             alert('Counter offer sent!');
         } catch (error) {
             console.error("Counter offer failed", error);
+        }
+    };
+
+    // Approve/Decline a job directly from the Contracted Jobs list
+    const handleApproveJob = async (jobId: string) => {
+        try {
+            const res = await ApiService.approveRequest(jobId, { approved: true });
+            // update local job state to reflect approval
+            setContractedJobs(prev => prev.map(j => j.id === jobId ? { ...j, negotiationStatus: 'approved', status: 'Scheduled', acceptedPrice: res.ride?.acceptedPrice || j.acceptedPrice || j.price } : j));
+            // make sure it's removed from pending approvals if present
+            setPendingApprovals(prev => prev.filter(r => r.id !== jobId));
+            alert('Request Approved (via Jobs)');
+        } catch (error) {
+            console.error('Approval from jobs failed', error);
+        }
+    };
+
+    const handleDeclineJob = async (jobId: string) => {
+        try {
+            await ApiService.approveRequest(jobId, { approved: false });
+            setContractedJobs(prev => prev.map(j => j.id === jobId ? { ...j, negotiationStatus: 'rejected', status: 'Cancelled' } : j));
+            setPendingApprovals(prev => prev.filter(r => r.id !== jobId));
+            alert('Request Declined');
+        } catch (error) {
+            console.error('Decline from jobs failed', error);
+        }
+    };
+
+    const handleHandover = async (jobId: string) => {
+        // Re-approving triggers the socket event again
+        try {
+            await ApiService.approveRequest(jobId, { approved: true });
+            alert('Payment prompt sent to rider!');
+        } catch (error) {
+            console.error('Handover trigger failed', error);
+            alert('Failed to send prompt.');
         }
     };
 
@@ -690,11 +1054,32 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
         e.preventDefault();
         setDocumentsSaving(true);
 
-        // Simulate API call to save documents
+        // Simulate API call to save documents (License only)
         setTimeout(() => {
             setDocumentsSaving(false);
-            alert("Documents saved successfully! Your verification is pending admin approval.");
+            alert("Driver license uploaded successfully! Verification pending.");
         }, 1500);
+    };
+
+    const handleSavePayoutDetails = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setDocumentsSaving(true);
+        try {
+            await ApiService.saveDriverPayoutDetails({
+                payoutMethod,
+                bankName: payoutDetails.bankName,
+                bankAccountNumber: payoutDetails.accountNumber,
+                bankAccountName: payoutDetails.accountName,
+                airtelMoneyNumber: payoutDetails.mobileNumber, // Assuming mapped in backend
+                mpambaNumber: payoutDetails.mobileNumber       // Assuming mapped in backend
+            });
+            alert("Payout details saved successfully!");
+        } catch (error) {
+            console.error(error);
+            alert("Failed to save payout details.");
+        } finally {
+            setDocumentsSaving(false);
+        }
     };
 
 
@@ -709,7 +1094,49 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     const [onTimeData, setOnTimeData] = useState<any[]>([]);
 
     // Summary stats fetched from backend (/api/driver/stats)
-    const [summaryStats, setSummaryStats] = useState<{ totalEarnings: number; count: number; avgRating: number }>({ totalEarnings: 0, count: 0, avgRating: 5 });
+    const [summaryStats, setSummaryStats] = useState<{ totalEarnings: number; count: number; avgRating: number; walletBalance?: number }>({ totalEarnings: 0, count: 0, avgRating: 5, walletBalance: 0 });
+
+    const [withdrawAmount, setWithdrawAmount] = useState('');
+    const [isWithdrawing, setIsWithdrawing] = useState(false);
+    const [withdrawDestination, setWithdrawDestination] = useState<'mobile' | 'bank'>('mobile');
+
+    const handleWithdraw = async () => {
+        if (!withdrawAmount || isWithdrawing) return;
+
+        // Basic validation depending on destination
+        if (withdrawDestination === 'mobile' && !payoutDetails.mobileNumber) {
+            alert('Please configure Mobile Money details in the Payout Details tab first.');
+            return;
+        }
+        if (withdrawDestination === 'bank' && !payoutDetails.bankName) {
+            alert('Please configure Bank Details in the Payout Details tab first.');
+            return;
+        }
+
+        setIsWithdrawing(true);
+        try {
+            const amount = parseFloat(withdrawAmount);
+            let mobile = payoutDetails.mobileNumber || "0999123456";
+
+            // If bank is selected, we might want to pass a flag or handle differently
+            // For now, the API requestPayout expects a mobile number for PayChangu
+            // If it's a bank, we probably just create a manual request or use a specific flow.
+            // Assuming simplified flow where API handles routing based on provided details or just creating a withdrawal request.
+            // We will pass the destination type to the API (need to update API service if not supported, or just use mobile number as key for now)
+
+            await ApiService.requestPayout(amount, mobile, 'AIRTEL', withdrawDestination);
+            alert(`Withdrawal of MWK ${amount.toLocaleString()} initiated via ${withdrawDestination === 'mobile' ? 'Mobile Money' : 'Bank Transfer'}!`);
+            setWithdrawAmount('');
+            // Refresh stats to update balance
+            const stats = await ApiService.getDriverStats();
+            setSummaryStats(stats || { totalEarnings: 0, count: 0, avgRating: 5, walletBalance: 0 });
+        } catch (error: any) {
+            console.error(error);
+            alert(error.message || "Withdrawal failed");
+        } finally {
+            setIsWithdrawing(false);
+        }
+    };
 
     useEffect(() => {
         const fetchAnalytics = async () => {
@@ -737,25 +1164,187 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     // Fetch driver data
     useEffect(() => {
         const fetchDriverData = async () => {
-            const [notifs, txns, convos, posts, hirePosts, jobs, vehicles] = await Promise.all([
-                ApiService.getDriverNotifications(),
-                ApiService.getDriverTransactions(),
-                ApiService.getDriverConversations(),
-                ApiService.getDriverActivePosts(),
-                ApiService.getDriverHirePosts(),
-                ApiService.getDriverContractedJobs(),
-                ApiService.getDriverVehicles()
-            ]);
-            setNotifications(notifs);
-            setTransactions(txns);
-            setConversations(convos);
-            setActiveChatId(convos[0]?.id || '');
-            setActivePosts(posts);
-            setMyHirePosts(hirePosts);
-            setContractedJobs(jobs);
-            setMyVehicles(vehicles);
+            try {
+                const driverId = driverProfile?.id || (JSON.parse(atob(localStorage.getItem('token')!.split('.')[1])).id);
+
+                const [notifs, txns, convos, posts, hirePosts, jobs, vehicles, payoutRes] = await Promise.all([
+                    ApiService.getDriverNotifications(),
+                    ApiService.getDriverTransactions(),
+                    ApiService.getDriverConversations(),
+                    ApiService.getDriverActivePosts(),
+                    ApiService.getDriverHirePosts(),
+                    ApiService.getDriverContractedJobs(),
+                    ApiService.getDriverVehicles(),
+                    ApiService.getDriverPayoutDetails(driverId).catch(() => ({})) // Fail gracefully if no details yet
+                ]);
+
+                setNotifications(notifs);
+                setTransactions(txns);
+                setConversations(convos);
+                if (convos.length > 0) setActiveChatId(convos[0].id);
+                setActivePosts(posts);
+                setMyHirePosts(hirePosts);
+                setContractedJobs(jobs);
+                setMyVehicles(vehicles);
+
+                // Populate payout details from backend
+                if (payoutRes && payoutRes.payoutMethod) {
+                    setPayoutMethod(payoutRes.payoutMethod);
+                    setPayoutDetails({
+                        bankName: payoutRes.bankName,
+                        accountNumber: payoutRes.payoutAccountNumber,
+                        accountName: payoutRes.accountHolderName,
+                        mobileNumber: payoutRes.payoutMobileNumber
+                    });
+
+                    // Auto-select destination based on configured method
+                    if (payoutRes.payoutMethod === 'Bank') setWithdrawDestination('bank');
+                    else setWithdrawDestination('mobile');
+                }
+            } catch (error) {
+                console.error("Error fetching driver data:", error);
+            }
         };
         fetchDriverData();
+    }, []);
+
+    // Auto-poll driver data for real-time updates
+    useEffect(() => {
+        // Poll pending approvals every 5 seconds (high priority)
+        pollingService.startPolling('driver-approvals', {
+            interval: 5000,
+            onPoll: async () => {
+                try {
+                    const approvals = await ApiService.getDriverPendingApprovals();
+                    setPendingApprovals(approvals);
+                } catch (e) { console.warn('Polling approvals failed', e); }
+            }
+        });
+
+        // Poll contracted jobs every 8 seconds
+        pollingService.startPolling('driver-jobs', {
+            interval: 8000,
+            onPoll: async () => {
+                try {
+                    const jobs = await ApiService.getDriverContractedJobs();
+                    setContractedJobs(jobs);
+                } catch (e) { console.warn('Polling jobs failed', e); }
+            }
+        });
+
+        // Poll active posts every 12 seconds
+        pollingService.startPolling('driver-posts', {
+            interval: 12000,
+            onPoll: async () => {
+                try {
+                    const [posts, hirePosts] = await Promise.all([
+                        ApiService.getDriverActivePosts(),
+                        ApiService.getDriverHirePosts()
+                    ]);
+                    setActivePosts(posts);
+                    setMyHirePosts(hirePosts);
+                } catch (e) { console.warn('Polling posts failed', e); }
+            }
+        });
+
+        // Poll transactions every 15 seconds
+        pollingService.startPolling('driver-transactions', {
+            interval: 15000,
+            onPoll: async () => {
+                try {
+                    const txns = await ApiService.getDriverTransactions();
+                    setTransactions(txns);
+                } catch (e) { console.warn('Polling transactions failed', e); }
+            }
+        });
+
+        // Poll analytics data every 20 seconds
+        pollingService.startPolling('driver-analytics', {
+            interval: 20000,
+            onPoll: async () => {
+                try {
+                    const [profit, trips, distance, hours, onTime] = await Promise.all([
+                        ApiService.getDriverProfitStats(),
+                        ApiService.getDriverTripHistoryStats(),
+                        ApiService.getDriverDistanceStats(),
+                        ApiService.getDriverHoursStats(),
+                        ApiService.getDriverOnTimeStats()
+                    ]);
+                    setProfitChartData(profit);
+                    setTripHistoryData(trips);
+                    setDistanceData(distance);
+                    setDrivingHoursData(hours);
+                    setOnTimeData(onTime);
+                } catch (e) { console.warn('Polling analytics failed', e); }
+            }
+        });
+
+        // Poll notifications every 10 seconds
+        pollingService.startPolling('driver-notifications', {
+            interval: 10000,
+            onPoll: async () => {
+                try {
+                    const notifs = await ApiService.getDriverNotifications();
+                    setNotifications(notifs);
+                } catch (e) { console.warn('Polling notifications failed', e); }
+            }
+        });
+
+        // Cleanup: stop all polling when component unmounts
+        return () => {
+            pollingService.stopPolling('driver-approvals');
+            pollingService.stopPolling('driver-jobs');
+            pollingService.stopPolling('driver-posts');
+            pollingService.stopPolling('driver-transactions');
+            pollingService.stopPolling('driver-analytics');
+            pollingService.stopPolling('driver-notifications');
+        };
+    }, []);
+
+    // Auto-poll pending approvals every 3 seconds (high priority for new requests)
+    useEffect(() => {
+        const pollInterval = setInterval(async () => {
+            try {
+                const approvals = await ApiService.getDriverPendingApprovals();
+                setPendingApprovals(approvals);
+            } catch (error) {
+                console.warn('Auto-poll error for pending approvals:', error);
+            }
+        }, 3000); // Poll every 3 seconds
+
+        return () => clearInterval(pollInterval);
+    }, []);
+
+    // Auto-poll contracted jobs every 5 seconds (to refresh job statuses)
+    useEffect(() => {
+        const pollInterval = setInterval(async () => {
+            try {
+                const jobs = await ApiService.getDriverContractedJobs();
+                setContractedJobs(jobs);
+            } catch (error) {
+                console.warn('Auto-poll error for jobs:', error);
+            }
+        }, 5000); // Poll every 5 seconds
+
+        return () => clearInterval(pollInterval);
+    }, []);
+
+    // Auto-poll active posts every 10 seconds (to refresh marketplace listings)
+    useEffect(() => {
+        const pollInterval = setInterval(async () => {
+            try {
+                const [posts, hirePosts] = await Promise.all([
+                    ApiService.getDriverActivePosts(),
+                    ApiService.getDriverHirePosts()
+                ]);
+                setActivePosts(posts);
+                setMyHirePosts(hirePosts);
+            } catch (error) {
+                console.warn('Auto-poll error for posts:', error);
+            }
+        }, 10000); // Poll every 10 seconds
+
+        return () => clearInterval(pollInterval);
     }, []);
 
     // Realtime updates: listen for new vehicles added by this driver
@@ -914,6 +1503,14 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                     <button onClick={() => setActiveTab('documents')} className={`flex items-center w-full px-4 py-3 rounded-xl font-medium transition-colors ${activeTab === 'documents' ? 'text-white bg-[#2A2A2A]' : 'text-gray-400 hover:text-white hover:bg-[#2A2A2A]'}`}>
                         <DocumentIcon className="w-5 h-5 mr-3" /> Documents
                     </button>
+                    <button onClick={() => setActiveTab('settings')} className={`flex items-center w-full px-4 py-3 rounded-xl font-medium transition-colors ${activeTab === 'settings' ? 'text-white bg-[#2A2A2A]' : 'text-gray-400 hover:text-white hover:bg-[#2A2A2A]'}`}>
+                        <svg className="w-5 h-5 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        Settings
+                    </button>
+
                     <button onClick={() => setActiveTab('subscription')} className={`flex items-center w-full px-4 py-3 rounded-xl font-medium transition-colors ${activeTab === 'subscription' ? 'text-white bg-[#2A2A2A]' : 'text-gray-400 hover:text-white hover:bg-[#2A2A2A]'}`}>
                         <CreditCardIcon className="w-5 h-5 mr-3" /> Subscription
                     </button>
@@ -933,7 +1530,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                             <MenuIcon className="h-6 w-6" />
                         </button>
                         <div className="hidden md:flex items-center space-x-4">
-                            {['overview', 'jobs', 'messages', 'inventory', 'tracking', 'history'].map(tab => (
+                            {['overview', 'jobs', 'messages', 'inventory', 'tracking', 'history', 'settings'].map(tab => (
                                 <button
                                     key={tab}
                                     onClick={() => setActiveTab(tab as any)}
@@ -1424,15 +2021,16 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
 
                                     <div className={`lg:col-span-6 h-full transition-all duration-500 ${isMapExpanded ? 'fixed inset-0 z-50 bg-[#1E1E1E] p-4' : ''}`}>
                                         <div className={`bg-[#1E1E1E] rounded-3xl border border-[#2A2A2A] shadow-lg shadow-black/20 h-full relative min-h-[400px] overflow-hidden hover:shadow-[0_0_30px_rgba(250,204,21,0.1)] hover:border-[#FACC15]/30 transition-all duration-300 ${isMapExpanded ? 'border-none rounded-none' : ''}`}>
-                                            <MapboxMap
-                                                center={tripCoordinates.origin || driverLocation}
-                                                zoom={11}
-                                                mapStyle={mapStyle}
-                                                onLocationUpdate={setLocationInfo}
-                                                destination={currentTrip?.destination}
-                                                trackDevice={false}
-                                                onClick={() => !isMapExpanded && setIsMapExpanded(true)}
-                                            />
+                                            {/* Map removed: replaced with informational panel for manual mode */}
+                                            <div className="w-full h-full flex items-center justify-center p-6">
+                                                <div className="text-center max-w-lg">
+                                                    <div className="w-16 h-16 bg-[#252525] rounded-full flex items-center justify-center mx-auto mb-4 border border-[#333]">
+                                                        <MapIcon className="w-8 h-8 text-[#FACC15]" />
+                                                    </div>
+                                                    <h3 className="text-lg font-bold text-white mb-2">Manual Tracking Mode</h3>
+                                                    <p className="text-sm text-gray-400">Automated map tracking has been disabled. Use the controls in the job card to update status (Inbound, Arrived, Boarded, In Progress, Complete).</p>
+                                                </div>
+                                            </div>
 
                                             {isMapExpanded && (
                                                 <button
@@ -1664,9 +2262,9 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                             </div>
                         )}
 
-                        {/* --- Documents/Verification Page --- */}
+                        {/* --- Documents (Now Payout Details) Page --- */}
                         {activeTab === 'documents' && (
-                            <div className="animate-fadeIn space-y-6 max-w-5xl mx-auto">
+                            <div className="animate-fadeIn space-y-6 max-w-3xl mx-auto">
                                 <div className="flex items-center gap-4 mb-6">
                                     <button
                                         onClick={() => setActiveTab('overview')}
@@ -1675,160 +2273,200 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                         <ArrowLeftIcon className="w-5 h-5" />
                                     </button>
                                     <div>
-                                        <h2 className="text-2xl font-bold text-white">Documents & Verification</h2>
-                                        <p className="text-sm text-gray-400">Upload your driver's license and payment details for verification.</p>
+                                        <h2 className="text-2xl font-bold text-white">Payout Details</h2>
+                                        <p className="text-sm text-gray-400">Manage your bank or mobile money details.</p>
                                     </div>
                                 </div>
 
-                                <form onSubmit={handleDocumentsSave} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                                    {/* Left Column: Payment Details */}
-                                    <div className="lg:col-span-2 space-y-6">
-                                        {/* Payment Configuration Card */}
-                                        <div className="bg-[#1E1E1E] rounded-3xl p-6 border border-[#2A2A2A] relative overflow-hidden">
-                                            <div className="absolute top-0 right-0 w-32 h-32 bg-green-500/5 rounded-bl-full -mr-10 -mt-10 pointer-events-none"></div>
-                                            <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                                                <CreditCardIcon className="w-5 h-5 text-green-500" />
-                                                Payment Details
-                                            </h3>
+                                <form onSubmit={handleSavePayoutDetails} className="space-y-6">
+                                    <div className="bg-[#1E1E1E] rounded-3xl p-6 border border-[#2A2A2A] relative overflow-hidden">
+                                        <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                                            <CreditCardIcon className="w-5 h-5 text-[#FACC15]" />
+                                            Payout Method
+                                        </h3>
 
-                                            <div className="mb-6">
-                                                <label className="text-xs text-gray-500 mb-2 block uppercase font-bold">Preferred Payment Method</label>
-                                                <div className="flex bg-[#252525] p-1 rounded-xl border border-[#333]">
-                                                    {['Bank', 'Airtel Money', 'Mpamba'].map((method) => (
-                                                        <button
-                                                            key={method}
-                                                            type="button"
-                                                            onClick={() => setPayoutMethod(method as any)}
-                                                            className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${payoutMethod === method ? 'bg-[#FACC15] text-black shadow-lg' : 'text-gray-400 hover:text-white hover:bg-[#333]'}`}
-                                                        >
-                                                            {method}
-                                                        </button>
-                                                    ))}
-                                                </div>
+                                        <div className="mb-6">
+                                            <label className="text-xs text-gray-500 mb-2 block uppercase font-bold">Preferred Method</label>
+                                            <div className="flex bg-[#252525] p-1 rounded-xl border border-[#333]">
+                                                {['Bank', 'Airtel Money', 'Mpamba'].map((method) => (
+                                                    <button
+                                                        key={method}
+                                                        type="button"
+                                                        onClick={() => setPayoutMethod(method as any)}
+                                                        className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${payoutMethod === method ? 'bg-[#FACC15] text-black shadow-lg' : 'text-gray-400 hover:text-white hover:bg-[#333]'}`}
+                                                    >
+                                                        {method}
+                                                    </button>
+                                                ))}
                                             </div>
+                                        </div>
 
-                                            {payoutMethod === 'Bank' ? (
-                                                <div className="space-y-4 animate-fadeIn">
-                                                    <div className="grid grid-cols-2 gap-4">
-                                                        <div>
-                                                            <label className="text-xs text-gray-500 mb-1 block">Bank Name</label>
-                                                            <select
-                                                                value={payoutDetails.bankName || ''}
-                                                                onChange={(e) => setPayoutDetails({ ...payoutDetails, bankName: e.target.value })}
-                                                                className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]"
-                                                                required
-                                                            >
-                                                                <option value="">Select Bank</option>
-                                                                <option value="National Bank">National Bank of Malawi</option>
-                                                                <option value="Standard Bank">Standard Bank</option>
-                                                                <option value="FDH Bank">FDH Bank</option>
-                                                                <option value="NBS Bank">NBS Bank</option>
-                                                            </select>
-                                                        </div>
-                                                        <div>
-                                                            <label className="text-xs text-gray-500 mb-1 block">Account Number</label>
-                                                            <input
-                                                                type="text"
-                                                                value={payoutDetails.accountNumber || ''}
-                                                                onChange={(e) => setPayoutDetails({ ...payoutDetails, accountNumber: e.target.value })}
-                                                                className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]"
-                                                                placeholder="0000000000"
-                                                                required
-                                                            />
-                                                        </div>
+                                        {payoutMethod === 'Bank' ? (
+                                            <div className="space-y-4 animate-fadeIn">
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div>
+                                                        <label className="text-xs text-gray-500 mb-1 block">Bank Name</label>
+                                                        <select
+                                                            value={payoutDetails.bankName || ''}
+                                                            onChange={(e) => setPayoutDetails({ ...payoutDetails, bankName: e.target.value })}
+                                                            className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]"
+                                                            required
+                                                        >
+                                                            <option value="">Select Bank</option>
+                                                            <option value="National Bank">National Bank of Malawi</option>
+                                                            <option value="Standard Bank">Standard Bank</option>
+                                                            <option value="FDH Bank">FDH Bank</option>
+                                                            <option value="NBS Bank">NBS Bank</option>
+                                                        </select>
                                                     </div>
                                                     <div>
-                                                        <label className="text-xs text-gray-500 mb-1 block">Account Holder Name</label>
+                                                        <label className="text-xs text-gray-500 mb-1 block">Account Number</label>
                                                         <input
                                                             type="text"
-                                                            value={payoutDetails.accountName || ''}
-                                                            onChange={(e) => setPayoutDetails({ ...payoutDetails, accountName: e.target.value })}
+                                                            value={payoutDetails.accountNumber || ''}
+                                                            onChange={(e) => setPayoutDetails({ ...payoutDetails, accountNumber: e.target.value })}
                                                             className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]"
-                                                            placeholder="Full Name"
+                                                            placeholder="0000000000"
                                                             required
                                                         />
                                                     </div>
                                                 </div>
-                                            ) : (
-                                                <div className="animate-fadeIn">
-                                                    <label className="text-xs text-gray-500 mb-1 block">Mobile Number ({payoutMethod})</label>
-                                                    <div className="relative">
-                                                        <PhoneIcon className="w-5 h-5 text-gray-500 absolute left-4 top-3" />
-                                                        <input
-                                                            type="text"
-                                                            value={payoutDetails.mobileNumber || ''}
-                                                            onChange={(e) => setPayoutDetails({ ...payoutDetails, mobileNumber: e.target.value })}
-                                                            className="w-full bg-[#252525] border border-[#333] rounded-xl pl-12 pr-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]"
-                                                            placeholder="+265..."
-                                                            required
-                                                        />
-                                                    </div>
+                                                <div>
+                                                    <label className="text-xs text-gray-500 mb-1 block">Account Holder Name</label>
+                                                    <input
+                                                        type="text"
+                                                        value={payoutDetails.accountName || ''}
+                                                        onChange={(e) => setPayoutDetails({ ...payoutDetails, accountName: e.target.value })}
+                                                        className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]"
+                                                        placeholder="Full Name"
+                                                        required
+                                                    />
                                                 </div>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* Right Column: License Upload */}
-                                    <div className="space-y-6">
-                                        <div className="bg-[#1E1E1E] rounded-3xl p-6 border border-[#2A2A2A] flex flex-col h-full">
-                                            <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                                                <DocumentIcon className="w-5 h-5 text-[#FACC15]" />
-                                                Driver's License
-                                            </h3>
-
-                                            <div className="mb-6">
-                                                <label className="text-xs text-gray-500 mb-2 block">Upload License (Front)</label>
-
-                                                {licensePreview ? (
-                                                    <div className="relative group rounded-xl overflow-hidden border border-[#333]">
-                                                        <img src={licensePreview} alt="License Preview" className="w-full h-40 object-cover" />
-                                                        <div className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => { setLicensePreview(null); setLicenseFile(null); }}
-                                                                className="bg-red-600 text-white px-4 py-2 rounded-lg text-xs font-bold"
-                                                            >
-                                                                Remove
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                ) : (
-                                                    <label className="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-[#333] rounded-xl cursor-pointer hover:border-[#FACC15] hover:bg-[#252525] transition-all">
-                                                        <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                                                            <svg className="w-8 h-8 mb-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
-                                                            <p className="mb-2 text-sm text-gray-400"><span className="font-semibold text-[#FACC15]">Click to upload</span> or drag and drop</p>
-                                                            <p className="text-xs text-gray-500">PNG, JPG, PDF (MAX. 5MB)</p>
-                                                        </div>
-                                                        <input type="file" className="hidden" onChange={handleLicenseUpload} accept="image/*,application/pdf" required />
-                                                    </label>
-                                                )}
                                             </div>
-
-                                            <div className="mt-auto bg-[#252525] p-4 rounded-xl border border-[#333]">
-                                                <div className="flex justify-between items-center mb-1">
-                                                    <span className="text-gray-400 text-xs">Verification Status</span>
-                                                    <span className="text-yellow-400 text-xs font-bold bg-yellow-900/30 px-2 py-0.5 rounded">Pending</span>
+                                        ) : (
+                                            <div className="animate-fadeIn">
+                                                <label className="text-xs text-gray-500 mb-1 block">Mobile Number ({payoutMethod})</label>
+                                                <div className="relative">
+                                                    <PhoneIcon className="w-5 h-5 text-gray-500 absolute left-4 top-3" />
+                                                    <input
+                                                        type="text"
+                                                        value={payoutDetails.mobileNumber || ''}
+                                                        onChange={(e) => setPayoutDetails({ ...payoutDetails, mobileNumber: e.target.value })}
+                                                        className="w-full bg-[#252525] border border-[#333] rounded-xl pl-12 pr-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]"
+                                                        placeholder="+265..."
+                                                        required
+                                                    />
                                                 </div>
-                                                <p className="text-[10px] text-gray-500">
-                                                    Upload your license to unlock verified status and access premium jobs.
-                                                </p>
                                             </div>
-                                        </div>
+                                        )}
                                     </div>
 
-                                    <div className="lg:col-span-3">
-                                        <button
-                                            type="submit"
-                                            disabled={documentsSaving}
-                                            className="w-full bg-[#FACC15] text-black font-bold py-4 rounded-xl hover:bg-[#EAB308] transition-all shadow-lg shadow-[#FACC15]/20 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
-                                        >
-                                            {documentsSaving ? <SpinnerIcon className="w-5 h-5" /> : <CheckBadgeIcon className="w-5 h-5" />}
-                                            {documentsSaving ? 'Saving Documents...' : 'Save & Submit for Verification'}
-                                        </button>
-                                    </div>
+                                    <button
+                                        type="submit"
+                                        disabled={documentsSaving}
+                                        className="w-full bg-[#FACC15] text-black font-bold py-4 rounded-xl hover:bg-[#EAB308] transition-all shadow-lg shadow-[#FACC15]/20 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                                    >
+                                        {documentsSaving ? <SpinnerIcon className="w-5 h-5" /> : <CheckBadgeIcon className="w-5 h-5" />}
+                                        {documentsSaving ? 'Saving...' : 'Save Details'}
+                                    </button>
                                 </form>
                             </div>
                         )}
+
+                        {/* --- Settings (Wallet Only) Page --- */}
+                        {activeTab === 'settings' && (
+                            <div className="animate-fadeIn space-y-6 max-w-3xl mx-auto">
+                                <div className="flex items-center gap-4 mb-6">
+                                    <button
+                                        onClick={() => setActiveTab('overview')}
+                                        className="p-2 rounded-xl bg-[#252525] hover:bg-[#333] text-gray-400 hover:text-white transition-colors"
+                                    >
+                                        <ArrowLeftIcon className="w-5 h-5" />
+                                    </button>
+                                    <div>
+                                        <h2 className="text-2xl font-bold text-white">Wallet & Settings</h2>
+                                        <p className="text-sm text-gray-400">Manage your wallet and balance.</p>
+                                    </div>
+                                </div>
+
+                                {/* Wallet Section */}
+                                <div className="bg-[#1E1E1E] rounded-3xl p-6 border border-[#2A2A2A] relative overflow-hidden">
+                                    <div className="flex justify-between items-center mb-6">
+                                        <div>
+                                            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                                                <CreditCardIcon className="w-5 h-5 text-[#FACC15]" />
+                                                Wallet Balance
+                                            </h3>
+                                            <p className="text-sm text-gray-400">Available earnings for withdrawal.</p>
+                                        </div>
+                                        <div className="text-right">
+                                            <div className="text-2xl font-bold text-[#FACC15]">MWK {(summaryStats.walletBalance || 0).toLocaleString()}</div>
+                                            <div className="text-xs text-gray-500">Available</div>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex gap-4">
+                                        <div className="relative flex-1">
+                                            <span className="absolute left-4 top-3.5 text-gray-400 text-sm">MWK</span>
+                                            <input
+                                                type="number"
+                                                value={withdrawAmount}
+                                                onChange={e => setWithdrawAmount(e.target.value)}
+                                                className="w-full bg-[#252525] border border-[#333] rounded-xl pl-12 pr-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]"
+                                                placeholder="0.00"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Withdrawal Destination Selection */}
+                                    <div className="mt-6 mb-6">
+                                        <label className="text-xs text-gray-500 mb-2 block uppercase font-bold">Withdraw To</label>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div
+                                                onClick={() => setWithdrawDestination('mobile')}
+                                                className={`p-4 rounded-xl border cursor-pointer transition-all ${withdrawDestination === 'mobile' ? 'bg-[#FACC15]/10 border-[#FACC15] ring-1 ring-[#FACC15]' : 'bg-[#252525] border-[#333] hover:border-[#666]'}`}
+                                            >
+                                                <div className="flex justify-between items-center mb-2">
+                                                    <span className={`font-bold ${withdrawDestination === 'mobile' ? 'text-[#FACC15]' : 'text-white'}`}>Mobile Money</span>
+                                                    {withdrawDestination === 'mobile' && <CheckBadgeIcon className="w-5 h-5 text-[#FACC15]" />}
+                                                </div>
+                                                <div className="text-sm text-gray-400 truncate">
+                                                    {payoutDetails.mobileNumber ? `${payoutDetails.payoutMethod || 'Mobile'}: ${payoutDetails.mobileNumber}` : 'Not configured'}
+                                                </div>
+                                            </div>
+
+                                            <div
+                                                onClick={() => setWithdrawDestination('bank')}
+                                                className={`p-4 rounded-xl border cursor-pointer transition-all ${withdrawDestination === 'bank' ? 'bg-[#FACC15]/10 border-[#FACC15] ring-1 ring-[#FACC15]' : 'bg-[#252525] border-[#333] hover:border-[#666]'}`}
+                                            >
+                                                <div className="flex justify-between items-center mb-2">
+                                                    <span className={`font-bold ${withdrawDestination === 'bank' ? 'text-[#FACC15]' : 'text-white'}`}>Bank Transfer</span>
+                                                    {withdrawDestination === 'bank' && <CheckBadgeIcon className="w-5 h-5 text-[#FACC15]" />}
+                                                </div>
+                                                <div className="text-sm text-gray-400 truncate">
+                                                    {payoutDetails.bankName ? `${payoutDetails.bankName} - ${payoutDetails.accountNumber}` : 'Not configured'}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        {((withdrawDestination === 'mobile' && !payoutDetails.mobileNumber) || (withdrawDestination === 'bank' && !payoutDetails.bankName)) && (
+                                            <div className="mt-2 text-xs text-red-500 flex items-center gap-1">
+                                                <ExclamationTriangleIcon className="w-4 h-4" />
+                                                Selected method is not configured. Please go to Payout Details tab.
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <button
+                                        onClick={handleWithdraw}
+                                        disabled={!withdrawAmount || parseFloat(withdrawAmount) <= 0 || parseFloat(withdrawAmount) > (summaryStats.walletBalance || 0) || isWithdrawing || (withdrawDestination === 'mobile' && !payoutDetails.mobileNumber) || (withdrawDestination === 'bank' && !payoutDetails.bankName)}
+                                        className="w-full bg-[#FACC15] text-black font-bold py-4 rounded-xl hover:bg-[#EAB308] transition-all shadow-lg shadow-[#FACC15]/20 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                                    >
+                                        {isWithdrawing ? 'Processing...' : 'Withdraw Funds'}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
 
                         {/* --- New: Total Trips Page --- */}
                         {activeTab === 'trips' && (
@@ -1914,15 +2552,20 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                         </div>
                                         <div className="bg-[#1E1E1E] rounded-3xl p-6 border border-[#2A2A2A]">
                                             <h3 className="text-lg font-bold text-white mb-4">Recent Activity</h3>
-                                            <div className="space-y-3 text-sm">
-                                                {(transactions || []).slice(0, 2).map(tx => (
-                                                    <div key={tx.id} className="flex justify-between text-gray-300">
-                                                        <span>{tx.desc}</span>
-                                                        <span className="text-[#FACC15]">+MWK {(tx.amount ?? 0).toLocaleString()}</span>
+                                            <div className="space-y-3 text-sm max-h-[300px] overflow-y-auto no-scrollbar">
+                                                {(transactions || []).map(tx => (
+                                                    <div key={tx.id} className="flex justify-between items-center text-gray-300 p-2 hover:bg-[#252525] rounded-lg transition-colors border-b border-[#333] last:border-0">
+                                                        <div>
+                                                            <div className="font-bold text-white">{tx.desc}</div>
+                                                            <div className="text-[10px] text-gray-500">{new Date(tx.date).toLocaleDateString()} • {tx.type} • <span className={`uppercase font-bold ${tx.status === 'completed' ? 'text-green-500' : 'text-yellow-500'}`}>{tx.status}</span></div>
+                                                        </div>
+                                                        <span className={`font-bold ${tx.direction === 'credit' ? 'text-green-400' : 'text-red-400'}`}>
+                                                            {tx.direction === 'credit' ? '+' : '-'} MWK {(tx.amount ?? 0).toLocaleString()}
+                                                        </span>
                                                     </div>
                                                 ))}
                                                 {(transactions || []).length === 0 && (
-                                                    <div className="text-gray-500">No recent activity</div>
+                                                    <div className="text-gray-500 text-center py-4">No recent activity</div>
                                                 )}
                                             </div>
                                         </div>
@@ -2132,48 +2775,48 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-fadeIn h-[calc(100vh-140px)]">
                                 {/* Left Column: Calendar & Status */}
                                 <div className="lg:col-span-7 flex flex-col gap-6 h-full overflow-y-auto pr-2 no-scrollbar">
-                                    <div className="bg-[#1E1E1E] rounded-3xl p-8 border border-[#FACC15]/30 relative overflow-hidden">
-                                        <div className="absolute -right-10 -top-10 w-40 h-40 bg-[#FACC15]/10 rounded-full blur-2xl"></div>
+                                    <div className="bg-[#1E1E1E] rounded-2xl p-5 border border-[#FACC15]/30 relative overflow-hidden">
+                                        <div className="absolute -right-10 -top-10 w-32 h-32 bg-[#FACC15]/10 rounded-full blur-2xl"></div>
 
-                                        <div className="flex items-center gap-4 mb-6 relative z-10">
-                                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center border ${isSubscriptionPaid ? 'bg-green-500/20 border-green-500 text-green-500' : 'bg-red-500/20 border-red-500 text-red-500'}`}>
-                                                {isSubscriptionPaid ? <CheckBadgeIcon className="w-6 h-6" /> : <CreditCardIcon className="w-6 h-6" />}
+                                        <div className="flex items-center gap-3 mb-4 relative z-10">
+                                            <div className={`w-10 h-10 rounded-lg flex items-center justify-center border ${isSubscriptionPaid ? 'bg-green-500/20 border-green-500 text-green-500' : 'bg-red-500/20 border-red-500 text-red-500'}`}>
+                                                {isSubscriptionPaid ? <CheckBadgeIcon className="w-5 h-5" /> : <CreditCardIcon className="w-5 h-5" />}
                                             </div>
-                                            <div>
-                                                <h2 className="text-2xl font-bold text-white">Professional Plan</h2>
-                                                <p className={`font-medium ${isSubscriptionPaid ? 'text-green-400' : 'text-red-400'}`}>
+                                            <div className="flex-1 min-w-0">
+                                                <h2 className="text-lg font-bold text-white truncate">Professional Plan</h2>
+                                                <p className={`text-sm font-medium truncate ${isSubscriptionPaid ? 'text-green-400' : 'text-red-400'}`}>
                                                     {isSubscriptionPaid ? 'Active Subscription' : 'Payment Pending'}
                                                 </p>
                                             </div>
                                         </div>
 
-                                        <div className="flex gap-4 mb-4 relative z-10">
-                                            <div className="bg-[#252525] p-4 rounded-2xl flex-1 border border-[#333]">
-                                                <p className="text-xs text-gray-400 uppercase font-bold">Cycle Start</p>
-                                                <p className="text-lg font-bold text-white">{subStartDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
+                                        <div className="flex gap-3 mb-3 relative z-10">
+                                            <div className="bg-[#252525] p-3 rounded-xl flex-1 border border-[#333]">
+                                                <p className="text-[10px] text-gray-400 uppercase font-bold">Cycle Start</p>
+                                                <p className="text-sm font-bold text-white">{subStartDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
                                             </div>
-                                            <div className="bg-[#252525] p-4 rounded-2xl flex-1 border border-[#333]">
-                                                <p className="text-xs text-gray-400 uppercase font-bold">Cycle End</p>
-                                                <p className="text-lg font-bold text-white">{subEndDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
+                                            <div className="bg-[#252525] p-3 rounded-xl flex-1 border border-[#333]">
+                                                <p className="text-[10px] text-gray-400 uppercase font-bold">Cycle End</p>
+                                                <p className="text-sm font-bold text-white">{subEndDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
                                             </div>
                                         </div>
                                     </div>
 
                                     {/* Visual Calendar */}
-                                    <div className="bg-[#1E1E1E] rounded-3xl p-6 border border-[#2A2A2A] flex-1 flex flex-col">
-                                        <div className="flex items-center justify-between mb-6">
-                                            <h3 className="text-lg font-bold text-white">Coverage Calendar</h3>
+                                    <div className="bg-[#1E1E1E] rounded-2xl p-4 border border-[#2A2A2A] flex-1 flex flex-col">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <h3 className="text-base font-bold text-white">Coverage Calendar</h3>
                                             <div className="flex items-center gap-2">
-                                                <div className="flex items-center gap-1 text-xs text-gray-400"><span className="w-2 h-2 rounded-full bg-[#FACC15]"></span> Paid</div>
-                                                <div className="flex items-center gap-1 text-xs text-gray-400"><span className="w-2 h-2 rounded-full bg-[#333]"></span> Unpaid</div>
+                                                <div className="flex items-center gap-1 text-[10px] text-gray-400"><span className="w-1.5 h-1.5 rounded-full bg-[#FACC15]"></span> Paid</div>
+                                                <div className="flex items-center gap-1 text-[10px] text-gray-400"><span className="w-1.5 h-1.5 rounded-full bg-[#333]"></span> Unpaid</div>
                                             </div>
                                         </div>
 
-                                        <div className="grid grid-cols-7 gap-2 text-center mb-2 border-b border-[#333] pb-4">
-                                            {weekDays.map((d, i) => <span key={i} className="text-gray-500 font-bold text-sm">{d}</span>)}
+                                        <div className="grid grid-cols-7 gap-1 text-center mb-2 border-b border-[#333] pb-2">
+                                            {weekDays.map((d, i) => <span key={i} className="text-gray-500 font-bold text-xs">{d}</span>)}
                                         </div>
 
-                                        <div className="grid grid-cols-7 gap-2 flex-1 content-start">
+                                        <div className="grid grid-cols-7 gap-1 flex-1 content-start">
                                             {/* Mocking current month days */}
                                             {Array.from({ length: 3 }).map((_, i) => <div key={`pre-${i}`}></div>)}
                                             {Array.from({ length: 30 }).map((_, i) => {
@@ -2184,9 +2827,9 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                                     <div
                                                         key={day}
                                                         className={`
-                                                            aspect-square rounded-xl flex items-center justify-center text-sm font-bold border transition-all
+                                                            aspect-square rounded-lg flex items-center justify-center text-xs font-bold border transition-all
                                                             ${isPaidDay
-                                                                ? 'bg-[#FACC15]/20 border-[#FACC15] text-[#FACC15] shadow-[0_0_10px_rgba(250,204,21,0.2)]'
+                                                                ? 'bg-[#FACC15]/20 border-[#FACC15] text-[#FACC15] shadow-[0_0_8px_rgba(250,204,21,0.15)]'
                                                                 : 'bg-[#252525] border-[#333] text-gray-500'}
                                                         `}
                                                     >
@@ -2197,7 +2840,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                         </div>
 
                                         {isSubscriptionPaid && (
-                                            <p className="text-center text-xs text-gray-400 mt-4">
+                                            <p className="text-center text-[10px] text-gray-400 mt-2">
                                                 Your subscription is active from {subStartDate.toLocaleDateString()} to {subEndDate.toLocaleDateString()}.
                                             </p>
                                         )}
@@ -2342,8 +2985,11 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                 <div className="lg:col-span-4 h-full">
                                     <CurrentTripWidget />
                                 </div>
-                                <div className="lg:col-span-8 h-full bg-[#1E1E1E] rounded-3xl border border-[#2A2A2A] overflow-hidden">
-                                    <MapboxMap center={driverLocation} zoom={13} />
+                                <div className="lg:col-span-8 h-full bg-[#1E1E1E] rounded-3xl border border-[#2A2A2A] overflow-hidden flex items-center justify-center">
+                                    <div className="text-center p-6">
+                                        <MapIcon className="w-16 h-16 text-gray-500 mx-auto mb-4" />
+                                        <p className="text-gray-400">Map display disabled in Driver Dashboard. Use manual controls in the left panel to update trip stages.</p>
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -2563,11 +3209,19 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                             <div className="grid grid-cols-2 gap-4">
                                                 <div>
                                                     <label className="text-xs text-gray-500 mb-1 block">Origin</label>
-                                                    <input type="text" required value={newRide.origin} onChange={e => setNewRide({ ...newRide, origin: e.target.value })} className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]" placeholder="e.g. Blantyre" />
+                                                    <LocationInput
+                                                        value={newRide.origin}
+                                                        onChange={(val) => setNewRide({ ...newRide, origin: val })}
+                                                        placeholder="e.g. Blantyre"
+                                                    />
                                                 </div>
                                                 <div>
                                                     <label className="text-xs text-gray-500 mb-1 block">Destination</label>
-                                                    <input type="text" required value={newRide.destination} onChange={e => setNewRide({ ...newRide, destination: e.target.value })} className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]" placeholder="e.g. Lilongwe" />
+                                                    <LocationInput
+                                                        value={newRide.destination}
+                                                        onChange={(val) => setNewRide({ ...newRide, destination: val })}
+                                                        placeholder="e.g. Lilongwe"
+                                                    />
                                                 </div>
                                             </div>
                                             <div className="grid grid-cols-2 gap-4">
@@ -2628,7 +3282,11 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                             <div className="grid grid-cols-2 gap-4">
                                                 <div>
                                                     <label className="text-xs text-gray-500 mb-1 block">Base Location</label>
-                                                    <input type="text" required value={newHireJob.location} onChange={e => setNewHireJob({ ...newHireJob, location: e.target.value })} className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]" placeholder="e.g. Lilongwe" />
+                                                    <LocationInput
+                                                        value={newHireJob.location}
+                                                        onChange={(val) => setNewHireJob({ ...newHireJob, location: val })}
+                                                        placeholder="e.g. Lilongwe"
+                                                    />
                                                 </div>
                                                 <div>
                                                     <label className="text-xs text-gray-500 mb-1 block">Rate / Day (MWK)</label>
@@ -2705,8 +3363,24 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                     <div className="flex items-center justify-between mb-6">
                                         <h2 className="text-xl font-bold text-white">Contracted Jobs</h2>
                                         <div className="bg-[#252525] rounded-lg p-1 flex">
-                                            <button className="px-3 py-1 text-xs font-bold bg-[#FACC15] text-black rounded-md">Active</button>
-                                            <button className="px-3 py-1 text-xs font-bold text-gray-500 hover:text-white transition-colors">History</button>
+                                            <button
+                                                onClick={() => setJobsFilter('active')}
+                                                className={`px-3 py-1 text-xs font-bold rounded-md transition-colors ${jobsFilter === 'active' ? 'bg-[#FACC15] text-black' : 'text-gray-500 hover:text-white'}`}
+                                            >
+                                                Active
+                                            </button>
+                                            <button
+                                                onClick={() => setJobsFilter('history')}
+                                                className={`px-3 py-1 text-xs font-bold rounded-md transition-colors ${jobsFilter === 'history' ? 'bg-[#FACC15] text-black' : 'text-gray-500 hover:text-white'}`}
+                                            >
+                                                History
+                                            </button>
+                                            <button
+                                                onClick={() => setJobsFilter('cancelled')}
+                                                className={`px-3 py-1 text-xs font-bold rounded-md transition-colors ${jobsFilter === 'cancelled' ? 'bg-[#FACC15] text-black' : 'text-gray-500 hover:text-white'}`}
+                                            >
+                                                Cancelled
+                                            </button>
                                         </div>
                                     </div>
 
@@ -2734,7 +3408,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                                         <div className="flex justify-between items-start mb-3 pl-2">
                                                             <div>
                                                                 <h3 className="font-bold text-white text-sm">{job.title}</h3>
-                                                                <p className="text-xs text-gray-400 mt-0.5">Client: {job.clientName || 'Direct Booking'} <span className="text-gray-600">({job.clientId || 'ID-99'})</span></p>
+                                                                <p className="text-xs text-gray-400 mt-0.5">Passenger: <span className="text-white font-bold">{job.rider?.name || job.clientName || 'Direct Booking'}</span> <span className="text-gray-600">({job.rider?.phone || job.clientId || 'ID--'})</span></p>
                                                             </div>
                                                             <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${job.status === 'In Progress' ? 'bg-blue-500/20 text-blue-400 animate-pulse' : 'bg-gray-700 text-gray-300'}`}>
                                                                 {job.status}
@@ -2753,40 +3427,92 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                                             </div>
                                                         </div>
 
-                                                        <div className="flex justify-between items-center pl-2 pt-2 border-t border-[#333]">
-                                                            <div className="text-lg font-bold text-[#FACC15]">MWK {(job.payout ?? 0).toLocaleString()}</div>
+                                                        <div className="pl-2 pt-2 border-t border-[#333] space-y-2">
+                                                            <div className="flex justify-between items-center">
+                                                                <div className="text-lg font-bold text-[#FACC15]">MWK {(job.acceptedPrice || job.payout || 0).toLocaleString()}</div>
+                                                            </div>
 
-                                                            {/* Driver Action Buttons based on Status */}
-                                                            {job.status === 'Scheduled' && (
-                                                                <button onClick={() => handleJobAction(job.id, 'Scheduled')} className="px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-500">
-                                                                    Start Pickup
-                                                                </button>
-                                                            )}
-                                                            {job.status === 'Inbound' && (
-                                                                <button onClick={() => handleJobAction(job.id, 'Inbound')} className="px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-500">
-                                                                    Arrived
-                                                                </button>
-                                                            )}
-                                                            {job.status === 'Arrived' && (
-                                                                <button className="px-3 py-1.5 bg-gray-700 text-gray-300 text-xs font-bold rounded-lg cursor-not-allowed" disabled>
-                                                                    Waiting for Rider...
-                                                                </button>
-                                                            )}
-                                                            {job.status === 'Boarded' && (
-                                                                <button onClick={() => handleJobAction(job.id, 'Boarded')} className="px-3 py-1.5 bg-[#FACC15] text-black text-xs font-bold rounded-lg hover:bg-[#EAB308] animate-pulse">
-                                                                    Start Trip
-                                                                </button>
-                                                            )}
-                                                            {job.status === 'In Progress' && (
-                                                                <button onClick={() => handleJobAction(job.id, 'In Progress')} className="px-3 py-1.5 bg-red-600 text-white text-xs font-bold rounded-lg hover:bg-red-500">
-                                                                    Complete Job
-                                                                </button>
-                                                            )}
-                                                            {job.status === 'Payment Due' && (
-                                                                <button onClick={() => handleJobAction(job.id, 'Payment Due')} className="px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-500">
-                                                                    Confirm Payment
-                                                                </button>
-                                                            )}
+                                                            <div className="flex justify-end items-center">
+                                                                {/* Driver Action Buttons based on Status */}
+                                                                {(job.status === 'Pending' || job.negotiationStatus === 'pending') && (
+                                                                    <div className="flex gap-2">
+                                                                        <button onClick={() => handleApproveJob(job.id)} className="px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-500">
+                                                                            Approve
+                                                                        </button>
+                                                                        <button onClick={() => handleDeclineJob(job.id)} className="px-3 py-1.5 bg-red-700 text-white text-xs font-bold rounded-lg hover:bg-red-600">
+                                                                            Decline
+                                                                        </button>
+                                                                    </div>
+                                                                )}
+                                                                {job.status === 'Approved' && (
+                                                                    <button
+                                                                        onClick={() => handleJobAction(job.id, 'Approved', job.type)}
+                                                                        className="px-3 py-1.5 bg-[#FACC15] text-black text-xs font-bold rounded-xl hover:bg-[#EAB308] animate-pulse shadow-lg shadow-[#FACC15]/20"
+                                                                    >
+                                                                        Start Pickup
+                                                                    </button>
+                                                                )}
+                                                                {job.status === 'Awaiting Payment Selection' && (
+                                                                    <button onClick={() => handleHandover(job.id)} className="px-3 py-1.5 bg-[#FACC15] text-black text-xs font-bold rounded-lg hover:bg-[#EAB308] animate-pulse shadow-lg shadow-[#FACC15]/20">
+                                                                        Handover to Rider
+                                                                    </button>
+                                                                )}
+                                                                {job.status === 'Handover Pending' && (
+                                                                    <button onClick={() => handleJobAction(job.id, 'Handover Pending', job.type)} className="px-3 py-1.5 bg-gray-700 text-gray-300 text-xs font-bold rounded-lg hover:bg-gray-600">
+                                                                        Waiting for Payment...
+                                                                    </button>
+                                                                )}
+                                                                {job.status === 'Scheduled' && (
+                                                                    <button onClick={() => handleJobAction(job.id, 'Scheduled', job.type)} className="px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-500">
+                                                                        {job.type === 'hire' ? 'Confirm Handover' : 'Start Pickup'}
+                                                                    </button>
+                                                                )}
+                                                                {job.status === 'Inbound' && (
+                                                                    <button onClick={() => handleJobAction(job.id, 'Inbound', job.type)} className="px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-500">
+                                                                        Arrived
+                                                                    </button>
+                                                                )}
+                                                                {job.status === 'Arrived' && (
+                                                                    <button className="px-3 py-1.5 bg-gray-700 text-gray-300 text-xs font-bold rounded-lg cursor-not-allowed" disabled>
+                                                                        Waiting for Rider...
+                                                                    </button>
+                                                                )}
+                                                                {job.status === 'Boarded' && (
+                                                                    <button onClick={() => handleJobAction(job.id, 'Boarded', job.type)} className="px-3 py-1.5 bg-[#FACC15] text-black text-xs font-bold rounded-lg hover:bg-[#EAB308] animate-pulse">
+                                                                        Start Trip
+                                                                    </button>
+                                                                )}
+                                                                {job.status === 'In Progress' && (
+                                                                    <button onClick={() => handleJobAction(job.id, 'In Progress', job.type)} className="px-3 py-1.5 bg-red-600 text-white text-xs font-bold rounded-lg hover:bg-red-500">
+                                                                        {job.type === 'hire' ? 'Confirm Return' : 'Complete Trip'}
+                                                                    </button>
+                                                                )}
+                                                                {job.status === 'Payment Due' && (
+                                                                    <button onClick={() => handleJobAction(job.id, 'Payment Due', job.type)} className="px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-500">
+                                                                        Confirm Payment
+                                                                    </button>
+                                                                )}
+                                                                {job.status === 'Active' && (
+                                                                    <button className="px-3 py-1.5 bg-gray-700 text-gray-300 text-xs font-bold rounded-lg cursor-not-allowed" disabled>
+                                                                        Waiting for Return...
+                                                                    </button>
+                                                                )}
+                                                                {job.status === 'Return Pending' && (
+                                                                    <button onClick={() => handleJobAction(job.id, 'Return Pending', job.type)} className="px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-500 animate-pulse shadow-lg shadow-blue-600/20">
+                                                                        Confirm Return
+                                                                    </button>
+                                                                )}
+
+                                                                {/* Fallback for Waiting for Pickup and other unhandled statuses */}
+                                                                {!['Pending', 'Approved', 'Inbound', 'Arrived', 'Boarded', 'In Progress', 'Payment Due', 'Awaiting Payment Selection', 'Handover Pending', 'Scheduled', 'Active', 'Return Pending'].includes(job.status || '') && (
+                                                                    <button
+                                                                        onClick={() => handleJobAction(job.id, 'Scheduled', job.type)}
+                                                                        className="px-3 py-1.5 bg-[#FACC15] text-black text-xs font-bold rounded-xl hover:bg-[#EAB308] shadow-lg"
+                                                                    >
+                                                                        {job.type === 'hire' ? 'Start Handover' : 'Start Pickup'}
+                                                                    </button>
+                                                                )}
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 ))}
@@ -2808,9 +3534,9 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                             <RequestApprovalCard
                                                 key={request.id}
                                                 request={request}
-                                                onApprove={() => handleApproveRequest(request.id)}
-                                                onReject={() => handleRejectRequest(request.id)}
-                                                onCounterOffer={(requestId: string, price: number, message: string) => handleDriverCounterOffer(requestId, price, message)}
+                                                onApprove={handleApproveRequest}
+                                                onReject={handleRejectRequest}
+                                                onCounterOffer={handleDriverCounterOffer}
                                             />
                                         ))}
                                     </div>
@@ -2826,41 +3552,43 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                             </div>
                         )}
                     </div>
-                </div>
-            </main>
+                </div >
+            </main >
 
             {/* Booking Modal */}
-            {isBookingModalOpen && (
-                <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4" onClick={() => setIsBookingModalOpen(false)}>
-                    <div className="bg-[#1E1E1E] rounded-3xl p-8 max-w-md w-full border border-[#333] shadow-2xl" onClick={e => e.stopPropagation()}>
-                        <div className="flex justify-between items-center mb-6">
-                            <h3 className="text-xl font-bold text-white">Confirm Booking</h3>
-                            <button onClick={() => setIsBookingModalOpen(false)} className="text-gray-400 hover:text-white"><CloseIcon className="w-6 h-6" /></button>
+            {
+                isBookingModalOpen && (
+                    <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4" onClick={() => setIsBookingModalOpen(false)}>
+                        <div className="bg-[#1E1E1E] rounded-3xl p-8 max-w-md w-full border border-[#333] shadow-2xl" onClick={e => e.stopPropagation()}>
+                            <div className="flex justify-between items-center mb-6">
+                                <h3 className="text-xl font-bold text-white">Confirm Booking</h3>
+                                <button onClick={() => setIsBookingModalOpen(false)} className="text-gray-400 hover:text-white"><CloseIcon className="w-6 h-6" /></button>
+                            </div>
+
+                            <form onSubmit={handleConfirmBooking} className="space-y-4">
+                                <div className="p-4 bg-[#252525] rounded-xl mb-4">
+                                    <div className="text-sm text-gray-300 font-medium mb-1">{bookingType === 'share' ? 'Ride Share' : 'Vehicle Hire'}</div>
+                                    <div className="text-white font-bold text-lg">{bookingType === 'share' ? `${bookingItem.origin} → ${bookingItem.destination}` : bookingItem.title}</div>
+                                    <div className="text-[#FACC15] font-bold mt-1">{bookingType === 'share' ? `MWK ${bookingItem.price}` : bookingItem.rate}</div>
+                                </div>
+
+                                <div>
+                                    <label className="text-xs text-gray-500 mb-1 block">Client Name</label>
+                                    <input type="text" required value={clientInfo.name} onChange={e => setClientInfo({ ...clientInfo, name: e.target.value })} className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]" placeholder="e.g. John Phiri" />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-gray-500 mb-1 block">Client Phone / ID</label>
+                                    <input type="text" required value={clientInfo.id} onChange={e => setClientInfo({ ...clientInfo, id: e.target.value })} className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]" placeholder="e.g. +265 99..." />
+                                </div>
+
+                                <button type="submit" className="w-full bg-[#FACC15] text-black font-bold py-3 rounded-xl mt-4 hover:bg-[#EAB308] transition-colors">
+                                    Confirm & Add to Schedule
+                                </button>
+                            </form>
                         </div>
-
-                        <form onSubmit={handleConfirmBooking} className="space-y-4">
-                            <div className="p-4 bg-[#252525] rounded-xl mb-4">
-                                <div className="text-sm text-gray-300 font-medium mb-1">{bookingType === 'share' ? 'Ride Share' : 'Vehicle Hire'}</div>
-                                <div className="text-white font-bold text-lg">{bookingType === 'share' ? `${bookingItem.origin} → ${bookingItem.destination}` : bookingItem.title}</div>
-                                <div className="text-[#FACC15] font-bold mt-1">{bookingType === 'share' ? `MWK ${bookingItem.price}` : bookingItem.rate}</div>
-                            </div>
-
-                            <div>
-                                <label className="text-xs text-gray-500 mb-1 block">Client Name</label>
-                                <input type="text" required value={clientInfo.name} onChange={e => setClientInfo({ ...clientInfo, name: e.target.value })} className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]" placeholder="e.g. John Phiri" />
-                            </div>
-                            <div>
-                                <label className="text-xs text-gray-500 mb-1 block">Client Phone / ID</label>
-                                <input type="text" required value={clientInfo.id} onChange={e => setClientInfo({ ...clientInfo, id: e.target.value })} className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]" placeholder="e.g. +265 99..." />
-                            </div>
-
-                            <button type="submit" className="w-full bg-[#FACC15] text-black font-bold py-3 rounded-xl mt-4 hover:bg-[#EAB308] transition-colors">
-                                Confirm & Add to Schedule
-                            </button>
-                        </form>
                     </div>
-                </div>
-            )}
-        </div>
+                )
+            }
+        </div >
     );
 };

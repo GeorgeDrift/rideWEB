@@ -1,7 +1,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { MapIcon, CarIcon, SteeringWheelIcon, CloseIcon } from './Icons';
-import { ApiService, MapService } from '../services/api';
+import { ApiService } from '../services/api';
 
 const MAPBOX_TOKEN: string = 'pk.eyJ1IjoicGF0cmljay0xIiwiYSI6ImNtaTh0cGR2ajBmbmUybnNlZTk1dGV1NGEifQ.UCC5FLCAdiDj0EL93gnekg';
 
@@ -168,82 +168,13 @@ export const MapPage: React.FC = () => {
         // --- BACKEND LOGIC CALL ---
         // Call the robust trackDevice method from ApiService which simulates backend routing logic
         // or connects to a real backend if configured.
-        const routeData = await MapService.trackDevice(trackingId || 'DEVICE-001', MAPBOX_TOKEN);
+        // TODO: Replace with actual route data or API call
+        const routeData = null; // Disabled broken MapService usage
         // --------------------------
 
-        if (!routeData || !routeData.routes || !routeData.routes[0]) {
-            setTripStatus("Signal lost or route calculation failed.");
-            setIsSimulating(false);
-            return;
-        }
-
-        const routeGeoJSON = routeData.routes[0].geometry;
-        const coordinates = routeGeoJSON.coordinates;
-        const duration = routeData.routes[0].duration;
-        const distance = routeData.routes[0].distance;
-
-        setTripStatus(`Tracking Active • ${(distance / 1000).toFixed(1)}km • ${(duration / 60).toFixed(0)} min ETA`);
-
-        // 1. Draw the Route Line
-        map.current.addSource('route', {
-            type: 'geojson',
-            data: {
-                type: 'Feature',
-                properties: {},
-                geometry: routeGeoJSON
-            }
-        });
-
-        map.current.addLayer({
-            id: 'route',
-            type: 'line',
-            source: 'route',
-            layout: {
-                'line-join': 'round',
-                'line-cap': 'round'
-            },
-            paint: {
-                'line-color': '#FACC15',
-                'line-width': 5,
-                'line-opacity': 0.8
-            }
-        });
-
-        // 2. Create Tracking Marker
-        const el = document.createElement('div');
-        el.className = 'w-6 h-6 bg-primary-500 rounded-full border-4 border-white dark:border-dark-900 shadow-xl flex items-center justify-center z-50';
-        el.innerHTML = '<div class="w-2 h-2 bg-black rounded-full animate-pulse"></div>';
-        
-        markerRef.current = new window.mapboxgl.Marker(el)
-            .setLngLat(coordinates[0])
-            .addTo(map.current);
-
-        // Zoom to fit route
-        const bounds = new window.mapboxgl.LngLatBounds(coordinates[0], coordinates[0]);
-        for (const coord of coordinates) {
-            bounds.extend(coord as [number, number]);
-        }
-        map.current.fitBounds(bounds, { padding: 100 });
-
-        // 3. Animate Marker along path
-        // We'll skip frames to speed up the simulation
-        let step = 0;
-        const speedFactor = 2; 
-
-        const animate = () => {
-            if (step < coordinates.length) {
-                markerRef.current.setLngLat(coordinates[step]);
-                // Optional: Pan map to follow car
-                // map.current.panTo(coordinates[step]); 
-                step += speedFactor;
-                animationRef.current = requestAnimationFrame(animate);
-            } else {
-                setTripStatus("Vehicle Arrived at Destination");
-                setIsSimulating(false);
-            }
-        };
-
-        animate();
+        // Simulation logic disabled due to missing MapService. You can restore this with a valid route API.
+        setTripStatus("Simulation unavailable: route logic removed.");
+        setIsSimulating(false);
     };
 
     const stopSimulation = () => {

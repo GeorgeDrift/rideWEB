@@ -89,13 +89,23 @@ exports.verifyPayment = async (req, res) => {
                         // 100% to Driver (No Platform Fee)
                         const driverShare = transaction.amount;
 
-                        await ride.update({
-                            status: 'Completed',
+                        // UPDATE LOGIC: Split based on type
+                        // Hire: Payment just marks as paid. Completion happens at Return.
+                        // Share: Payment marks as Completed (end of trip).
+                        const updates = {
                             paymentStatus: 'paid',
                             transactionRef: chargeId,
                             platformFee: 0,
                             driverEarnings: driverShare
-                        });
+                        };
+
+                        if (ride.type === 'share') {
+                            updates.status = 'Completed';
+                        }
+                        // For 'hire', we do NOT change status to Completed here. 
+                        // It stays as 'Scheduled' or 'Awaiting Payment Selection' until Handover.
+
+                        await ride.update(updates);
 
                         // Credit Driver
                         const driver = await User.findByPk(ride.driverId);
@@ -235,10 +245,10 @@ exports.handleWebhook = async (req, res) => {
  * Request Payout (Driver Withdrawal)
  */
 exports.requestPayout = async (req, res) => {
-    const { amount, mobileNumber, providerRefId } = req.body;
+    const { amount, mobileNumber, providerRefId, payoutMethod } = req.body;
     const userId = req.user.id;
 
-    console.log(`💸 [Payout] Driver ${userId} requesting ${amount} to ${mobileNumber}`);
+    console.log(`💸 [Payout] Driver ${userId} requesting ${amount} via ${payoutMethod || 'mobile'} to ${mobileNumber || 'Bank'}`);
 
     try {
         // 1. Validate Driver Role
@@ -268,15 +278,59 @@ exports.requestPayout = async (req, res) => {
             direction: 'credit',
             status: 'pending',
             reference: chargeId,
-            description: `Payout to ${mobileNumber}`
+            description: payoutMethod === 'bank'
+                ? `Manual Bank Payout to ${user.bankName} - ${user.payoutAccountNumber}`
+                : `Payout to ${mobileNumber}`
         });
 
-        // 5. Call PayChangu Payout API
+        // 5. Process Payout based on Method
+        if (payoutMethod === 'bank') {
+            // Manual Process for Bank
+            // In a real app, this might trigger an email to admin or add to a batch queue.
+            // For now, we leave it as 'pending' for admin review, or mark auto-complete for demo.
+            // Let's mark as 'pending' and return success message.
+
+            res.json({
+                status: 'success',
+                message: 'Bank withdrawal requested. Processing time: 1-3 business days.',
+                data: { reference: chargeId },
+                newBalance: user.walletBalance - amount
+            });
+            return;
+        }
+
+        // DEFAULT: Mobile Money via PayChangu
         try {
+            // Auto-resolve operator if providerRefId is missing or invalid (e.g., 'AIRTEL' string)
+            let operatorRefId = providerRefId;
+
+            if (!operatorRefId || typeof operatorRefId === 'string' && operatorRefId.length < 10) {
+                console.log(`🔍 [Payout] Invalid operator ID "${operatorRefId}", fetching from PayChangu...`);
+
+                // Fetch valid operators
+                const operators = await payChanguService.getMobileMoneyOperators();
+                console.log('📋 [Payout] Available operators:', JSON.stringify(operators, null, 2));
+
+                // Match by name (case-insensitive) or default to first operator
+                const carrierName = providerRefId || user.payoutMethod || 'AIRTEL';
+                const matchedOperator = operators.find(op =>
+                    op.name?.toUpperCase().includes(carrierName.toUpperCase()) ||
+                    op.operator_name?.toUpperCase().includes(carrierName.toUpperCase())
+                );
+
+                if (matchedOperator) {
+                    operatorRefId = matchedOperator.ref_id || matchedOperator.id;
+                    console.log(`✅ [Payout] Matched operator: ${matchedOperator.name} (${operatorRefId})`);
+                } else {
+                    console.warn(`⚠️ [Payout] No operator matched "${carrierName}", using first available`);
+                    operatorRefId = operators[0]?.ref_id || operators[0]?.id;
+                }
+            }
+
             const payoutResponse = await payChanguService.initiatePayout({
                 mobile: mobileNumber,
                 amount: amount,
-                mobile_money_operator_ref_id: providerRefId,
+                mobile_money_operator_ref_id: operatorRefId,
                 charge_id: chargeId,
                 email: user.email,
                 first_name: user.name.split(' ')[0],

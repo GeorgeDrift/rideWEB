@@ -7,6 +7,7 @@ interface RequestApprovalCardProps {
         origin: string;
         destination: string;
         offeredPrice: number;
+        price: number;
         date: string;
         time?: string;
         rider: {
@@ -33,7 +34,7 @@ const RequestApprovalCard: React.FC<RequestApprovalCardProps> = ({
     onCounterOffer
 }) => {
     const [showCounterOffer, setShowCounterOffer] = useState(false);
-    const [counterPrice, setCounterPrice] = useState(request.offeredPrice);
+    const [counterPrice, setCounterPrice] = useState(request.offeredPrice || request.price);
     const [counterMessage, setCounterMessage] = useState('');
 
     const handleCounterOffer = () => {
@@ -59,7 +60,7 @@ const RequestApprovalCard: React.FC<RequestApprovalCardProps> = ({
                 <div className="text-right">
                     <p className="text-sm text-gray-600">Offered Price</p>
                     <p className="text-2xl font-bold text-green-600">
-                        MWK {request.offeredPrice.toLocaleString()}
+                        MWK {(request.offeredPrice || request.price || 0).toLocaleString()}
                     </p>
                 </div>
             </div>
@@ -97,7 +98,7 @@ const RequestApprovalCard: React.FC<RequestApprovalCardProps> = ({
                     <div className="space-y-2">
                         {request.negotiations.slice(0, 2).map((neg, idx) => (
                             <div key={idx} className="text-sm bg-gray-50 p-2 rounded">
-                                <span className="font-medium">MWK {neg.offeredPrice.toLocaleString()}</span>
+                                <span className="font-medium">MWK {neg.offeredPrice?.toLocaleString() || '0'}</span>
                                 {neg.message && <span className="text-gray-600"> - {neg.message}</span>}
                             </div>
                         ))}

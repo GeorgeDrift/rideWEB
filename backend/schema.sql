@@ -63,37 +63,6 @@ CREATE INDEX idx_users_account_status ON "Users"("accountStatus");
 CREATE INDEX idx_users_is_online ON "Users"("isOnline");
 CREATE INDEX idx_users_location ON "Users"("currentLat", "currentLng");
 
--- ============================================
--- TABLE: Vehicles
--- ============================================
--- Stores driver vehicle inventory for hire
-CREATE TABLE "Vehicles" (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(255) NOT NULL,
-    plate VARCHAR(100) NOT NULL,
-    category VARCHAR(100) NOT NULL,
-    rate VARCHAR(100) NOT NULL,
-    features JSONB, -- Array of features stored as JSON
-    "imageUrl" VARCHAR(500),
-    status VARCHAR(50) DEFAULT 'Available' CHECK (status IN ('Available', 'On-Route', 'Maintenance', 'Rented')),
-    
-    -- Foreign Key
-    "driverId" UUID REFERENCES "Users"(id) ON DELETE CASCADE,
-    
-    -- Timestamps
-    "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
-    "updatedAt" TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
--- Indexes for Vehicles table
-CREATE INDEX idx_vehicles_driver_id ON "Vehicles"("driverId");
-CREATE INDEX idx_vehicles_status ON "Vehicles"(status);
-CREATE INDEX idx_vehicles_category ON "Vehicles"(category);
-
--- ============================================
--- TABLE: Rides
--- ============================================
--- Stores all ride requests and jobs (both share and hire)
 CREATE TABLE "Rides" (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     type VARCHAR(50) NOT NULL CHECK (type IN ('share', 'hire')),
@@ -149,10 +118,6 @@ CREATE INDEX idx_rides_payment_status ON "Rides"("paymentStatus");
 CREATE INDEX idx_rides_type ON "Rides"(type);
 CREATE INDEX idx_rides_created_at ON "Rides"("createdAt");
 
--- ============================================
--- TABLE: PricingZones
--- ============================================
--- Stores surge pricing zones
 CREATE TABLE "PricingZones" (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
@@ -390,34 +355,7 @@ CREATE INDEX idx_hire_vehicles_category ON "HireVehicles"(category);
 -- ============================================
 -- TABLE: Jobs
 -- ============================================
--- Stores "For Hire" jobs/contracts
-CREATE TABLE "Jobs" (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    title VARCHAR(255) NOT NULL,
-    description TEXT,
-    location VARCHAR(500) NOT NULL,
-    
-    -- Scheduling
-    "startDate" TIMESTAMP,
-    "endDate" TIMESTAMP,
-    
-    -- Pricing
-    budget FLOAT,
-    status VARCHAR(50) DEFAULT 'Open' CHECK (status IN ('Open', 'In Progress', 'Completed', 'Cancelled')),
-    
-    -- Foreign Keys
-    "clientId" UUID REFERENCES "Users"(id) ON DELETE SET NULL,
-    "driverId" UUID REFERENCES "Users"(id) ON DELETE SET NULL,
-    "vehicleId" UUID REFERENCES "HireVehicles"(id) ON DELETE SET NULL,
-    
-    -- Timestamps
-    "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
-    "updatedAt" TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX idx_jobs_driver_id ON "Jobs"("driverId");
-CREATE INDEX idx_jobs_client_id ON "Jobs"("clientId");
-CREATE INDEX idx_jobs_status ON "Jobs"(status);
+-- Jobs table removed (consolidated into Rides)
 
 -- ============================================
 -- TABLE: Subscriptions

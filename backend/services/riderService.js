@@ -111,7 +111,7 @@ class RiderService {
             where: {
                 riderId,
                 status: {
-                    [Op.in]: ['Pending', 'Approved', 'Scheduled', 'Inbound', 'Arrived', 'Boarded', 'In Progress', 'Payment Due']
+                    [Op.in]: ['Pending', 'Approved', 'Scheduled', 'Inbound', 'Arrived', 'Boarded', 'In Progress', 'Payment Due', 'Awaiting Payment Selection', 'Waiting for Pickup', 'Handover Pending', 'Active', 'Return Pending']
                 }
             },
             include: [{
@@ -127,10 +127,10 @@ class RiderService {
         return await Ride.findAll({
             where: {
                 riderId,
-                status: { [Op.in]: ['Completed', 'Cancelled', 'Refunded'] }
+                status: { [Op.in]: ['Completed', 'Cancelled', 'Refunded', 'Approved', 'Pending', 'Inbound', 'Arrived', 'In Progress', 'Waiting for Pickup', 'Payment Due', 'Scheduled', 'Boarded', 'Awaiting Payment Selection', 'Handover Pending', 'Active', 'Return Pending'] }
             },
             include: [{ model: User, as: 'driver', attributes: ['name', 'rating', 'avatar'] }],
-            order: [['date', 'DESC']]
+            order: [['createdAt', 'DESC']]
         });
     }
 
@@ -159,60 +159,112 @@ class RiderService {
     }
 
     // --- NEW: Location-based Vehicle Search for Ride Share ---
-    async searchRideShareVehicles(pickupLocation, destination) {
-        const { RideSharePost, User, RideShareVehicle } = require('../models');
+    async searchRideShareVehicles(pickupLocation, destination, filters = {}) {
+        const { RideSharePost, Ride, User, RideShareVehicle, sequelize } = require('../models');
 
-        // Build flexible where clause: match pickupLocation OR origin OR destination
-        const where = { status: 'active' };
-        const conditions = [];
-
-        if (pickupLocation) {
-            conditions.push({ pickupLocation: { [Op.iLike]: `%${pickupLocation}%` } });
-            conditions.push({ origin: { [Op.iLike]: `%${pickupLocation}%` } });
-            conditions.push({ destination: { [Op.iLike]: `%${pickupLocation}%` } });
-        }
-        if (destination) {
-            conditions.push({ destination: { [Op.iLike]: `%${destination}%` } });
-            // If allowedDestinations is stored as JSON/array, fall back to casting to text and searching
-            const { sequelize } = require('../models');
-            conditions.push(sequelize.where(sequelize.cast(sequelize.col('allowedDestinations'), 'text'), { [Op.iLike]: `%${destination}%` }));
+        // Require at least one location filter
+        if (!pickupLocation && !destination) {
+            throw new Error('Please provide pickupLocation or destination to search');
         }
 
-        if (conditions.length > 0) where[Op.or] = conditions;
+        // Build ILIKE patterns
+        const pickupPattern = pickupLocation ? `%${pickupLocation}%` : null;
+        const destPattern = destination ? `%${destination}%` : null;
 
-        // pagination: accept page & limit via filters
-        const page = parseInt(filters.page || 1, 10) || 1;
-        const limit = Math.min(parseInt(filters.limit || 20, 10) || 20, 100);
-        const offset = (page - 1) * limit;
+        // Query RideSharePost (driver marketplace posts)
+        const postWhere = { status: 'active' };
+        const postConds = [];
+        if (pickupPattern) {
+            postConds.push({ origin: { [Op.iLike]: pickupPattern } });
+            postConds.push({ destination: { [Op.iLike]: pickupPattern } });
+        }
+        if (destPattern) {
+            postConds.push({ destination: { [Op.iLike]: destPattern } });
+            postConds.push(sequelize.where(sequelize.cast(sequelize.col('allowedDestinations'), 'text'), { [Op.iLike]: destPattern }));
+        }
+        if (postConds.length > 0) postWhere[Op.or] = postConds;
 
-        const { count, rows } = await RideSharePost.findAndCountAll({
-            where,
+        const posts = await RideSharePost.findAll({
+            where: postWhere,
             include: [
                 { model: User, as: 'driver', attributes: ['id', 'name', 'rating', 'phone'] },
                 { model: RideShareVehicle, as: 'vehicle', attributes: ['id', 'make', 'model', 'plate', 'seats', 'imageUrl'], required: false }
             ],
-            order: [['date', 'ASC']],
-            limit,
-            offset
+            order: [['date', 'ASC']]
         });
 
-        return { total: count, page, limit, results: rows };
+        // Query Ride (rider requests of type 'share')
+        const rideWhere = { type: 'share' };
+        const rideConds = [];
+        if (pickupPattern) {
+            rideConds.push({ origin: { [Op.iLike]: pickupPattern } });
+            rideConds.push({ destination: { [Op.iLike]: pickupPattern } });
+        }
+        if (destPattern) {
+            rideConds.push({ destination: { [Op.iLike]: destPattern } });
+        }
+        if (rideConds.length > 0) rideWhere[Op.or] = rideConds;
+
+        const rides = await Ride.findAll({
+            where: rideWhere,
+            include: [
+                { model: User, as: 'driver', attributes: ['id', 'name', 'rating', 'phone'] },
+                { model: User, as: 'rider', attributes: ['id', 'name', 'rating', 'avatar'] }
+            ],
+            order: [['date', 'ASC']]
+        });
+
+        // Combine posts and rides into a unified array
+        const unified = [];
+        for (const p of posts) {
+            const obj = p.toJSON ? p.toJSON() : p;
+            obj._source = 'post';
+            unified.push(obj);
+        }
+        for (const r of rides) {
+            const obj = r.toJSON ? r.toJSON() : r;
+            obj._source = 'ride';
+            unified.push(obj);
+        }
+
+        // Sort by date ascending (earlier trips first) then createdAt
+        unified.sort((a, b) => {
+            const da = a.date ? new Date(a.date) : new Date(a.createdAt);
+            const db = b.date ? new Date(b.date) : new Date(b.createdAt);
+            return da - db || new Date(b.createdAt) - new Date(a.createdAt);
+        });
+
+        // pagination on combined results
+        const page = parseInt(filters.page || 1, 10) || 1;
+        const limit = Math.min(parseInt(filters.limit || 20, 10) || 20, 100);
+        const offset = (page - 1) * limit;
+        const total = unified.length;
+        const pageRows = unified.slice(offset, offset + limit);
+
+        return { total, page, limit, results: pageRows };
     }
 
     // --- NEW: Submit Ride Request with Negotiation ---
     async submitRideRequest(riderId, requestData) {
         const { Ride, NegotiationHistory, Notification } = require('../models');
 
-        const { vehicleId, pickupLocation, destination, offeredPrice, message, requestedDate, requestedTime, driverId } = requestData;
+        const { vehicleId, pickupLocation, destination, offeredPrice, message, requestedDate, requestedTime, driverId, origin } = requestData;
+
+        // Use origin or pickupLocation (some frontend calls send origin, others pickupLocation)
+        const finalOrigin = origin || pickupLocation;
+
+        if (!finalOrigin || !destination) {
+            throw new Error('Origin and destination are required');
+        }
 
         // Create the ride request
         const ride = await Ride.create({
             type: 'share',
             riderId,
             driverId,
-            origin: pickupLocation,
+            origin: finalOrigin,
             destination,
-            pickupLocation,
+            pickupLocation: finalOrigin,
             date: requestedDate,
             time: requestedTime,
             offeredPrice,

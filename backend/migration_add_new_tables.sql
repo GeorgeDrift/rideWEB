@@ -60,33 +60,7 @@ CREATE INDEX IF NOT EXISTS idx_hire_vehicles_category ON "HireVehicles"(category
 -- ============================================
 -- TABLE: Jobs
 -- ============================================
-CREATE TABLE IF NOT EXISTS "Jobs" (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    title VARCHAR(255) NOT NULL,
-    description TEXT,
-    location VARCHAR(500) NOT NULL,
-    
-    -- Scheduling
-    "startDate" TIMESTAMP,
-    "endDate" TIMESTAMP,
-    
-    -- Pricing
-    budget FLOAT,
-    status VARCHAR(50) DEFAULT 'Open' CHECK (status IN ('Open', 'In Progress', 'Completed', 'Cancelled')),
-    
-    -- Foreign Keys
-    "clientId" UUID REFERENCES "Users"(id) ON DELETE SET NULL,
-    "driverId" UUID REFERENCES "Users"(id) ON DELETE SET NULL,
-    "vehicleId" UUID REFERENCES "HireVehicles"(id) ON DELETE SET NULL,
-    
-    -- Timestamps
-    "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
-    "updatedAt" TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_jobs_driver_id ON "Jobs"("driverId");
-CREATE INDEX IF NOT EXISTS idx_jobs_client_id ON "Jobs"("clientId");
-CREATE INDEX IF NOT EXISTS idx_jobs_status ON "Jobs"(status);
+-- Jobs table removed (consolidated into Rides)
 
 -- ============================================
 -- TABLE: Subscriptions
@@ -133,8 +107,7 @@ CREATE TRIGGER update_rideshare_vehicles_updated_at BEFORE UPDATE ON "RideShareV
 CREATE TRIGGER update_hire_vehicles_updated_at BEFORE UPDATE ON "HireVehicles"
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_jobs_updated_at BEFORE UPDATE ON "Jobs"
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+-- jobs trigger removed (no-op because Jobs table gone)
 
 CREATE TRIGGER update_subscriptions_updated_at BEFORE UPDATE ON "Subscriptions"
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

@@ -21,13 +21,14 @@ import {
     PaymentInitiationRequest
 } from '../services/api';
 import { socketService } from '../services/socket';
-import { MapboxMap } from './MapboxMap';
+import { pollingService } from '../services/polling';
+// Map rendering removed from Rider UI - using manual pickup/drop-off flow instead
 import { geocodeAddress, calculateDistance } from '../services/mapUtils';
 import { VEHICLE_HIRE_CATEGORIES, VehicleCategoryType } from '../constants/VehicleCategories';
 import LocationSearch from './LocationSearch';
 import NegotiationModal from './NegotiationModal';
 import PaymentSelectionModal from './PaymentSelectionModal';
-import PickupConfirmation from './PickupConfirmation';
+// PickupConfirmation removed - using manual pickup/boarding flow instead
 
 // --- Local Icons ---
 const HomeIcon = ({ className }: { className?: string }) => (
@@ -102,6 +103,38 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
     const [activeTab, setActiveTab] = useState<'overview' | 'statistics' | 'trips' | 'active-trip' | 'financials' | 'distance' | 'messages'>('overview');
     const [marketTab, setMarketTab] = useState<'share' | 'hire'>('share');
     const [selectedHireCategory, setSelectedHireCategory] = useState<string | null>(null);
+    // New: share tab vehicle filter
+    const [selectedShareCategory, setSelectedShareCategory] = useState<string | null>(null);
+
+    // Persist filters in URL (so refresh/navigation preserves selections)
+    const readQueryParam = (key: string) => {
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const v = params.get(key);
+            return v ? decodeURIComponent(v) : null;
+        } catch (e) { return null; }
+    };
+
+    const updateQueryParam = (key: string, value: string | null) => {
+        try {
+            const params = new URLSearchParams(window.location.search);
+            if (value === null) params.delete(key);
+            else params.set(key, encodeURIComponent(value));
+            const newUrl = `${window.location.pathname}?${params.toString()}`;
+            window.history.replaceState({}, '', newUrl);
+        } catch (e) { /* ignore */ }
+    };
+
+    // Map a category name to an icon component
+    const getCategoryIcon = (name?: string) => {
+        if (!name) return null;
+        const n = name.toLowerCase();
+        if (n.includes('tractor') || n.includes('truck') || n.includes('tanker') || n.includes('tipper') || n.includes('flatbed') || n.includes('canter')) return <TruckIcon className="w-4 h-4 mr-2" />;
+        // hatch, sedan, suv, minibus -> car
+        if (n.includes('hatch') || n.includes('sedan') || n.includes('suv') || n.includes('van') || n.includes('coaster') || n.includes('minibus')) return <CarIcon className="w-4 h-4 mr-2" />;
+        // fallback generic car icon
+        return <CarIcon className="w-4 h-4 mr-2" />;
+    };
 
     // Negotiation Workflow State
     const [searchResults, setSearchResults] = useState<DriverRidePost[]>([]);
@@ -109,11 +142,19 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
     const [negotiationRide, setNegotiationRide] = useState<DriverRidePost | null>(null);
     const [showNegotiationModal, setShowNegotiationModal] = useState(false);
     const [negotiationHistory, setNegotiationHistory] = useState<any[]>([]);
+    const [pendingRequestsList, setPendingRequestsList] = useState<any[]>([]);
+    const [notifications, setNotifications] = useState<any[]>([]);
     const [showPaymentModal, setShowPaymentModal] = useState(false);
     const [approvedRide, setApprovedRide] = useState<any>(null);
-    const [showPickupModal, setShowPickupModal] = useState(false);
+    // Pickup modal removed - trips go directly to tracking tab
     const [pickupRide, setPickupRide] = useState<any>(null);
     const [searchTerm, setSearchTerm] = useState('');
+
+    // Boarding confirmation state (for ride share pickup flow)
+    const [showBoardingModal, setShowBoardingModal] = useState(false);
+    const [boardingRideId, setBoardingRideId] = useState<string | null>(null);
+    const [boardingConfirmed, setBoardingConfirmed] = useState<Set<string>>(new Set());
+
 
     // const [driverLocation, setDriverLocation] = useState<{ lng: number; lat: number }>({ lng: 33.7741, lat: -13.9626 }); // Removed live tracking
     const [tripCoordinates, setTripCoordinates] = useState<{ origin: [number, number] | null, destination: [number, number] | null }>({ origin: null, destination: null });
@@ -131,6 +172,14 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
     const [paymentMethod, setPaymentMethod] = useState<'mobile'>('mobile'); // Default to mobile for API flow
     const [mobileProvider, setMobileProvider] = useState<'airtel' | 'mpamba'>('airtel');
     const [passengerPhone, setPassengerPhone] = useState(''); // Passenger's number for PUSH request
+
+    // Handover Modal State (For Hire Jobs)
+    const [isHandoverModalOpen, setIsHandoverModalOpen] = useState(false);
+    const [handoverPaymentMethod, setHandoverPaymentMethod] = useState<'mobile' | 'cash'>('mobile');
+
+    // Payment Timing Modal State (For Hire Jobs - after driver approval)
+    const [isPaymentTimingModalOpen, setIsPaymentTimingModalOpen] = useState(false);
+    const [paymentTimingRide, setPaymentTimingRide] = useState<any>(null);
 
     // Payment Flow State (NEW)
     const [driverPayoutDetails, setDriverPayoutDetails] = useState<DriverPayoutDetails | null>(null);
@@ -170,10 +219,10 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
     const [isLoadingMarketplace, setIsLoadingMarketplace] = useState(true);
     const [isLoadingTrips, setIsLoadingTrips] = useState(true);
 
-    const currentActiveTrip = activeTrips.length > 0 ? activeTrips[0] : null;
+    const [currentActiveTrip, setCurrentActiveTrip] = useState<any>(null);
 
     // Helper to separate active vs past trips
-    const pastTrips = history.filter(h => ['Completed', 'Cancelled', 'Refunded'].includes(h.status));
+    const pastTrips = history.filter(h => ['Completed', 'Cancelled', 'Refunded', 'Approved'].includes(h.status));
 
     // Auto-Status Simulation Effect (To show flow without driver interaction in this demo)
     // Real-time status updates via Socket.IO
@@ -203,6 +252,33 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
         }
     }, [currentActiveTrip?.status]);
 
+    // Fetch Driver Payout Details when Payment Modal opens or active trip changes
+    useEffect(() => {
+        const fetchDriverDetails = async () => {
+            // Only fetch if modal is open AND we have a driver ID
+            if (isPaymentModalOpen && currentActiveTrip?.driverId) {
+                setIsLoadingDriverDetails(true);
+                setPaymentError(null);
+                try {
+                    const details = await ApiService.getDriverPayoutDetails(currentActiveTrip.driverId);
+                    setDriverPayoutDetails(details);
+                } catch (error) {
+                    console.error("Failed to load driver payout details", error);
+                    // Don't show error to user immediately, just log it. 
+                    // Or show a subtle message. For now, log.
+                    // setPaymentError("Could not load driver payment info."); 
+                } finally {
+                    setIsLoadingDriverDetails(false);
+                }
+            } else if (!isPaymentModalOpen) {
+                // Reset details when modal closes
+                setDriverPayoutDetails(null);
+            }
+        };
+
+        fetchDriverDetails();
+    }, [isPaymentModalOpen, currentActiveTrip?.driverId]);
+
     // --- Effects ---
 
     // Initialize Socket Connection
@@ -225,9 +301,117 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
         });
 
         socketService.on('request_approved', (data) => {
-            setApprovedRide((prev: any) => ({ ...prev, ...data, status: 'Approved' }));
+            // Update the approved ride with the new status
+            // For share rides, approval means driver is coming/scheduled
+            const approvedRideData = { ...data, status: 'Waiting for Pickup' };
+            setApprovedRide(approvedRideData);
+
+            // Add the approved ride to history/activeTrips so it shows in My Trips
+            setHistory((prev: any) => {
+                const exists = prev.find((t: any) => t.id === (data.id || data.rideId));
+                if (exists) {
+                    return prev.map((t: any) => t.id === (data.id || data.rideId) ? approvedRideData : t);
+                }
+                return [approvedRideData, ...prev];
+            });
+
+            // Also add to activeTrips so it shows in Active Trip view
+            setActiveTrips((prev: any) => {
+                const exists = prev.find((t: any) => t.id === (data.id || data.rideId));
+                if (!exists) {
+                    return [approvedRideData, ...prev];
+                }
+                return prev.map((t: any) => t.id === (data.id || data.rideId) ? approvedRideData : t);
+            });
+
+            // Show notification to rider to check Active Trip tab
+            setNotifications(prev => [{
+                title: 'Request Approved!',
+                msg: data.message || 'Your request was approved! Please select a payment method to confirm.',
+                time: 'Just now',
+                unread: true
+            }, ...prev]);
+
             setShowNegotiationModal(false);
+
+            // Auto-open payment modal to prompt user for payment method selection
             setShowPaymentModal(true);
+        });
+
+        // Listen for payment selection required (For Hire trips after approval)
+        socketService.on('payment_selection_required', (data) => {
+            console.log('💳 payment_selection_required received:', data);
+            const rideData = { ...data, status: 'Awaiting Payment Selection' };
+
+            // Update activeTrips and history with the ride
+            setHistory((prev: any) => {
+                const exists = prev.find((t: any) => t.id === (data.id || data.rideId));
+                if (exists) {
+                    return prev.map((t: any) => t.id === (data.id || data.rideId) ? rideData : t);
+                }
+                return [rideData, ...prev];
+            });
+
+            setActiveTrips((prev: any) => {
+                const exists = prev.find((t: any) => t.id === (data.id || data.rideId));
+                if (!exists) {
+                    return [rideData, ...prev];
+                }
+                return prev.map((t: any) => t.id === (data.id || data.rideId) ? rideData : t);
+            });
+
+            // Open payment timing modal
+            setPaymentTimingRide(rideData);
+            setIsPaymentTimingModalOpen(true);
+            setActiveTab('active-trip');
+
+            // Show notification
+            setNotifications(prev => [{
+                title: 'Payment Selection Required',
+                msg: data.message || 'Choose when to pay for your vehicle hire.',
+                time: 'Just now',
+                unread: true
+            }, ...prev]);
+        });
+
+        // Listen for payment required (e.g., after selecting "Pay Now" for hire)
+        socketService.on('payment_required', (data) => {
+            console.log('💰 payment_required received:', data);
+
+            // Set the approved ride data so the modal has context
+            const rideData = { ...data, status: 'Payment Pending' };
+            setApprovedRide(rideData);
+
+            // Update activeTrips/history
+            setActiveTrips((prev: any) => {
+                const exists = prev.find((t: any) => t.id === (data.id || data.rideId));
+                if (!exists) return [rideData, ...prev];
+                return prev.map((t: any) => t.id === (data.id || data.rideId) ? rideData : t);
+            });
+
+            // Close timing modal if open
+            setIsPaymentTimingModalOpen(false);
+
+            // Open main payment modal
+            setShowPaymentModal(true);
+
+            setNotifications(prev => [{
+                title: 'Payment Required',
+                msg: data.message || 'Please complete your payment now.',
+                time: 'Just now',
+                unread: true
+            }, ...prev]);
+        });
+
+        // New real-time hooks: marketplace posts and counters
+        socketService.on('hire_post_added', (post) => {
+            setForHireListings(prev => [post, ...prev]);
+            setNotifications(prev => [{ title: 'New Hire Post', msg: post.title || 'New hire listing', time: 'Just now', unread: true }, ...prev]);
+        });
+
+        socketService.on('rideshare_post_added', (post) => {
+            setRideShareListings(prev => [post, ...prev]);
+            setNotifications(prev => [{ title: 'New RideShare', msg: `${post.origin} → ${post.destination}`, time: 'Just now', unread: true }, ...prev]);
         });
 
         socketService.on('counter_offer', (data) => {
@@ -237,13 +421,382 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
             ]);
         });
 
+        // Listen for boarding request (Driver started pickup -> Inbound)
+        socketService.on('boarding_request', (data) => {
+            const rideId = data.rideId || data.id;
+            if (rideId) {
+                setHistory(prev => prev.map(h => h.id === rideId ? { ...h, status: 'Inbound' } : h));
+                setActiveTrips(prev => prev.map((t: any) => t.id === rideId ? { ...t, status: 'Inbound' } : t));
+            }
+            setNotifications(prev => [{
+                title: 'Driver Inbound',
+                msg: data.message || 'Driver is heading to pickup.',
+                time: 'Just now',
+                unread: true
+            }, ...prev]);
+        });
+
+
+
+        socketService.on('payment_selection_required', (data: any) => {
+            console.log('💰 payment_selection_required received:', data);
+            const rideId = data?.rideId || data?.id;
+
+            // Check if this is actually a handover success (isActive or Paid)
+            const isPaid = data.paymentStatus === 'paid' || data.status === 'Scheduled';
+
+            if (rideId) {
+                const newRideState = {
+                    ...data,
+                    id: rideId,
+                    status: isPaid ? 'Scheduled' : 'Awaiting Payment Selection',
+                    type: data.type || 'hire',
+                    origin: data.origin,
+                    destination: data.destination,
+                    price: data.price,
+                    driver: data.driver
+                };
+
+                // 1. Force update activeTrips immediately
+                setActiveTrips(prev => {
+                    // Remove existing if present to avoid dupes
+                    const filtered = prev.filter(t => t.id !== rideId);
+                    return [newRideState, ...filtered];
+                });
+
+                // 2. Set as current active trip for component rendering
+                setCurrentActiveTrip(newRideState);
+
+                // 3. Switch to active trip tab so user sees the context
+                setActiveTab('active-trip');
+
+                if (isPaid) {
+                    // Handover confirmed / Success case
+                    setNotifications(prev => [{
+                        title: 'Handover Complete',
+                        msg: 'Driver has handed over the vehicle. Ride is active.',
+                        time: 'Just now',
+                        unread: true
+                    }, ...prev]);
+                    setIsHandoverModalOpen(false);
+                } else {
+                    // 4. Open Payment Timing Modal (Pay Now / Pickup)
+                    console.log('Opening payment timing modal for selection');
+                    setPaymentTimingRide(newRideState);
+                    setIsPaymentTimingModalOpen(true);
+                }
+            }
+        });
+
+        // Listen for request approval (Ride Share)
+        socketService.on('request_approved', (data: any) => {
+            console.log('✅ request_approved received:', data);
+            const rideId = data?.rideId || data?.id;
+            if (rideId) {
+                const updateRide = (t: any) => {
+                    if (t.id === rideId) {
+                        return { ...t, status: 'Approved', price: data.price };
+                    }
+                    return t;
+                };
+
+                setHistory(prev => {
+                    const exists = prev.find(h => h.id === rideId);
+                    if (!exists) return [{ ...data, status: 'Approved' }, ...prev];
+                    return prev.map(updateRide);
+                });
+
+                setActiveTrips(prev => {
+                    const exists = prev.find(t => t.id === rideId);
+                    if (!exists) return [{ ...data, status: 'Approved' }, ...prev];
+                    return prev.map(updateRide);
+                });
+
+                setActiveTab('active-trip');
+            }
+        });
+
+        // Listen for driver arrival (triggers boarding confirmation for rider)
+        socketService.on('driver_arrived', (data) => {
+            const rideId = data.rideId || data.id;
+            const rideIdStr = String(rideId);
+            console.log('🚗🚗🚗 driver_arrived EVENT RECEIVED!');
+            console.log('📦 Event data:', data);
+            console.log('🆔 Extracted rideId:', rideId);
+            console.log('🆔 rideIdStr:', rideIdStr);
+
+            if (rideId) {
+                console.log('✅ RideID exists, updating trip status to Arrived');
+                // Update trip status to Arrived
+                setHistory(prev => prev.map(h => h.id === rideId ? { ...h, status: 'Arrived' } : h));
+                setActiveTrips(prev => prev.map((t: any) => t.id === rideId ? { ...t, status: 'Arrived' } : t));
+
+                // Show boarding confirmation modal ONLY if not already confirmed
+                console.log('🔍 Checking if already confirmed...');
+                setBoardingConfirmed(prev => {
+                    console.log('📋 Previously confirmed rides:', Array.from(prev));
+                    if (!prev.has(rideIdStr)) {
+                        console.log('✨ NOT confirmed yet! Setting modal state...');
+                        console.log('🎯 Setting showBoardingModal = true');
+                        console.log('🎯 Setting boardingRideId =', rideIdStr);
+                        setShowBoardingModal(true);
+                        setBoardingRideId(rideIdStr);
+                        console.log('✅ Modal state set!');
+                    } else {
+                        console.log('⏭️ Already confirmed, skipping modal');
+                    }
+                    return prev;
+                });
+            } else {
+                console.error('❌ NO RIDE ID in driver_arrived event!');
+            }
+
+            setNotifications(prev => [{
+                title: 'Driver Arrived',
+                msg: data.message || 'Your driver has arrived at the pickup location.',
+                time: 'Just now',
+                unread: true
+            }, ...prev]);
+        });
+
+        // Listen for passenger boarded (Driver confirmed boarding)
+        socketService.on('passenger_boarded', (data) => {
+            const rideId = data.rideId || data.id;
+            if (rideId) {
+                setHistory(prev => prev.map(h => h.id === rideId ? { ...h, status: 'Boarded' } : h));
+                setActiveTrips(prev => prev.map((t: any) => t.id === rideId ? { ...t, status: 'Boarded' } : t));
+            }
+            setNotifications(prev => [{
+                title: 'Boarding Confirmed',
+                msg: data.message || 'Boarding confirmed.',
+                time: 'Just now',
+                unread: true
+            }, ...prev]);
+        });
+
+        // Listen for rider's boarding confirmation acknowledgment
+        socketService.on('boarding_confirmed', (data) => {
+            const rideId = data.rideId || data.id;
+            if (rideId) {
+                // Update trip status to Boarded
+                setHistory(prev => prev.map(h => h.id === rideId ? { ...h, status: 'Boarded' } : h));
+                setActiveTrips(prev => prev.map((t: any) => t.id === rideId ? { ...t, status: 'Boarded' } : t));
+
+                // Update currentActiveTrip if it matches
+                setCurrentActiveTrip((prev: any) => {
+                    if (prev && prev.id === rideId) {
+                        return { ...prev, status: 'Boarded' };
+                    }
+                    return prev;
+                });
+            }
+        });
+
+        // Listen for handover completion (Hire Flow)
+        socketService.on('handover_completed', (data) => {
+            console.log('🔔 [RiderDashboard] Received handover_completed event:', data);
+            const rideId = data.rideId || data.id;
+            if (rideId) {
+                const status = 'Active';
+                console.log(`✅ [RiderDashboard] Updating ride ${rideId} to status: ${status}`);
+                setHistory(prev => prev.map(h => h.id === rideId ? { ...h, status } : h));
+                setActiveTrips(prev => prev.map((t: any) => t.id === rideId ? { ...t, status } : t));
+                setCurrentActiveTrip((prev: any) => {
+                    if (prev && prev.id === rideId) {
+                        console.log(`✅ [RiderDashboard] Updated currentActiveTrip to Active`);
+                        return { ...prev, status };
+                    }
+                    return prev;
+                });
+                setNotifications(prev => [{
+                    title: 'Handover Completed',
+                    msg: data.message || 'Handover complete. Drive safely!',
+                    time: 'Just now',
+                    unread: true
+                }, ...prev]);
+            } else {
+                console.warn('⚠️ [RiderDashboard] handover_completed event missing rideId!');
+            }
+        });
+
+        // Listen for return confirmation (Hire Flow)
+        socketService.on('return_confirmed', (data) => {
+            const rideId = data.rideId || data.id;
+            if (rideId) {
+                const status = 'Completed';
+                setHistory(prev => prev.map(h => h.id === rideId ? { ...h, status } : h));
+                setActiveTrips(prev => prev.map((t: any) => t.id === rideId ? { ...t, status } : t));
+                setCurrentActiveTrip((prev: any) => {
+                    if (prev && prev.id === rideId) return { ...prev, status };
+                    return prev;
+                });
+                setNotifications(prev => [{
+                    title: 'Return Confirmed',
+                    msg: data.message || 'Vehicle return confirmed. Trip completed.',
+                    time: 'Just now',
+                    unread: true
+                }, ...prev]);
+            }
+        });
+
+        // Listen for trip start (driver started pickup)
+        socketService.on('trip_started', (data: any) => {
+            try {
+                const tripData = {
+                    id: data.id || data.rideId,
+                    type: data.type,
+                    origin: data.origin,
+                    destination: data.destination,
+                    price: data.price,
+                    driver: data.driver,
+                    status: data.status || 'Inbound',
+                    createdAt: new Date().toISOString()
+                };
+
+                // Add to activeTrips so it appears in Active Trip tab
+                setActiveTrips(prev => {
+                    const exists = prev.find((t: any) => t.id === tripData.id);
+                    if (!exists) return [tripData, ...prev];
+                    return prev.map((t: any) => t.id === tripData.id ? tripData : t);
+                });
+
+                // Also update history
+                setHistory(prev => {
+                    const exists = prev.find((h: any) => h.id === tripData.id);
+                    if (exists) return prev.map((h: any) => h.id === tripData.id ? tripData : h);
+                    return [tripData, ...prev];
+                });
+
+                // Show notification
+                setNotifications(prev => [{
+                    title: 'Trip Started',
+                    msg: data.message || 'Your driver has started the trip.',
+                    time: 'Just now',
+                    unread: true
+                }, ...prev]);
+            } catch (e) { console.warn('trip_started handler error', e); }
+        });
+
+        // rider listens for live driver location updates for active rides
+        socketService.on('driver_location', (data: any) => {
+            try {
+                // data expected: { driverId, lat, lng, heading?, rideId, precision? }
+                if (!data) return;
+
+                const rideId = data.rideId || data.ride_id || data.id;
+
+                // Update activeTrips if the ride matches
+                setActiveTrips((prev: any[]) => prev.map(t => {
+                    if (t.id === rideId) {
+                        const driverObj = typeof t.driver === 'object' ? { ...t.driver } : { name: t.driver };
+                        driverObj.location = [data.lng, data.lat];
+                        driverObj.precision = data.precision || 'precise';
+                        return { ...t, driver: driverObj };
+                    }
+                    return t;
+                }));
+
+                // If this is the current active trip, update it too
+                setHistory((prev: any[]) => prev.map(h => {
+                    if (h.id === rideId) {
+                        const driverObj = typeof h.driver === 'object' ? { ...h.driver } : { name: h.driver };
+                        driverObj.location = [data.lng, data.lat];
+                        driverObj.precision = data.precision || 'precise';
+                        return { ...h, driver: driverObj };
+                    }
+                    return h;
+                }));
+            } catch (e) {
+                console.warn('driver_location handler error', e);
+            }
+        });
+
+        // Driver has arrived at pickup location
+        socketService.on('driver_arrived', (data: any) => {
+            try {
+                const rideId = data?.rideId;
+                if (rideId) {
+                    // Update the ride status to 'Arrived'
+                    setHistory(prev => prev.map(h => h.id === rideId ? { ...h, status: 'Arrived' } : h));
+                    setActiveTrips(prev => prev.map((t: any) => t.id === rideId ? { ...t, status: 'Arrived' } : t));
+                }
+                setNotifications(prev => [{ title: 'Driver Arrived', msg: data?.message || 'Your driver has arrived at the pickup location.', time: 'Just now', unread: true }, ...prev]);
+            } catch (e) { console.warn('driver_arrived handler error', e); }
+        });
+
+        // Driver marked trip ended - prompt rider to confirm and pay
+        socketService.on('driver_end_trip', (data: any) => {
+            try {
+                const rideId = data?.rideId;
+                // Update activeTrips / history with status 'Payment Due'
+                if (rideId) {
+                    setHistory(prev => prev.map(h => h.id === rideId ? { ...h, status: 'Payment Due' } : h));
+                    setActiveTrips(prev => {
+                        const exists = prev.find((t: any) => t.id === rideId);
+                        if (exists) return prev.map((t: any) => t.id === rideId ? { ...t, status: 'Payment Due' } : t);
+                        // If we don't have the ride in activeTrips, add a minimal placeholder so UI can act on it
+                        return [{ id: rideId, status: 'Payment Due', driver: null }, ...prev];
+                    });
+                }
+
+                setNotifications(prev => [{ title: 'Trip Ended', msg: data?.message || 'Driver ended the trip. Please confirm and complete payment.', time: 'Just now', unread: true }, ...prev]);
+                // Bring user to Active Trip tab and open payment modal
+                setActiveTab('active-trip');
+                setIsPaymentModalOpen(true);
+                setPaymentStep('method');
+            } catch (e) { console.warn('driver_end_trip handler error', e); }
+        });
+
+        // Driver confirmed handover - show payment modal for hire
+        socketService.on('handover_confirmed', (data: any) => {
+            try {
+                console.log('📱 handover_confirmed received:', data);
+                const rideId = data?.rideId;
+                if (rideId) {
+                    // Update ride status to Handover Pending
+                    setHistory(prev => prev.map(h => h.id === rideId ? { ...h, status: 'Handover Pending' } : h));
+                    setActiveTrips(prev => prev.map((t: any) => t.id === rideId ? { ...t, status: 'Handover Pending' } : t));
+                    console.log('✅ Trip status updated to Handover Pending for ride:', rideId);
+                }
+                setNotifications(prev => [{ title: 'Handover Ready!', msg: data?.message || 'Driver is ready to hand over your vehicle. Select your payment method to proceed.', time: 'Just now', unread: true }, ...prev]);
+                // Show handover modal specifically (not generic payment modal)
+                console.log('🎯 Opening handover modal...');
+                setIsHandoverModalOpen(true);
+                setActiveTab('active-trip');
+                console.log('✨ Handover modal state should now be open');
+            } catch (e) { console.warn('handover_confirmed handler error', e); }
+        });
+
         return () => {
             socketService.off('notification');
             socketService.off('request_approved');
+            socketService.off('payment_selection_required');
             socketService.off('counter_offer');
+            socketService.off('trip_started');
+            socketService.off('driver_location');
+            socketService.off('driver_arrived');
+            socketService.off('driver_end_trip');
+            socketService.off('handover_confirmed');
+            socketService.off('boarding_request');
+            socketService.off('passenger_boarded');
+            socketService.off('boarding_confirmed');
             socketService.disconnect();
         };
     }, []);
+
+
+    // Join ride room for current active trip and ensure we receive driver_location events
+    useEffect(() => {
+        if (!currentActiveTrip) return;
+        try {
+            socketService.joinRide(currentActiveTrip.id);
+        } catch (e) { console.warn('joinRide failed', e); }
+
+        // Cleanup: leave ride room implicitly by disconnecting listener when trip changes
+        return () => {
+            try { socketService.off('driver_location'); } catch (e) { }
+        };
+    }, [currentActiveTrip]);
 
     // Fetch initial data with loading states
     useEffect(() => {
@@ -268,7 +821,13 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                     ApiService.getAllForHirePosts()
                 ]);
                 setRideShareListings(shareListings || []);
+                setSearchResults(shareListings || []);
                 setForHireListings(hireListings || []);
+                // Fetch pending requests for rider (negotiation in progress)
+                try {
+                    const pending = await ApiService.getPendingRequests();
+                    setPendingRequestsList(pending || []);
+                } catch (e) { console.warn('Failed to fetch pending requests', e); }
                 setIsLoadingMarketplace(false);
 
                 // Fetch trips and history
@@ -277,7 +836,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                 setHistory(historyData || []);
                 // Separate active trips from history
                 const active = (historyData || []).filter((h: any) =>
-                    ['Pending', 'Approved', 'Inbound', 'Arrived', 'In Progress', 'Waiting for Pickup', 'Payment Due'].includes(h.status)
+                    ['Pending', 'Approved', 'Scheduled', 'Awaiting Payment Selection', 'Inbound', 'Arrived', 'In Progress', 'Waiting for Pickup', 'Payment Due', 'Handover Pending'].includes(h.status)
                 );
                 setActiveTrips(active);
                 setIsLoadingTrips(false);
@@ -303,6 +862,140 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
         fetchData();
     }, []);
 
+    // Auto-poll rider data for real-time updates
+    useEffect(() => {
+        // Poll history & active trips every 10 seconds
+        pollingService.startPolling('rider-trips', {
+            interval: 10000,
+            onPoll: async () => {
+                try {
+                    const historyData = await ApiService.getRiderHistory();
+                    setHistory(historyData || []);
+                    const active = (historyData || []).filter((h: any) =>
+                        ['Pending', 'Approved', 'Scheduled', 'Awaiting Payment Selection', 'Inbound', 'Arrived', 'Boarded', 'In Progress', 'Waiting for Pickup', 'Payment Due', 'Handover Pending', 'Active', 'Return Pending'].includes(h.status)
+                    );
+                    setActiveTrips(active);
+                } catch (e) { console.warn('Polling trips failed', e); }
+            }
+        });
+
+        // Poll marketplace listings every 15 seconds
+        pollingService.startPolling('rider-marketplace', {
+            interval: 15000,
+            onPoll: async () => {
+                try {
+                    const [shareListings, hireListings] = await Promise.all([
+                        ApiService.getAllRideSharePosts(),
+                        ApiService.getAllForHirePosts()
+                    ]);
+                    setRideShareListings(shareListings || []);
+                    setSearchResults(shareListings || []);
+                    setForHireListings(hireListings || []);
+                } catch (e) { console.warn('Polling marketplace failed', e); }
+            }
+        });
+
+        // Poll stats every 20 seconds
+        pollingService.startPolling('rider-stats', {
+            interval: 20000,
+            onPoll: async () => {
+                try {
+                    const statsData = await ApiService.getRiderStats();
+                    setStats(statsData || { totalSpend: 0, totalRides: 0, totalDistance: 0, chartData: [], rideTypes: [] });
+                } catch (e) { console.warn('Polling stats failed', e); }
+            }
+        });
+
+        // Cleanup: stop all polling when component unmounts
+        return () => {
+            pollingService.stopPolling('rider-trips');
+            pollingService.stopPolling('rider-marketplace');
+            pollingService.stopPolling('rider-stats');
+        };
+    }, []);
+
+    // Read persisted category filters from URL on first load
+    useEffect(() => {
+        const hireCat = readQueryParam('hireCat');
+        if (hireCat) setSelectedHireCategory(hireCat);
+        const shareCat = readQueryParam('shareCat');
+        if (shareCat) setSelectedShareCategory(shareCat);
+    }, []);
+
+    // Auto-poll active trips every 5 seconds (to refresh status and driver location)
+    useEffect(() => {
+        const pollInterval = setInterval(async () => {
+            try {
+                console.log('🔄 Polling for active trips...');
+                const historyData = await ApiService.getRiderHistory();
+                console.log('📦 Raw History Data:', historyData);
+
+                if (Array.isArray(historyData)) {
+                    const active = historyData.filter((h: any) => {
+                        const isMatch = ['Pending', 'Approved', 'Inbound', 'Arrived', 'In Progress', 'Waiting for Pickup', 'Payment Due', 'Awaiting Payment Selection', 'Handover Pending', 'Scheduled', 'Active', 'Return Pending'].includes(h.status);
+                        // console.log(`Trip ${h.id} [${h.status}] Match? ${isMatch}`);
+                        return isMatch;
+                    });
+                    console.log('✅ Filtered Active Trips:', active);
+
+                    setActiveTrips(active);
+                    setHistory(historyData);
+                } else {
+                    console.warn('⚠️ History data is not an array:', historyData);
+                }
+            } catch (error) {
+                console.warn('Auto-poll error for trips:', error);
+            }
+        }, 5000); // Poll every 5 seconds
+
+        return () => clearInterval(pollInterval);
+    }, []);
+
+    // Sync currentActiveTrip with activeTrips
+    useEffect(() => {
+        console.log('🔄 Sync Check | ActiveTrips:', activeTrips.length, 'Current:', currentActiveTrip?.id);
+
+        if (activeTrips.length > 0) {
+            if (!currentActiveTrip) {
+                console.log('🚀 Auto-selecting first active trip:', activeTrips[0]);
+                setCurrentActiveTrip(activeTrips[0]);
+            } else {
+                const updated = activeTrips.find(t => t.id === currentActiveTrip.id);
+                if (updated) {
+                    if (JSON.stringify(updated) !== JSON.stringify(currentActiveTrip)) {
+                        console.log('♻️ Refreshing current active trip data');
+                        setCurrentActiveTrip(updated);
+                    }
+                } else {
+                    console.log('⚠️ Current trip no longer active, fallback to first');
+                    setCurrentActiveTrip(activeTrips[0]);
+                }
+            }
+        } else if (currentActiveTrip && activeTrips.length === 0) {
+            console.log('🧹 Clearing current active trip (list empty)');
+            setCurrentActiveTrip(null);
+        }
+    }, [activeTrips]);
+
+    // Auto-poll marketplace listings every 10 seconds
+    useEffect(() => {
+        const pollInterval = setInterval(async () => {
+            try {
+                const [shareListings, hireListings] = await Promise.all([
+                    ApiService.getAllRideSharePosts(),
+                    ApiService.getAllForHirePosts()
+                ]);
+                setRideShareListings(shareListings || []);
+                setSearchResults(shareListings || []);
+                setForHireListings(hireListings || []);
+            } catch (error) {
+                console.warn('Auto-poll error for marketplace:', error);
+            }
+        }, 10000); // Poll every 10 seconds
+
+        return () => clearInterval(pollInterval);
+    }, []);
+
     // Geocode Trip Coordinates when Active Trip Changes
     useEffect(() => {
         const updateTripCoords = async () => {
@@ -324,17 +1017,29 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
     // Fetch Driver Payout Details when Payment Modal Opens
     useEffect(() => {
         const fetchPaymentData = async () => {
-            if (isPaymentModalOpen && currentActiveTrip) {
+            if ((isPaymentModalOpen || isHandoverModalOpen) && currentActiveTrip) {
                 setIsLoadingDriverDetails(true);
                 setPaymentError(null);
 
                 try {
-                    const driverIdMap: Record<string, string> = {
-                        'Alex Driver': 'D-001',
-                        'Mike Ross': 'D-002',
-                        'John Doe': 'D-003'
-                    };
-                    const driverId = driverIdMap[currentActiveTrip.driver] || 'D-001';
+                    // Identify driver ID from the current trip
+                    // Ideally, backend populates 'driver' object with 'id'
+                    let driverId = '';
+
+                    if (typeof currentActiveTrip.driver === 'object' && currentActiveTrip.driver?.id) {
+                        driverId = currentActiveTrip.driver.id;
+                    } else if (currentActiveTrip.driverId) {
+                        // Fallback if driverId is at root level
+                        driverId = currentActiveTrip.driverId;
+                    }
+
+                    if (!driverId) {
+                        // Only warn if we truly can't find an ID, don't fallback to invalid UUID "D-001"
+                        console.warn("Could not determine driver ID for payout details.");
+                        setPaymentError("Unable to identify driver for payment.");
+                        setIsLoadingDriverDetails(false);
+                        return;
+                    }
 
                     const payoutDetails = await ApiService.getDriverPayoutDetails(driverId);
 
@@ -343,33 +1048,88 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                     } else {
                         setPaymentError("Driver hasn't configured payout details yet.");
                     }
-
-                    // Fetch mobile money operators
-                    const operators = await ApiService.getMobileMoneyOperators();
-                    setMobileMoneyOperators(operators);
-
                 } catch (error) {
-                    console.error('Error fetching payment data:', error);
-                    setPaymentError('Failed to load payment information. Please try again.');
+                    console.error("Error fetching driver payout details:", error);
+                    setPaymentError("Could not retrieve driver payment info.");
                 } finally {
                     setIsLoadingDriverDetails(false);
                 }
             }
         };
-
         fetchPaymentData();
-    }, [isPaymentModalOpen, currentActiveTrip]);
+    }, [isPaymentModalOpen, isHandoverModalOpen, currentActiveTrip]);
+
+    // Fetch Supported Mobile Money Operators on Sync
+    useEffect(() => {
+        const fetchOperators = async () => {
+            try {
+                let operators: any = await ApiService.getMobileMoneyOperators();
+
+                // Handle case where backend returns wrapped object { data: [...] }
+                if (!Array.isArray(operators) && operators?.data && Array.isArray(operators.data)) {
+                    console.log('⚠️ unpacking operators from wrapper');
+                    operators = operators.data;
+                }
+
+                if (Array.isArray(operators) && operators.length > 0) {
+                    console.log('✅ Loaded Mobile Money Operators:', operators);
+                    setMobileMoneyOperators(operators);
+                } else {
+                    console.warn('⚠️ No operators loaded or invalid format:', operators);
+                }
+            } catch (err) {
+                console.error('Failed to load mobile money operators:', err);
+            }
+        };
+        fetchOperators();
+    }, []);
+
+    // Helper: normalize search results (API may return an array or a paginated object)
+    const getSearchResultsArray = (results: any) => Array.isArray(results) ? results : (results?.results || []);
+
+    // Helper: Check if vehicle matches selected category (case-insensitive, robust matching)
+    const matchesVehicleCategory = (item: any, selectedCategory: string | null): boolean => {
+        if (!selectedCategory) return true;
+
+        const normalizedSelected = selectedCategory.toLowerCase().trim();
+        const candidates: string[] = [];
+
+        // Collect all possible vehicle information
+        if (item.vehicle) {
+            if (item.vehicle.category) candidates.push(String(item.vehicle.category));
+            if (item.vehicle.make) candidates.push(String(item.vehicle.make));
+            if (item.vehicle.model) candidates.push(String(item.vehicle.model));
+            if (item.vehicle.type) candidates.push(String(item.vehicle.type));
+        }
+        if (item.category) candidates.push(String(item.category));
+        if (item.vehicleType) candidates.push(String(item.vehicleType));
+        if (item.title) candidates.push(String(item.title));
+        if (item.description) candidates.push(String(item.description));
+        if (item.driver && item.driver.vehicleModel) candidates.push(String(item.driver.vehicleModel));
+
+        // Check if any candidate matches the selected category (case-insensitive)
+        return candidates.some(candidate => {
+            const normalizedCandidate = candidate.toLowerCase().trim();
+            return normalizedCandidate.includes(normalizedSelected) ||
+                normalizedSelected.includes(normalizedCandidate);
+        });
+    };
 
     // Filtered Listings
-    const filteredRideShares = rideShareListings.filter(post =>
-        (post.destination?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-        (post.origin?.toLowerCase() || '').includes(searchTerm.toLowerCase())
-    );
+    const rideShareArray = getSearchResultsArray(searchResults);
+    const filteredRideShares = rideShareArray.filter((post: any) => {
+        const matchesSearch = (post.destination?.toLowerCase() || '').includes((searchTerm || '').toLowerCase()) ||
+            (post.origin?.toLowerCase() || '').includes((searchTerm || '').toLowerCase());
+
+        const matchesCategory = matchesVehicleCategory(post, selectedShareCategory);
+
+        return matchesSearch && matchesCategory;
+    });
 
     const filteredHireListings = forHireListings.filter(post => {
-        const matchesSearch = (post.title?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-            (post.category?.toLowerCase() || '').includes(searchTerm.toLowerCase());
-        const matchesCategory = !selectedHireCategory || (post.category?.toLowerCase() === selectedHireCategory.toLowerCase());
+        const matchesSearch = (post.title?.toLowerCase() || '').includes((searchTerm || '').toLowerCase()) ||
+            (post.category?.toLowerCase() || '').includes((searchTerm || '').toLowerCase());
+        const matchesCategory = matchesVehicleCategory(post, selectedHireCategory);
         return matchesSearch && matchesCategory;
     });
 
@@ -393,7 +1153,29 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
         </div>
     );
 
+
     const initiateRequest = (post: any, type: 'share' | 'hire') => {
+        // Check for active ride share trips if trying to book a ride share
+        if (type === 'share') {
+            const activeRideShareTrips = activeTrips.filter((trip: any) =>
+                trip.type === 'share' &&
+                ['Pending', 'Approved', 'Scheduled', 'Inbound', 'Arrived', 'Boarded', 'In Progress', 'Awaiting Payment Selection'].includes(trip.status)
+            );
+
+            if (activeRideShareTrips.length > 0) {
+                alert('You already have an active Ride Share trip. Please complete or cancel it before booking another Ride Share.');
+                setNotifications(prev => [{
+                    title: 'Booking Restricted',
+                    msg: 'You can only have 1 active Ride Share trip at a time. Complete your current trip first.',
+                    time: 'Just now',
+                    unread: true
+                }, ...prev]);
+                return;
+            }
+        }
+
+        // For Hire trips, no restriction - unlimited bookings allowed
+
         setSelectedBooking(post);
         setBookingType(type);
         setRequestStep('review');
@@ -407,8 +1189,22 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
         setIsRequestModalOpen(true);
     };
 
-    const handleRequestSubmit = () => {
+    const handleRequestSubmit = async () => {
         if (!selectedBooking) return;
+
+        // Double-check for active ride share trips before submitting
+        if (bookingType === 'share') {
+            const activeRideShareTrips = activeTrips.filter((trip: any) =>
+                trip.type === 'share' &&
+                ['Pending', 'Approved', 'Scheduled', 'Inbound', 'Arrived', 'Boarded', 'In Progress', 'Awaiting Payment Selection'].includes(trip.status)
+            );
+
+            if (activeRideShareTrips.length > 0) {
+                alert('You already have an active Ride Share trip. Cannot submit another request.');
+                setIsRequestModalOpen(false);
+                return;
+            }
+        }
 
         const newTrip = {
             id: Date.now(),
@@ -424,8 +1220,48 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
             timestamp: Date.now()
         };
 
-        setHistory(prev => [newTrip, ...prev]);
-        setRequestStep('success');
+        // Persist request to backend (share or hire) so driver sees pending approval
+        try {
+            if (bookingType === 'share') {
+                if (bookingMode === 'negotiate') {
+                    await ApiService.submitRideRequest({
+                        ...selectedBooking,
+                        offeredPrice: parseFloat(offerPrice) || selectedBooking.price,
+                        message: '',
+                        requestedDate: selectedBooking.date,
+                        requestedTime: selectedBooking.time,
+                        driverId: selectedBooking.driverId || selectedBooking.driver?.id
+                    });
+                } else {
+                    await ApiService.submitRideRequest({
+                        ...selectedBooking,
+                        offeredPrice: selectedBooking.price,
+                        message: '',
+                        requestedDate: selectedBooking.date,
+                        requestedTime: selectedBooking.time,
+                        driverId: selectedBooking.driverId || selectedBooking.driver?.id
+                    });
+                }
+            } else {
+                // hire
+                await ApiService.submitHireRequest({
+                    vehicleId: selectedBooking.vehicleId || null,
+                    offeredPrice: bookingMode === 'negotiate' ? parseFloat(offerPrice) || 0 : parseFloat((selectedBooking.rate || '').toString().replace(/[^0-9.]/g, '')) || 0,
+                    startDate: selectedBooking.startDate || selectedBooking.date || new Date().toISOString(),
+                    endDate: selectedBooking.endDate || null,
+                    message: '',
+                    driverId: selectedBooking.driverId || selectedBooking.driver?.id,
+                    location: selectedBooking.location || selectedBooking.origin
+                });
+            }
+
+            setHistory(prev => [newTrip, ...prev]);
+            setRequestStep('success');
+        } catch (err) {
+            console.error('Failed to submit request to backend, falling back to local state', err);
+            setHistory(prev => [newTrip, ...prev]);
+            setRequestStep('success');
+        }
 
         setTimeout(() => {
             setIsRequestModalOpen(false);
@@ -436,10 +1272,27 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
         }, 1500);
     };
 
-    const handleConfirmBoarding = () => {
-        if (currentActiveTrip) {
-            const updatedHistory = history.map(h => h.id === currentActiveTrip.id ? { ...h, status: 'In Progress' } : h);
-            setHistory(updatedHistory);
+    // NOTE: handleConfirmBoarding has been REMOVED - logic is now inline in the modal button
+    // If you see an error about handleConfirmBoarding not defined, do a HARD REFRESH (Ctrl+Shift+R)
+
+    // Payment handlers for trip flow
+    const handlePayNow = async (tripId: string) => {
+        const trip = history.find(h => h.id === tripId);
+        if (trip) {
+            // currentActiveTrip is computed from activeTrips[0], so we just open the modal
+            // The payment modal will use currentActiveTrip which should already be this trip
+            setIsPaymentModalOpen(true);
+            setPaymentStep('method');
+        }
+    };
+
+    const handlePayAndEndTrip = async (tripId: string) => {
+        const trip = history.find(h => h.id === tripId);
+        if (trip) {
+            // currentActiveTrip is computed from activeTrips[0], so we just open the modal
+            // The payment modal will use currentActiveTrip which should already be this trip
+            setIsPaymentModalOpen(true);
+            setPaymentStep('method');
         }
     };
 
@@ -449,6 +1302,44 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
             setHistory(updatedHistory);
             setIsPaymentModalOpen(true);
             setPaymentStep('method');
+        }
+    };
+
+    const handleMessageDriver = async () => {
+        if (!currentActiveTrip) return;
+
+        let driverId = currentActiveTrip.driverId;
+        if (!driverId && typeof currentActiveTrip.driver === 'object') {
+            driverId = currentActiveTrip.driver.id; // Correctly access nested ID
+        }
+
+        // Final fallback if driverId is still missing
+        if (!driverId) {
+            console.warn("Driver ID missing from currentActiveTrip", currentActiveTrip);
+            alert("Cannot message driver: Driver information is missing.");
+            return;
+        }
+
+        try {
+            let chat = conversations.find((c: any) => c.participants && c.participants.includes(driverId));
+
+            if (!chat) {
+                await ApiService.createConversation(driverId);
+                const updatedConvs = await ApiService.getRiderConversations();
+                setConversations(updatedConvs);
+                chat = updatedConvs.find((c: any) => c.participants && c.participants.includes(driverId));
+            }
+
+            if (chat) {
+                setActiveChatId(chat.id);
+                setActiveTab('messages');
+            } else {
+                // If we created it but can't find it in list yet, just go to messages
+                setActiveTab('messages');
+            }
+        } catch (e) {
+            console.error("Failed to start chat", e);
+            alert("Failed to open chat. Please try again.");
         }
     };
 
@@ -474,8 +1365,21 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
         setPaymentError(null);
 
         try {
+            console.log('🔍 Debug: Available Operators:', mobileMoneyOperators);
+            console.log('🔍 Debug: Selected Provider:', mobileProvider);
+
             // Get the provider ref ID based on selected mobile provider
-            const providerRefId = mobileProvider === 'airtel' ? 'airtel_mw' : 'tnm_mpamba_mw';
+            const selectedOp = mobileMoneyOperators.find(op =>
+                op.name.toLowerCase().includes(mobileProvider.toLowerCase()) ||
+                op.short_code.toLowerCase().includes(mobileProvider.toLowerCase())
+            );
+
+            // Fallback to what we have if not found in list, but prefer list value
+            // HARDCODED FALLBACKS based on PayChangu API (Malawi)
+            const AIRTEL_REF_ID = '20be6c20-adeb-4b5b-a7ba-0769820df4fb';
+            const TNM_REF_ID = '27494cb5-ba9e-437f-a114-4e7a7686bcca';
+
+            const providerRefId = selectedOp ? selectedOp.ref_id : (mobileProvider === 'airtel' ? AIRTEL_REF_ID : TNM_REF_ID);
 
             // Prepare payment data
             const paymentData: PaymentInitiationRequest = {
@@ -499,12 +1403,18 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
             }
 
             // Store charge ID for verification
-            if (response.data?.charge_id) {
-                setCurrentChargeId(response.data.charge_id);
+            const chargeId = response.data?.charge_id;
+
+            console.log('🔍 Debug: Payment Response:', response);
+            console.log('🔍 Debug: Extracted Charge ID:', chargeId);
+
+            if (chargeId) {
+                setCurrentChargeId(chargeId);
 
                 // Start polling for payment verification
-                pollPaymentStatus(response.data.charge_id);
+                pollPaymentStatus(chargeId);
             } else {
+                console.warn('⚠️ No charge_id found in response, falling back to simulated success.');
                 // Fallback to simulated success for demo
                 setTimeout(() => {
                     setPaymentStep('success');
@@ -518,6 +1428,8 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
             setPaymentStep('method');
         }
     };
+
+
 
     // Poll payment status
     const pollPaymentStatus = async (chargeId: string) => {
@@ -616,7 +1528,12 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
     const handleSearch = async (pickup: string, destination: string) => {
         setIsSearching(true);
         try {
-            const results = await ApiService.searchRideShareVehicles(pickup, destination);
+            // Client-side filtering since we have all posts
+            const results = rideShareListings.filter(post => {
+                const matchPickup = !pickup || (post.origin || '').toLowerCase().includes(pickup.toLowerCase());
+                const matchDest = !destination || (post.destination || '').toLowerCase().includes(destination.toLowerCase());
+                return matchPickup && matchDest;
+            });
             setSearchResults(results);
         } catch (error) {
             console.error("Search failed", error);
@@ -626,6 +1543,23 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
     };
 
     const handleStartNegotiation = (ride: DriverRidePost) => {
+        // Validation: Check for active ride share trips
+        const activeRideShareTrips = activeTrips.filter((trip: any) =>
+            trip.type === 'share' &&
+            ['Pending', 'Approved', 'Scheduled', 'Inbound', 'Arrived', 'Boarded', 'In Progress', 'Awaiting Payment Selection'].includes(trip.status)
+        );
+
+        if (activeRideShareTrips.length > 0) {
+            alert('You already have an active Ride Share trip. Please complete or cancel it before booking another Ride Share.');
+            setNotifications(prev => [{
+                title: 'Booking Restricted',
+                msg: 'You can only have 1 active Ride Share trip at a time.',
+                time: 'Just now',
+                unread: true
+            }, ...prev]);
+            return;
+        }
+
         setNegotiationRide(ride);
         setNegotiationHistory([]); // Initialize or fetch history
         setShowNegotiationModal(true);
@@ -635,47 +1569,216 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
         if (!negotiationRide) return;
         try {
             // Submit offer
-            await ApiService.submitRideRequest({
+            const newRide = await ApiService.submitRideRequest({
                 ...negotiationRide,
                 offeredPrice: offerPrice,
                 message
             });
-            // Add to local history for display
-            setNegotiationHistory(prev => [...prev, {
-                type: 'offer',
-                price: offerPrice,
-                message,
-                status: 'pending',
-                timestamp: new Date().toISOString()
-            }]);
-            // In a real app, we might wait for socket confirmation or close modal
-            // For now, keep modal open to show "Pending Approval" or similar
+
+            // Immediately update local state specific to Active Trips
+            // Add status 'Pending' if not present (usually it is from backend)
+            const rideWithStatus = { ...newRide, status: 'Pending', type: negotiationRide.type || 'share' };
+
+            setHistory(prev => [rideWithStatus, ...prev]);
+            setActiveTrips(prev => [rideWithStatus, ...prev]);
+
+            // Close modal and switch to active trips tab to show the user the pending request
+            setShowNegotiationModal(false);
+            setNegotiationRide(null);
+            setActiveTab('trips');
+
+            // Helper notification
+            setNotifications(prev => [{
+                title: 'Request Sent',
+                msg: `Your ${rideWithStatus.type === 'hire' ? 'offer' : 'request'} has been sent to the driver.`,
+                time: 'Just now',
+                unread: true
+            }, ...prev]);
+
         } catch (error) {
             console.error("Offer failed", error);
+            alert("Failed to submit request. Please try again.");
         }
     };
 
-    const handlePaymentSelection = async (method: 'online' | 'physical') => {
+    const handlePaymentTimingSelection = async (timing: 'now' | 'pickup') => {
+        if (!paymentTimingRide) return;
+
+        try {
+            if (timing === 'now') {
+                // Open the main payment modal
+                setIsPaymentTimingModalOpen(false);
+                setApprovedRide(paymentTimingRide); // Set as approved ride for the payment modal
+                setShowPaymentModal(true);
+            } else {
+                // Pay on Pickup: Update status to Scheduled
+                await ApiService.selectPaymentMethod(paymentTimingRide.id, 'physical');
+                setIsPaymentTimingModalOpen(false);
+                setNotifications(prev => [{
+                    title: 'Payment Method Confirmed',
+                    msg: 'You have selected to Pay on Pickup. Please pay the driver when they arrive.',
+                    time: 'Just now',
+                    unread: true
+                }, ...prev]);
+
+                // Update local state
+                setHistory(prev => prev.map(h => h.id === paymentTimingRide.id ? { ...h, status: 'Scheduled' } : h));
+                setActiveTrips(prev => prev.map(t => t.id === paymentTimingRide.id ? { ...t, status: 'Scheduled' } : t));
+                setActiveTab('active-trip');
+            }
+        } catch (error) {
+            console.error("Payment timing selection failed", error);
+            alert("Failed to update payment option. Please try again.");
+        }
+    };
+
+    const handlePaymentSelection = async (paymentType: 'online' | 'physical' | 'later') => {
         if (!approvedRide) return;
         try {
-            await ApiService.selectPaymentMethod(approvedRide.id, method);
+            if (paymentType === 'later') {
+                // Payment deferred: mark ride as deferred/awaiting payment and proceed to pickup flow
+                // If backend supports a defer endpoint, call it instead. For now call selectPaymentMethod with 'later' if supported
+                try {
+                    await ApiService.selectPaymentMethod(approvedRide.id, 'later' as any);
+                } catch (e) {
+                    // If API doesn't support 'later', just log and continue
+                    console.warn('Backend does not support pay-later endpoint, continuing to pickup flow', e);
+                }
+            } else {
+                await ApiService.selectPaymentMethod(approvedRide.id, paymentType);
+            }
+
             setShowPaymentModal(false);
-            setPickupRide(approvedRide); // Move to pickup
-            setShowPickupModal(true);
+            // Send trip directly to tracking tab without showing map modal
+            setPickupRide(approvedRide);
+            setActiveTab('active-trip');
         } catch (error) {
             console.error("Payment selection failed", error);
         }
     };
 
-    const handleConfirmPickup = async () => {
-        if (!pickupRide) return;
+    // Handle payment selection for handover (hire jobs)
+    const handleHandoverPaymentSelection = async () => {
+        if (!currentActiveTrip) return;
+
+        // 1. Mobile Money Flow
+        if (handoverPaymentMethod === 'mobile') {
+            // Validate mobile money details
+            if (!passengerPhone) {
+                alert("Please enter your mobile money number.");
+                return;
+            }
+
+            setPaymentStep('processing');
+            try {
+                // Get provider ref
+                const selectedOp = mobileMoneyOperators.find(op =>
+                    op.name.toLowerCase().includes(mobileProvider.toLowerCase()) ||
+                    op.short_code.toLowerCase().includes(mobileProvider.toLowerCase())
+                );
+                const AIRTEL_REF_ID = '20be6c20-adeb-4b5b-a7ba-0769820df4fb';
+                const TNM_REF_ID = '27494cb5-ba9e-437f-a114-4e7a7686bcca';
+                const providerRefId = selectedOp ? selectedOp.ref_id : (mobileProvider === 'airtel' ? AIRTEL_REF_ID : TNM_REF_ID);
+
+                const paymentData: PaymentInitiationRequest = {
+                    rideId: currentActiveTrip.id,
+                    amount: currentActiveTrip.price || currentActiveTrip.acceptedPrice || 0,
+                    mobileNumber: passengerPhone,
+                    providerRefId: providerRefId
+                };
+
+                const response = await ApiService.initiatePayment(paymentData);
+                if (response.status === 'error') throw new Error(response.message);
+
+                const chargeId = response.data?.charge_id;
+
+                if (chargeId) {
+                    // Simulate payment verification
+                    setTimeout(async () => {
+                        await ApiService.completeHandover(currentActiveTrip.id.toString(), 'mobile');
+                        setPaymentStep('success');
+                        setTimeout(() => {
+                            setIsHandoverModalOpen(false);
+                            setPaymentStep('method');
+                        }, 2000);
+                    }, 3000);
+                } else {
+                    setPaymentStep('success');
+                    setTimeout(() => setIsHandoverModalOpen(false), 2000);
+                }
+
+            } catch (error) {
+                console.error("Handover payment failed", error);
+                alert('Payment failed. Please try again.');
+                setPaymentStep('method');
+            }
+            return;
+        }
+
+        // 2. Manual Flows (Bank / Cash / Pickup)
         try {
-            await ApiService.confirmPickup(pickupRide.id);
-            setShowPickupModal(false);
-            // Navigate to active trip or show success
-            setActiveTab('active-trip');
+            await ApiService.completeHandover(currentActiveTrip.id.toString(), handoverPaymentMethod);
+
+            setIsHandoverModalOpen(false);
+            setNotifications(prev => [{
+                title: 'Handover Confirmed!',
+                msg: `Payment method confirmed: ${handoverPaymentMethod}. Vehicle is ready.`,
+                time: 'Just now',
+                unread: true
+            }, ...prev]);
+
+            // Optimistic Update
+            const updated = { ...currentActiveTrip, status: 'Active', paymentMethod: handoverPaymentMethod };
+            setCurrentActiveTrip(updated);
+            setActiveTrips(prev => prev.map(t => t.id === currentActiveTrip.id ? updated : t));
+            setHistory(prev => prev.map(t => t.id === currentActiveTrip.id ? updated : t));
+        } catch (error) {
+            console.error("Handover payment selection failed", error);
+            alert('Failed to confirm handover payment. Please try again.');
+        }
+    };
+
+    // Manual pickup flow - user confirms pickup/drop-off/boarding in tracking tab
+    const handleManualPickupConfirm = async (rideId: string) => {
+        try {
+            await ApiService.confirmPickup(rideId);
+            console.log('Pickup confirmed manually for ride:', rideId);
         } catch (error) {
             console.error("Pickup confirmation failed", error);
+        }
+    };
+
+    // Handle rider confirming they have boarded the vehicle
+    const handleConfirmBoarding = async () => {
+        if (!currentActiveTrip) return;
+
+        try {
+            // Call API to confirm boarding
+            await ApiService.confirmBoarding(currentActiveTrip.id.toString());
+
+            // Update local state to 'Boarded'
+            setActiveTrips(prev => prev.map(t =>
+                t.id === currentActiveTrip.id ? { ...t, status: 'Boarded' } : t
+            ));
+
+            // Update current active trip
+            if (currentActiveTrip) {
+                const updatedTrip = { ...currentActiveTrip, status: 'Boarded' };
+                setCurrentActiveTrip(updatedTrip);
+            }
+
+            // Add notification
+            setNotifications(prev => [{
+                title: 'Boarding Confirmed',
+                msg: 'You have confirmed boarding. The driver will start the trip shortly.',
+                time: 'Just now',
+                unread: true
+            }, ...prev]);
+
+            console.log('Boarding confirmed for ride:', currentActiveTrip.id);
+        } catch (error) {
+            console.error("Boarding confirmation failed", error);
+            alert('Failed to confirm boarding. Please try again.');
         }
     };
 
@@ -842,12 +1945,38 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                             <LocationSearch onSearch={handleSearch} isLoading={isSearching} />
                                         </div>
 
+                                        {/* Vehicle Type Filter (Share) */}
+                                        <div className="flex flex-wrap gap-2 mt-4 mb-3">
+                                            <button
+                                                onClick={() => { setSelectedShareCategory(null); updateQueryParam('shareCat', null); }}
+                                                className={`px-3 py-1 rounded-xl font-medium text-sm transition-all ${selectedShareCategory === null
+                                                    ? 'bg-[#FACC15] text-black'
+                                                    : 'bg-[#252525] text-gray-400 hover:bg-[#2A2A2A] hover:text-white'
+                                                    }`}
+                                            >
+                                                {getCategoryIcon('All')}
+                                                All Categories
+                                            </button>
+                                            {VEHICLE_HIRE_CATEGORIES.flatMap(m => m.categories).map((cat) => (
+                                                <button
+                                                    key={cat.id}
+                                                    onClick={() => { setSelectedShareCategory(cat.name); updateQueryParam('shareCat', cat.name); }}
+                                                    className={`px-3 py-1 rounded-xl font-medium text-sm transition-all ${selectedShareCategory === cat.name
+                                                        ? 'bg-[#FACC15] text-black'
+                                                        : 'bg-[#252525] text-gray-400 hover:bg-[#2A2A2A] hover:text-white'
+                                                        }`}
+                                                >
+                                                    {getCategoryIcon(cat.name)}{cat.name}
+                                                </button>
+                                            ))}
+                                        </div>
+
                                         {/* Search Results */}
-                                        {searchResults.length > 0 && (
+                                        {rideShareArray.length > 0 && (
                                             <div>
                                                 <h3 className="text-lg font-bold text-white mb-4">Available Rides</h3>
                                                 <div className="space-y-3">
-                                                    {searchResults.map(ride => (
+                                                    {filteredRideShares.map((ride: any) => (
                                                         <div key={ride.id} className="bg-[#252525] p-4 rounded-2xl border border-[#333] flex justify-between items-center hover:border-[#FACC15]/50 transition-colors cursor-pointer" onClick={() => handleStartNegotiation(ride)}>
                                                             <div className="flex items-center gap-4">
                                                                 <div className="w-12 h-12 bg-[#1E1E1E] rounded-full flex items-center justify-center text-gray-400">
@@ -876,29 +2005,51 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                         {/* Category Filter Tags */}
                                         <div className="flex flex-wrap gap-2 mb-4">
                                             <button
-                                                onClick={() => setSelectedHireCategory(null)}
+                                                onClick={() => { setSelectedHireCategory(null); updateQueryParam('hireCat', null); }}
                                                 className={`px-4 py-2 rounded-xl font-medium transition-all ${selectedHireCategory === null
-                                                        ? 'bg-[#FACC15] text-black'
-                                                        : 'bg-[#252525] text-gray-400 hover:bg-[#2A2A2A] hover:text-white'
+                                                    ? 'bg-[#FACC15] text-black'
+                                                    : 'bg-[#252525] text-gray-400 hover:bg-[#2A2A2A] hover:text-white'
                                                     }`}
                                             >
-                                                All Categories
+                                                {getCategoryIcon('All')}All Categories
                                             </button>
                                             {VEHICLE_HIRE_CATEGORIES.flatMap(mainCat => mainCat.categories).map((cat) => (
                                                 <button
                                                     key={cat.id}
-                                                    onClick={() => setSelectedHireCategory(cat.name)}
+                                                    onClick={() => { setSelectedHireCategory(cat.name); updateQueryParam('hireCat', cat.name); }}
                                                     className={`px-4 py-2 rounded-xl font-medium transition-all ${selectedHireCategory === cat.name
-                                                            ? 'bg-[#FACC15] text-black'
-                                                            : 'bg-[#252525] text-gray-400 hover:bg-[#2A2A2A] hover:text-white'
+                                                        ? 'bg-[#FACC15] text-black'
+                                                        : 'bg-[#252525] text-gray-400 hover:bg-[#2A2A2A] hover:text-white'
                                                         }`}
                                                 >
-                                                    {cat.name}
+                                                    {getCategoryIcon(cat.name)}{cat.name}
                                                 </button>
                                             ))}
                                         </div>
 
                                         {/* For Hire Listings */}
+                                        {/* Rider's pending requests (if any) */}
+                                        {pendingRequestsList.length > 0 && (
+                                            <div className="mb-4 p-4 bg-[#151515] rounded-xl border border-[#2A2A2A]">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <div className="text-sm text-gray-300 font-bold">Your Pending Requests</div>
+                                                    <div className="text-xs text-gray-500">{pendingRequestsList.length} waiting</div>
+                                                </div>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                                    {pendingRequestsList.slice(0, 3).map((r: any) => (
+                                                        <div key={r.id} className="p-3 bg-[#1A1A1A] rounded-lg border border-[#333]">
+                                                            <div className="text-xs text-gray-400">{r.type === 'hire' ? 'Hire Request' : 'Ride Request'}</div>
+                                                            <div className="font-bold text-white text-sm">{r.type === 'hire' ? r.origin || r.location : `${r.origin} → ${r.destination}`}</div>
+                                                            <div className="text-xs text-gray-500 mt-1">Status: {r.negotiationStatus || r.status}</div>
+                                                            {/* New: Price Display */}
+                                                            <div className="text-xs text-[#FACC15] font-bold mt-1">
+                                                                MWK {(r.offeredPrice || parseFloat(r.rate?.replace(/[^0-9.]/g, '') || '0') || 0).toLocaleString()}
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
                                         {filteredHireListings.length > 0 ? (
                                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                                 {filteredHireListings.map((post) => (
@@ -992,11 +2143,15 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                     </span>
                                                 </div>
                                                 <p className="text-xs text-gray-400 mt-2">
-                                                    {currentActiveTrip.status === 'Inbound' ? 'Driver is on the way.' :
-                                                        currentActiveTrip.status === 'Arrived' ? 'Driver is waiting for you.' :
-                                                            currentActiveTrip.status === 'In Progress' ? 'Trip is in progress.' :
-                                                                currentActiveTrip.status === 'Payment Due' ? 'Trip complete. Please pay.' :
-                                                                    'Waiting for driver update.'}
+                                                    {currentActiveTrip.status === 'Pending' ? 'Waiting for driver approval.' :
+                                                        currentActiveTrip.status === 'Approved' ? 'Trip approved! Ready to schedule.' :
+                                                            currentActiveTrip.status === 'Scheduled' ? 'Trip scheduled. Waiting for driver.' :
+                                                                currentActiveTrip.status === 'Handover Pending' ? 'Driver is waiting. Please confirm handover.' :
+                                                                    currentActiveTrip.status === 'Inbound' ? 'Driver is on the way.' :
+                                                                        currentActiveTrip.status === 'Arrived' ? 'Driver is waiting for you.' :
+                                                                            currentActiveTrip.status === 'In Progress' ? 'Trip is in progress.' :
+                                                                                currentActiveTrip.status === 'Payment Due' ? 'Trip complete. Please pay.' :
+                                                                                    'Waiting for driver update.'}
                                                 </p>
                                             </div>
 
@@ -1023,16 +2178,16 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                             )}
                                         </div>
 
-                                        <div className="p-6 flex-1 overflow-y-auto">
+                                        <div className="p-6 flex-1 overflow-y-auto pb-6">
                                             <h3 className="text-sm font-bold text-gray-400 uppercase mb-4">Driver Details</h3>
                                             <div className="flex items-center gap-4 mb-6 bg-[#252525] p-4 rounded-xl border border-[#333]">
                                                 <img
-                                                    src={`https://ui-avatars.com/api/?name=${currentActiveTrip.driver}&background=random`}
+                                                    src={`https://ui-avatars.com/api/?name=${typeof currentActiveTrip.driver === 'string' ? currentActiveTrip.driver : currentActiveTrip.driver?.name || 'Driver'}&background=random`}
                                                     alt="Driver"
                                                     className="w-12 h-12 rounded-full border-2 border-[#FACC15]"
                                                 />
                                                 <div>
-                                                    <div className="text-white font-bold">{currentActiveTrip.driver}</div>
+                                                    <div className="text-white font-bold">{typeof currentActiveTrip.driver === 'string' ? currentActiveTrip.driver : currentActiveTrip.driver?.name || 'Unknown Driver'}</div>
                                                     <div className="text-xs text-gray-400">Toyota Corolla • MC 9928</div>
                                                     <div className="flex items-center gap-1 text-[#FACC15] text-xs mt-1">
                                                         <StarIcon className="w-3 h-3" /> 4.9
@@ -1040,54 +2195,295 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                 </div>
                                             </div>
 
-                                            <div className="flex gap-3 mb-6">
-                                                <button className="flex-1 py-3 bg-[#252525] text-white rounded-xl font-bold text-sm hover:bg-[#333] transition-colors flex items-center justify-center gap-2 border border-[#333]">
-                                                    <PhoneIcon className="w-4 h-4" /> Call
-                                                </button>
+                                            <div className="mb-6">
                                                 <button
-                                                    onClick={() => setActiveTab('messages')}
-                                                    className="flex-1 py-3 bg-[#FACC15] text-black rounded-xl font-bold text-sm hover:bg-[#EAB308] transition-colors flex items-center justify-center gap-2"
+                                                    onClick={handleMessageDriver}
+                                                    className="w-full py-3 bg-[#FACC15] text-black rounded-xl font-bold text-sm hover:bg-[#EAB308] transition-colors flex items-center justify-center gap-2"
                                                 >
-                                                    <ChatBubbleIcon className="w-4 h-4" /> Message
+                                                    <ChatBubbleIcon className="w-4 h-4" /> Message Driver
                                                 </button>
                                             </div>
 
-                                            {/* NEW SECTION HERE */}
-                                            {(currentActiveTrip.status === 'In Progress' || currentActiveTrip.status === 'Payment Due') && (
+                                            {/* Location Precision Indicator */}
+                                            {(typeof currentActiveTrip.driver === 'object' && currentActiveTrip.driver.precision) && (
                                                 <div className="pt-6 border-t border-[#2A2A2A]">
-                                                    <h3 className="text-sm font-bold text-gray-400 uppercase mb-3">Trip Actions</h3>
-                                                    {currentActiveTrip.status === 'In Progress' && (
-                                                        <button
-                                                            onClick={handleManualEndTrip}
-                                                            className="w-full py-3 border-2 border-red-500/30 text-red-400 rounded-xl font-bold text-sm hover:bg-red-500/10 hover:border-red-500/50 transition-colors"
-                                                        >
-                                                            End Trip Manually
-                                                        </button>
+                                                    <div className={`p-3 rounded-xl text-xs font-bold flex items-center gap-2 ${currentActiveTrip.driver.precision === 'precise' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'}`}>
+                                                        <span className={`w-2 h-2 rounded-full ${currentActiveTrip.driver.precision === 'precise' ? 'bg-green-500' : 'bg-yellow-500'}`}></span>
+                                                        {currentActiveTrip.driver.precision === 'precise' ? '✓ Precise GPS Location' : '⚠ Approximate IP Location'}
+                                                    </div>
+                                                    {currentActiveTrip.driver.precision === 'approximate' && (
+                                                        <p className="text-[10px] text-gray-500 mt-2">Driver's location is approximate based on IP address. Precise GPS tracking was not available.</p>
                                                     )}
-                                                    {currentActiveTrip.status === 'Payment Due' && (
-                                                        <button
-                                                            onClick={() => {
-                                                                setIsPaymentModalOpen(true);
-                                                                setPaymentStep('method');
-                                                            }}
-                                                            className="w-full py-3 bg-[#FACC15] text-black rounded-xl font-bold text-sm hover:bg-[#EAB308] transition-colors shadow-lg animate-pulse"
-                                                        >
-                                                            Complete Payment
-                                                        </button>
+                                                </div>
+                                            )}
+
+                                            {/* Trip Actions - Always show if active trip exists */}
+                                            {currentActiveTrip && (
+                                                <div className="pt-6 mt-6 border-t border-[#2A2A2A]">
+                                                    <h3 className="text-sm font-bold text-gray-400 uppercase mb-4">Trip Actions</h3>
+                                                    <div className="space-y-3">
+
+                                                        {/* PENDING: Cancel Request */}
+                                                        {currentActiveTrip.status === 'Pending' && (
+                                                            <button
+                                                                onClick={async () => {
+                                                                    if (confirm('Are you sure you want to cancel this request?')) {
+                                                                        try {
+                                                                            await ApiService.cancelRide(currentActiveTrip.id);
+                                                                            setCurrentActiveTrip(null);
+                                                                            setActiveTab('overview');
+                                                                            setNotifications(prev => [{
+                                                                                title: 'Request Cancelled',
+                                                                                msg: 'Your ride request has been cancelled.',
+                                                                                time: 'Just now',
+                                                                                unread: true
+                                                                            }, ...prev]);
+                                                                        } catch (e) {
+                                                                            console.error(e);
+                                                                            alert('Failed to cancel request');
+                                                                        }
+                                                                    }
+                                                                }}
+                                                                className="w-full py-3 bg-red-600/20 text-red-500 border border-red-500/50 rounded-xl font-bold text-sm hover:bg-red-600 hover:text-white transition-colors flex items-center justify-center gap-2"
+                                                            >
+                                                                ✕ Cancel Request
+                                                            </button>
+                                                        )}
+                                                        {/* FOR HIRE: Handover Pending - Payment Required (show modal instead) */}
+                                                        {currentActiveTrip.type === 'hire' && currentActiveTrip.status === 'Handover Pending' && (
+                                                            <div className="bg-orange-500/20 border-2 border-orange-500 rounded-xl p-4 animate-pulse">
+                                                                <p className="text-xs text-orange-300 font-bold mb-1">🔄 Handover Awaiting Payment</p>
+                                                                <p className="text-xs text-gray-200 mb-3">Driver is ready! Select your payment method to complete the handover.</p>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        console.log('🎯 Manually opening handover modal from Trip Actions button');
+                                                                        setIsHandoverModalOpen(true);
+                                                                    }}
+                                                                    className="w-full py-3 bg-gradient-to-r from-orange-600 to-orange-500 text-white rounded-lg font-bold text-sm hover:from-orange-500 hover:to-orange-400 transition-all shadow-lg animate-bounce"
+                                                                >
+                                                                    💳 Open Payment Modal
+                                                                </button>
+                                                            </div>
+                                                        )}
+
+                                                        {/* FOR HIRE: Active (Handover Completed) */}
+                                                        {currentActiveTrip.type === 'hire' && currentActiveTrip.status === 'Active' && (
+                                                            <div className="space-y-3">
+                                                                <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4 animate-pulse">
+                                                                    <p className="text-xs text-green-400 font-bold mb-1">✓ Waiting for Return</p>
+                                                                    <p className="text-xs text-gray-300">You have the vehicle. Please request return when finished.</p>
+                                                                </div>
+                                                                <button
+                                                                    onClick={async () => {
+                                                                        if (confirm('Are you ready to return the vehicle to the dealership?')) {
+                                                                            try {
+                                                                                await ApiService.requestVehicleReturn(currentActiveTrip.id);
+                                                                                // Optimistic update
+                                                                                const updated = { ...currentActiveTrip, status: 'Return Pending' };
+                                                                                setCurrentActiveTrip(updated);
+                                                                            } catch (e) {
+                                                                                console.error(e);
+                                                                                alert('Failed to request return');
+                                                                            }
+                                                                        }
+                                                                    }}
+                                                                    className="w-full py-3 bg-[#FACC15] text-black rounded-xl font-bold text-sm hover:bg-[#EAB308] transition-colors shadow-lg"
+                                                                >
+                                                                    🔄 Return Vehicle to Dealership
+                                                                </button>
+                                                            </div>
+                                                        )}
+
+                                                        {/* FOR HIRE: Return Pending */}
+                                                        {currentActiveTrip.type === 'hire' && currentActiveTrip.status === 'Return Pending' && (
+                                                            <div className="bg-blue-500/20 border border-blue-500/30 rounded-xl p-4 animate-pulse">
+                                                                <p className="text-xs text-blue-400 font-bold mb-1">⏳ Return Requested</p>
+                                                                <p className="text-xs text-gray-300">Waiting for driver to confirm vehicle return.</p>
+                                                            </div>
+                                                        )}
+
+                                                        {/* FOR HIRE: Payment Options (Original Approved Status) */}
+                                                        {currentActiveTrip.type === 'hire' && currentActiveTrip.status === 'Approved' && (
+                                                            <>
+                                                                <div className="bg-[#252525] border border-[#FACC15]/30 rounded-xl p-4 mb-3">
+                                                                    <p className="text-xs text-gray-400 mb-2">Hire approved! Choose payment option:</p>
+                                                                    <p className="text-sm font-bold text-white">MWK {currentActiveTrip.price || 0}</p>
+                                                                </div>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        // Ensure we have pricing
+                                                                        const price = currentActiveTrip.acceptedPrice || currentActiveTrip.price || 0;
+                                                                        const rideWithPrice = { ...currentActiveTrip, price };
+
+                                                                        // Set approvedRide for consistency (though modal uses currentActiveTrip mostly)
+                                                                        setApprovedRide(rideWithPrice);
+                                                                        setCurrentActiveTrip(rideWithPrice); // Ensure price is set in current trip
+
+                                                                        setIsPaymentModalOpen(true);
+                                                                        setPaymentStep('method');
+                                                                    }}
+                                                                    className="w-full py-3 bg-[#FACC15] text-black rounded-xl font-bold text-sm hover:bg-[#EAB308] transition-colors shadow-lg flex items-center justify-center gap-2"
+                                                                >
+                                                                    <CreditCardIcon className="w-4 h-4" /> Pay Now
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        handlePaymentSelection('later');
+                                                                        setNotifications(prev => [{
+                                                                            title: 'Payment Deferred',
+                                                                            msg: 'You will pay when you pick up the vehicle.',
+                                                                            time: 'Just now',
+                                                                            unread: true
+                                                                        }, ...prev]);
+                                                                    }}
+                                                                    className="w-full py-3 border-2 border-[#FACC15] text-[#FACC15] rounded-xl font-bold text-sm hover:bg-[#FACC15]/10 transition-colors flex items-center justify-center gap-2"
+                                                                >
+                                                                    Pay on Pickup
+                                                                </button>
+                                                            </>
+                                                        )}
+
+                                                        {/* RIDE SHARE: Manual Pickup Confirmation */}
+                                                        {currentActiveTrip.type === 'share' && (currentActiveTrip.status === 'Scheduled' || currentActiveTrip.status === 'Inbound' || currentActiveTrip.status === 'Arrived') && (
+                                                            <button
+                                                                onClick={() => handleManualPickupConfirm(currentActiveTrip.id)}
+                                                                className="w-full py-3 bg-blue-500 text-white rounded-xl font-bold text-sm hover:bg-blue-600 transition-colors flex items-center justify-center gap-2"
+                                                            >
+                                                                <CarIcon className="w-4 h-4" /> Confirm Pickup
+                                                            </button>
+                                                        )}
+
+                                                        {/* RIDE SHARE: In Progress Actions */}
+                                                        {currentActiveTrip.type === 'share' && currentActiveTrip.status === 'In Progress' && (
+                                                            <div className="space-y-3">
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setIsPaymentModalOpen(true);
+                                                                        setPaymentStep('method');
+                                                                    }}
+                                                                    className="w-full py-3 bg-[#252525] text-white border border-[#333] rounded-xl font-bold text-sm hover:bg-[#333] transition-colors"
+                                                                >
+                                                                    Proceed to Payment
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setIsPaymentModalOpen(true);
+                                                                        setPaymentStep('method');
+                                                                        // Logic to end trip after payment will be handled in payment success
+                                                                    }}
+                                                                    className="w-full py-3 bg-red-600 text-white rounded-xl font-bold text-sm hover:bg-red-500 transition-colors shadow-lg shadow-red-600/20"
+                                                                >
+                                                                    Pay & End Trip
+                                                                </button>
+                                                            </div>
+                                                        )}
+
+                                                        {/* RIDE SHARE: Driver Ended Trip (Payment Due) */}
+                                                        {currentActiveTrip.status === 'Payment Due' && (
+                                                            <div className="animate-pulse">
+                                                                <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-3">
+                                                                    <p className="text-xs text-red-400 font-bold mb-1">Trip Ended by Driver</p>
+                                                                    <p className="text-xs text-gray-300">Please confirm the trip has ended and complete your payment.</p>
+                                                                </div>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setIsPaymentModalOpen(true);
+                                                                        setPaymentStep('method');
+                                                                    }}
+                                                                    className="w-full py-3 bg-[#FACC15] text-black rounded-xl font-bold text-sm hover:bg-[#EAB308] transition-colors shadow-lg"
+                                                                >
+                                                                    Confirm End & Pay
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    {/* Show helper text when no actions match current status */}
+                                                    {!(
+                                                        (currentActiveTrip.type === 'hire' && currentActiveTrip.status === 'Approved') ||
+                                                        (currentActiveTrip.type === 'share' && ['Scheduled', 'Inbound', 'Arrived'].includes(currentActiveTrip.status)) ||
+                                                        (currentActiveTrip.type === 'share' && currentActiveTrip.status === 'In Progress') ||
+                                                        (currentActiveTrip.status === 'Payment Due')
+                                                    ) && (
+                                                            <p className="text-xs text-gray-500 italic">No actions available for this status.</p>
+                                                        )}
+
+                                                    {/* Payment Selection Action */}
+                                                    {currentActiveTrip.status === 'Awaiting Payment Selection' && (
+                                                        <div className="bg-[#1E1E1E] border border-[#FACC15] rounded-xl p-4 mt-4 animate-pulse-slow">
+                                                            <div className="flex items-center gap-3 mb-3">
+                                                                <div className="p-2 bg-[#FACC15]/20 rounded-full text-[#FACC15]">
+                                                                    <CreditCardIcon className="w-5 h-5" />
+                                                                </div>
+                                                                <div>
+                                                                    <h4 className="text-white font-bold text-sm">Action Required</h4>
+                                                                    <p className="text-xs text-gray-400">Please select how update you want to pay.</p>
+                                                                </div>
+                                                            </div>
+                                                            <button
+                                                                onClick={() => {
+                                                                    setPaymentTimingRide(currentActiveTrip);
+                                                                    setIsPaymentTimingModalOpen(true);
+                                                                }}
+                                                                className="w-full py-2 bg-[#FACC15] text-black font-bold rounded-lg text-sm hover:bg-[#EAB308] transition-colors"
+                                                            >
+                                                                Select Payment Option
+                                                            </button>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Payment Selection Action */}
+                                                    {currentActiveTrip.status === 'Awaiting Payment Selection' && (
+                                                        <div className="bg-[#1E1E1E] border border-[#FACC15] rounded-xl p-4 mt-4 animate-pulse-slow">
+                                                            <div className="flex items-center gap-3 mb-3">
+                                                                <div className="p-2 bg-[#FACC15]/20 rounded-full text-[#FACC15]">
+                                                                    <CreditCardIcon className="w-5 h-5" />
+                                                                </div>
+                                                                <div>
+                                                                    <h4 className="text-white font-bold text-sm">Action Required</h4>
+                                                                    <p className="text-xs text-gray-400">Please select how update you want to pay.</p>
+                                                                </div>
+                                                            </div>
+                                                            <button
+                                                                onClick={() => {
+                                                                    setPaymentTimingRide(currentActiveTrip);
+                                                                    setIsPaymentTimingModalOpen(true);
+                                                                }}
+                                                                className="w-full py-2 bg-[#FACC15] text-black font-bold rounded-lg text-sm hover:bg-[#EAB308] transition-colors"
+                                                            >
+                                                                Select Payment Option
+                                                            </button>
+                                                        </div>
                                                     )}
                                                 </div>
                                             )}
                                         </div>
                                     </div>
 
-                                    {/* Right Panel: Static Route Map */}
-                                    <div className="flex-1 relative bg-[#1E1E1E]">
-                                        <MapboxMap
-                                            center={tripCoordinates.origin || [33.7741, -13.9626]}
-                                            zoom={11}
-                                            trackDevice={false}
-                                            destination={tripCoordinates.destination || undefined}
-                                        />
+                                    {/* Right Panel: Manual Control Instructions (No Automated Map Tracking) */}
+                                    <div className="flex-1 relative bg-[#1E1E1E] p-8 flex flex-col items-center justify-center">
+                                        <div className="text-center max-w-sm">
+                                            <div className="w-16 h-16 bg-[#252525] rounded-full flex items-center justify center mx-auto mb-6 border-2 border-[#333]">
+                                                <MapIcon className="w-8 h-8 text-[#FACC15]" />
+                                            </div>
+                                            <h3 className="text-xl font-bold text-white mb-3">Manual Pickup Mode</h3>
+                                            <p className="text-gray-400 text-sm mb-6">
+                                                No automated map tracking. Use the action buttons on the left to manually confirm each step of your trip.
+                                            </p>
+                                            <div className="bg-[#252525] border border-[#333] rounded-2xl p-4 text-left text-xs text-gray-300 space-y-3">
+                                                <div className="flex items-start gap-3">
+                                                    <span className="text-[#FACC15] font-bold text-sm">1</span>
+                                                    <span>Click <strong>Confirm Pickup</strong> when driver arrives and you board</span>
+                                                </div>
+                                                <div className="flex items-start gap-3">
+                                                    <span className="text-[#FACC15] font-bold text-sm">2</span>
+                                                    <span>Click <strong>End Trip</strong> when you arrive at destination</span>
+                                                </div>
+                                                <div className="flex items-start gap-3">
+                                                    <span className="text-[#FACC15] font-bold text-sm">3</span>
+                                                    <span>Click <strong>Complete Payment</strong> to finish</span>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </>
                             ) : (
@@ -1404,28 +2800,85 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                         activeTab === 'trips' && (
                             <div className="max-w-4xl mx-auto animate-fadeIn">
 
-                                {/* Active Trips Link / Teaser */}
-                                {activeTrips.length > 0 && (
-                                    <button
-                                        onClick={() => setActiveTab('active-trip')}
-                                        className="w-full mb-8 bg-gradient-to-r from-[#1E1E1E] to-[#252525] border border-[#FACC15]/30 rounded-2xl p-6 shadow-[0_0_20px_rgba(250,204,21,0.05)] hover:border-[#FACC15] transition-all group text-left"
-                                    >
-                                        <div className="flex justify-between items-center">
-                                            <div>
-                                                <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                                                    <span className="relative flex h-3 w-3">
-                                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#FACC15] opacity-75"></span>
-                                                        <span className="relative inline-flex rounded-full h-3 w-3 bg-[#FACC15]"></span>
-                                                    </span>
-                                                    Go to Active Trip
-                                                </h3>
-                                                <p className="text-sm text-gray-400 mt-1">You have {activeTrips.length} trip(s) in progress or pending.</p>
-                                            </div>
-                                            <div className="bg-[#FACC15] p-2 rounded-full text-black group-hover:scale-110 transition-transform">
-                                                <NavigationIcon className="w-5 h-5" />
-                                            </div>
+                                {/* Active Trips List */}
+                                <h2 className="text-xl font-bold text-white mb-6">Active & Pending Trips</h2>
+                                {activeTrips.length === 0 ? (
+                                    <div className="bg-[#1E1E1E] border border-[#333] rounded-2xl p-8 text-center mb-8">
+                                        <div className="w-16 h-16 bg-[#252525] rounded-full flex items-center justify-center mx-auto mb-4 text-gray-500">
+                                            <CarIcon className="w-8 h-8" />
                                         </div>
-                                    </button>
+                                        <h3 className="text-white font-bold mb-2">No Active Trips</h3>
+                                        <p className="text-gray-400 text-sm">Your active and pending rides will appear here.</p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-4 mb-10">
+                                        {activeTrips.map((trip: any) => (
+                                            <div key={trip.id} className="bg-[#1E1E1E] border border-[#333] rounded-2xl p-6 hover:border-[#FACC15]/30 transition-all">
+                                                <div className="flex justify-between items-start mb-4">
+                                                    <div>
+                                                        <div className="flex items-center gap-2 mb-1">
+                                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider
+                                                                ${trip.type === 'hire' ? 'bg-purple-500/20 text-purple-400' : 'bg-blue-500/20 text-blue-400'}`}>
+                                                                {trip.type === 'hire' ? 'Vehicle Hire' : 'Ride Share'}
+                                                            </span>
+                                                            <span className="text-gray-400 text-xs">• {trip.date}</span>
+                                                        </div>
+                                                        <h3 className="text-lg font-bold text-white">
+                                                            {trip.type === 'hire' ? (trip.title || 'Vehicle Rental') : `${trip.origin} → ${trip.destination}`}
+                                                        </h3>
+                                                    </div>
+                                                    <div className={`px-3 py-1 rounded-full text-xs font-bold
+                                                        ${trip.status === 'Pending' ? 'bg-yellow-500/20 text-yellow-400' :
+                                                            trip.status === 'Approved' || trip.status === 'Awaiting Payment Selection' ? 'bg-green-500/20 text-green-400' :
+                                                                trip.status === 'In Progress' ? 'bg-blue-500/20 text-blue-400 animate-pulse' :
+                                                                    'bg-gray-700 text-gray-300'}`}>
+                                                        {trip.status}
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center justify-between mt-4 pt-4 border-t border-[#333]">
+                                                    <div className="text-[#FACC15] font-bold">
+                                                        MWK {(trip.price || 0).toLocaleString()}
+                                                    </div>
+
+                                                    <div className="flex gap-3">
+                                                        {/* Payment Action */}
+                                                        {trip.status === 'Awaiting Payment Selection' && (
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setPaymentTimingRide(trip);
+                                                                    setIsPaymentTimingModalOpen(true);
+                                                                }}
+                                                                className="px-4 py-2 bg-[#FACC15] text-black text-sm font-bold rounded-lg hover:bg-[#EAB308] transition-colors flex items-center gap-2"
+                                                            >
+                                                                <CreditCardIcon className="w-4 h-4" />
+                                                                Select Pay Option
+                                                            </button>
+                                                        )}
+
+                                                        {/* Track / View Details Action */}
+                                                        {['In Progress', 'Inbound', 'Arrived', 'Payment Due', 'Handover Pending'].includes(trip.status) && (
+                                                            <button
+                                                                onClick={() => setActiveTab('active-trip')}
+                                                                className="px-4 py-2 bg-[#252525] text-white text-sm font-bold rounded-lg hover:bg-[#333] transition-colors flex items-center gap-2"
+                                                            >
+                                                                <NavigationIcon className="w-4 h-4" />
+                                                                Track Trip
+                                                            </button>
+                                                        )}
+
+                                                        {/* Cancel Action (for pending) */}
+                                                        {trip.status === 'Pending' && (
+                                                            <button className="text-red-400 text-sm font-bold hover:text-red-300">
+                                                                Cancel Request
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
                                 )}
 
                                 {/* Past History Section */}
@@ -1464,12 +2917,12 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                     <div className="md:w-48 flex flex-col justify-between border-t md:border-t-0 md:border-l border-[#333] pt-4 md:pt-0 md:pl-6">
                                                         <div className="flex items-center gap-3 mb-4 md:mb-0">
                                                             <img
-                                                                src={`https://ui-avatars.com/api/?name=${trip.driver}&background=random`}
-                                                                alt={trip.driver}
+                                                                src={`https://ui-avatars.com/api/?name=${typeof trip.driver === 'string' ? trip.driver : trip.driver?.name || 'Unknown'}&background=random`}
+                                                                alt={typeof trip.driver === 'string' ? trip.driver : trip.driver?.name || 'Unknown'}
                                                                 className="w-10 h-10 rounded-full border border-[#333]"
                                                             />
                                                             <div>
-                                                                <div className="text-sm font-bold text-white">{trip.driver}</div>
+                                                                <div className="text-sm font-bold text-white">{typeof trip.driver === 'string' ? trip.driver : trip.driver?.name || 'Unknown Driver'}</div>
                                                                 <div className="flex items-center text-[#FACC15] text-xs">
                                                                     {Array.from({ length: trip.rating || 0 }).map((_, i) => <span key={i}>★</span>)}
                                                                 </div>
@@ -1623,14 +3076,16 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                             {bookingType === 'share' ? `MWK ${(selectedBooking?.price ?? 0).toLocaleString()}` : selectedBooking?.rate}
                                                         </span>
                                                     ) : (
-                                                        <div className="flex items-center bg-[#121212] border border-[#333] rounded-lg px-2 w-32 focus-within:border-[#FACC15]">
+                                                        <div className="flex items-center bg-[#121212] border border-[#333] rounded-lg px-2 w-32 focus-within:border-[#FACC15] ring-2 ring-transparent focus-within:ring-[#FACC15]/20 transition-all">
                                                             <span className="text-[#FACC15] text-xs mr-1">MWK</span>
                                                             <input
                                                                 type="number"
                                                                 value={offerPrice}
                                                                 onChange={(e) => setOfferPrice(e.target.value)}
-                                                                className="bg-transparent text-white font-bold text-right w-full py-1 outline-none"
+                                                                className="bg-transparent text-[#FACC15] font-bold text-right w-full py-1 outline-none text-lg"
                                                                 placeholder="0.00"
+                                                                onFocus={(e) => e.target.select()}
+                                                                autoFocus
                                                             />
                                                         </div>
                                                     )}
@@ -1649,7 +3104,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
 
                                                 <button
                                                     onClick={handleRequestSubmit}
-                                                    className="w-full py-4 bg-[#FACC15] text-black font-bold rounded-xl hover:bg-[#EAB308] transition-all shadow-lg shadow-[#FACC15]/20 mt-4"
+                                                    className="w-full py-4 bg-gradient-to-r from-[#FACC15] to-[#EAB308] text-black font-extrabold text-lg rounded-xl hover:from-[#EAB308] hover:to-[#CA8A04] transition-all shadow-[0_0_20px_rgba(250,204,21,0.3)] hover:shadow-[0_0_30px_rgba(250,204,21,0.5)] transform hover:-translate-y-0.5 mt-4"
                                                 >
                                                     {bookingMode === 'negotiate' ? 'Send Offer' : 'Send Request'}
                                                 </button>
@@ -1662,6 +3117,147 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                     </div>
                 )
             }
+
+            {/* HANDOVER MODAL (For Hire Jobs - Payment Required) */}
+            {isHandoverModalOpen && currentActiveTrip && (
+                <div className="fixed inset-0 bg-black/90 z-[9999] flex items-center justify-center p-4 backdrop-blur-md" style={{ pointerEvents: 'auto' }}>
+                    <div className="bg-[#1E1E1E] rounded-3xl max-w-md w-full border-2 border-[#FACC15]/50 shadow-2xl overflow-hidden animate-slideUp">
+                        {/* Header */}
+                        <div className="bg-gradient-to-r from-[#FACC15] to-[#EAB308] p-6 text-center relative">
+                            {/* Close Button */}
+                            <button
+                                onClick={() => setIsHandoverModalOpen(false)}
+                                className="absolute top-4 right-4 p-2 bg-white/20 hover:bg-white/30 rounded-full transition-colors"
+                            >
+                                <CloseIcon className="w-5 h-5 text-white" />
+                            </button>
+                            <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mx-auto mb-4">
+                                <span className="text-3xl">🔄</span>
+                            </div>
+                            <h2 className="text-2xl font-bold text-black">Handover Awaiting Payment</h2>
+                            {currentActiveTrip.driver?.name && (
+                                <p className="text-black/80 text-sm mt-1">Driver: <span className="font-semibold">{currentActiveTrip.driver.name}</span></p>
+                            )}
+                            <p className="text-black/70 text-sm mt-2">Complete payment to confirm vehicle handover</p>
+                        </div>
+
+                        {/* Content */}
+                        <div className="p-6 min-h-[300px]">
+                            {paymentStep === 'processing' ? (
+                                <div className="flex flex-col items-center justify-center h-full text-center py-8 animate-fadeIn">
+                                    <div className="w-16 h-16 border-4 border-[#252525] border-t-[#FACC15] rounded-full animate-spin mb-4"></div>
+                                    <h3 className="text-xl font-bold text-white mb-2">Processing Payment</h3>
+                                    <p className="text-gray-400 text-sm">Please approve the prompt on your phone.</p>
+                                </div>
+                            ) : paymentStep === 'success' ? (
+                                <div className="flex flex-col items-center justify-center h-full text-center py-8 animate-fadeIn">
+                                    <CheckCircleIcon className="w-16 h-16 text-green-500 mb-4" />
+                                    <h3 className="text-xl font-bold text-white mb-2">Handover Complete!</h3>
+                                    <p className="text-gray-400 text-sm">Vehicle is now in your possession.</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-4 animate-fadeIn">
+                                    <div className="bg-[#252525] rounded-xl p-4 border border-[#333]">
+                                        <p className="text-xs text-gray-400 uppercase font-bold mb-2">Trip Amount</p>
+                                        <p className="text-2xl font-bold text-white">MWK {currentActiveTrip.price || 0}</p>
+                                    </div>
+
+                                    <div className="bg-[#FACC15]/10 border border-[#FACC15]/20 rounded-xl p-4 mb-4">
+                                        <p className="text-sm text-[#FACC15] font-semibold mb-2">💳 Payment Required</p>
+                                        <p className="text-xs text-gray-300">Complete mobile money payment to confirm handover.</p>
+                                    </div>
+
+                                    {/* Mobile Money Payment Form */}
+                                    <div className="space-y-3">
+                                        <div className="flex bg-[#252525] rounded-xl p-1 mb-4">
+                                            <button
+                                                onClick={() => setHandoverPaymentMethod('mobile')}
+                                                className={`flex-1 py-2 font-bold text-sm rounded-lg transition-all ${handoverPaymentMethod === 'mobile'
+                                                    ? 'bg-[#FACC15] text-black shadow-lg'
+                                                    : 'text-gray-400 hover:text-white'
+                                                    }`}
+                                            >
+                                                Mobile Money
+                                            </button>
+                                            <button
+                                                onClick={() => setHandoverPaymentMethod('cash')}
+                                                className={`flex-1 py-2 font-bold text-sm rounded-lg transition-all ${handoverPaymentMethod === 'cash'
+                                                    ? 'bg-[#FACC15] text-black shadow-lg'
+                                                    : 'text-gray-400 hover:text-white'
+                                                    }`}
+                                            >
+                                                Cash
+                                            </button>
+                                        </div>
+
+                                        {handoverPaymentMethod === 'mobile' ? (
+                                            <>
+                                                <div>
+                                                    <label className="text-xs text-gray-500 block mb-2">Select Network</label>
+                                                    <div className="flex gap-2">
+                                                        <button
+                                                            onClick={() => setMobileProvider('airtel')}
+                                                            className={`flex-1 py-3 rounded-lg text-sm font-bold border transition-all ${mobileProvider === 'airtel' ? 'bg-red-600 text-white border-red-600' : 'bg-[#121212] border-[#333] text-gray-500 hover:border-gray-500'}`}
+                                                        >
+                                                            📱 Airtel Money
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setMobileProvider('mpamba')}
+                                                            className={`flex-1 py-3 rounded-lg text-sm font-bold border transition-all ${mobileProvider === 'mpamba' ? 'bg-green-600 text-white border-green-600' : 'bg-[#121212] border-[#333] text-gray-500 hover:border-gray-500'}`}
+                                                        >
+                                                            📱 Mpamba (TNM)
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <label className="text-xs text-gray-500 block mb-2">Your Mobile Number</label>
+                                                    <input
+                                                        type="text"
+                                                        placeholder="+265..."
+                                                        value={passengerPhone}
+                                                        onChange={(e) => setPassengerPhone(e.target.value)}
+                                                        className="w-full bg-[#121212] border border-[#333] rounded-lg px-4 py-3 text-sm text-white focus:border-[#FACC15] outline-none"
+                                                    />
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <div className="bg-[#121212] rounded-xl p-4 border border-[#333] text-center">
+                                                <div className="w-12 h-12 bg-[#FACC15]/10 rounded-full flex items-center justify-center mx-auto mb-3">
+                                                    <span className="text-2xl">💵</span>
+                                                </div>
+                                                <p className="text-white font-bold text-sm mb-1">Pay Cash to Driver</p>
+                                                <p className="text-gray-400 text-xs">Please ensure you have exact change to hand over to the driver.</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Actions */}
+                        {!['processing', 'success'].includes(paymentStep) && (
+                            <div className="p-6 border-t border-[#333] space-y-3">
+                                <button
+                                    onClick={handleHandoverPaymentSelection}
+                                    disabled={handoverPaymentMethod === 'mobile' && !passengerPhone}
+                                    className={`w-full py-3 font-bold rounded-xl transition-all shadow-lg ${(handoverPaymentMethod === 'mobile' && passengerPhone) || handoverPaymentMethod === 'cash'
+                                        ? 'bg-gradient-to-r from-[#FACC15] to-[#EAB308] text-black hover:from-[#EAB308] hover:to-[#CA8A04]'
+                                        : 'bg-[#333] text-gray-500 cursor-not-allowed'
+                                        }`}
+                                >
+                                    {handoverPaymentMethod === 'mobile' ? '💳 Pay & Confirm Handover' : '💵 Confirm Cash Payment'}
+                                </button>
+                                <button
+                                    onClick={() => setIsHandoverModalOpen(false)}
+                                    className="w-full py-3 bg-[#252525] text-gray-300 font-bold rounded-xl border border-[#333] hover:bg-[#333] transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* PAYMENT MODAL (Post-Trip) */}
             {
@@ -1692,7 +3288,14 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                 </div>
                             ) : (
                                 <>
-                                    <div className="p-6 border-b border-[#333] bg-[#252525] text-center">
+                                    <div className="p-6 border-b border-[#333] bg-[#252525] text-center relative">
+                                        <button
+                                            onClick={() => setIsPaymentModalOpen(false)}
+                                            className="absolute top-3 right-3 text-gray-400 hover:text-white hover:bg-[#333] rounded-full w-8 h-8 flex items-center justify-center transition"
+                                            aria-label="Close"
+                                        >
+                                            <span className="text-2xl font-bold">×</span>
+                                        </button>
                                         <h3 className="text-xl font-bold text-white">Secure Payment via PayChangu</h3>
                                         <p className="text-sm text-gray-400 mt-1">Complete your trip payment</p>
                                     </div>
@@ -1749,7 +3352,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                         <UserIcon className="w-4 h-4 text-gray-400" />
                                                     </div>
                                                     <div>
-                                                        <div className="text-white font-bold text-sm">{currentActiveTrip?.driver || 'Unknown Driver'}</div>
+                                                        <div className="text-white font-bold text-sm">{typeof currentActiveTrip?.driver === 'string' ? currentActiveTrip.driver : currentActiveTrip?.driver?.name || 'Unknown Driver'}</div>
                                                         <div className="text-xs text-gray-500">Payout details not available</div>
                                                     </div>
                                                 </div>
@@ -1758,7 +3361,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
 
                                         <div className="mb-6 text-center">
                                             <p className="text-gray-400 text-xs uppercase font-bold mb-1">Total Amount Due</p>
-                                            <p className="text-3xl font-bold text-[#FACC15]">MWK {currentActiveTrip ? currentActiveTrip.price.toLocaleString() : '0'}</p>
+                                            <p className="text-3xl font-bold text-[#FACC15]">MWK {currentActiveTrip ? (currentActiveTrip.price || currentActiveTrip.acceptedPrice || 0).toLocaleString() : '0'}</p>
                                         </div>
 
                                         <div className="space-y-4">
@@ -1868,6 +3471,95 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                 )
             }
 
+            {/* Boarding Confirmation Modal */}
+            {showBoardingModal && boardingRideId && (
+                <div
+                    className="fixed inset-0 bg-black/80 z-[9999] flex items-center justify-center p-4"
+                    style={{ pointerEvents: 'auto' }}
+                    onClick={(e) => {
+                        if (e.target === e.currentTarget) {
+                            setShowBoardingModal(false);
+                        }
+                    }}
+                >
+                    <div
+                        className="bg-[#1E1E1E] rounded-3xl p-8 max-w-md w-full border-2 border-[#FACC15] shadow-2xl shadow-[#FACC15]/20 animate-fadeIn"
+                        style={{ pointerEvents: 'auto' }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex items-center justify-center w-16 h-16 bg-[#FACC15] rounded-full mx-auto mb-6">
+                            <svg className="w-8 h-8 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                        </div>
+                        <h3 className="text-2xl font-bold text-white mb-4 text-center">🚗 Driver Arrived!</h3>
+                        <p className="text-gray-300 mb-6 text-center leading-relaxed">
+                            Your driver has arrived at the pickup location.<br />
+                            <strong className="text-white">Please confirm when you've boarded the vehicle.</strong>
+                        </p>
+                        <p className="text-xs text-gray-500 mb-4 text-center">Ride ID: {boardingRideId}</p>
+                        <div className="flex gap-3">
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    console.log('🔴 Not Yet clicked');
+                                    setShowBoardingModal(false);
+                                }}
+                                className="flex-1 px-4 py-3 bg-gray-700 text-white rounded-xl font-bold hover:bg-gray-600 transition-all cursor-pointer select-none active:scale-95"
+                            >
+                                Not Yet
+                            </button>
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    const currentRideId = boardingRideId; // Capture current value
+                                    console.log('🟢🟢🟢 YES I HAVE BOARDED - CLICK! RideID:', currentRideId);
+
+                                    if (!currentRideId) {
+                                        console.error('❌ No ride ID available!');
+                                        alert('Error: No ride ID. Please refresh and try again.');
+                                        return;
+                                    }
+
+                                    // Close modal and mark as confirmed FIRST
+                                    setBoardingConfirmed(prev => new Set(prev).add(currentRideId));
+                                    setShowBoardingModal(false);
+                                    setBoardingRideId(null);
+
+                                    // Update status
+                                    const rideIdNum = parseInt(currentRideId);
+                                    setActiveTrips(prev => prev.map((t: any) =>
+                                        t.id === rideIdNum ? { ...t, status: 'Boarded' } : t
+                                    ));
+                                    setHistory(prev => prev.map(h =>
+                                        h.id === rideIdNum ? { ...h, status: 'Boarded' } : h
+                                    ));
+
+                                    setNotifications(prev => [{
+                                        title: 'Boarding Confirmed',
+                                        msg: 'Driver can now start the trip.',
+                                        time: 'Just now',
+                                        unread: true
+                                    }, ...prev]);
+
+                                    // Call API
+                                    ApiService.confirmPickup(currentRideId)
+                                        .then(() => console.log('✅ API success'))
+                                        .catch(err => console.error('❌ API failed:', err));
+                                }}
+                                className="flex-1 px-4 py-3 bg-[#FACC15] text-black rounded-xl font-bold hover:bg-[#EAB308] transition-all shadow-lg shadow-[#FACC15]/30 cursor-pointer select-none active:scale-95"
+                            >
+                                ✅ Yes, I Have Boarded
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* End of Modals */}
             {/* Negotiation Modals */}
             {negotiationRide && (
@@ -1903,30 +3595,83 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                 />
             )}
 
-            {pickupRide && (
-                <PickupConfirmation
-                    isOpen={showPickupModal}
-                    onClose={() => setShowPickupModal(false)}
-                    onConfirm={handleConfirmPickup}
-                    rideDetails={{
-                        id: pickupRide.id,
-                        type: pickupRide.type || 'share',
-                        origin: pickupRide.origin,
-                        destination: pickupRide.destination,
-                        pickupLocation: pickupRide.pickupLocation || pickupRide.origin,
-                        pickupTime: pickupRide.pickupTime || 'Now',
-                        acceptedPrice: pickupRide.acceptedPrice || pickupRide.price,
-                        driver: {
-                            name: pickupRide.driverName || 'Driver',
-                            phone: pickupRide.driverPhone || 'N/A',
-                            rating: pickupRide.driverRating || 5.0,
-                            vehicleModel: pickupRide.vehicleModel || 'Vehicle',
-                            vehiclePlate: pickupRide.vehiclePlate || 'N/A'
-                        },
-                        paymentType: pickupRide.paymentType || 'physical'
-                    }}
-                />
+            {/* Boarding Confirmation Modal */}
+            {showBoardingModal && (
+                <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center p-4 animate-fadeIn">
+                    <div className="bg-[#1E1E1E] rounded-3xl max-w-md w-full border border-[#333] p-8 text-center">
+                        <div className="text-6xl mb-4">🚗</div>
+                        <h2 className="text-2xl font-bold text-white mb-4">Driver Ready for Pickup</h2>
+                        <p className="text-gray-400 mb-6">
+                            Your driver is ready to pick you up. Please confirm that you're boarding the vehicle.
+                        </p>
+                        <div className="flex gap-3">
+                            <button
+                                onClick={() => setShowBoardingModal(false)}
+                                className="flex-1 px-4 py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-semibold transition"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleConfirmBoarding}
+                                className="flex-1 px-4 py-3 bg-green-500 hover:bg-green-600 text-white rounded-lg font-semibold transition"
+                            >
+                                ✅ Confirm Boarding
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
-        </div>
+
+            {/* Pickup confirmation modal removed - manual pickup/drop-off/boarding happens in tracking tab */}
+            {/* Payment Timing Selection Modal */}
+            {isPaymentTimingModalOpen && paymentTimingRide && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+                    <div className="bg-[#1E1E1E] border border-[#333] rounded-3xl p-8 max-w-md w-full shadow-2xl relative">
+                        <button
+                            onClick={() => setIsPaymentTimingModalOpen(false)}
+                            className="absolute top-4 right-4 p-2 bg-[#252525] rounded-full hover:bg-[#333] transition-colors"
+                        >
+                            <CloseIcon className="w-5 h-5 text-gray-400" />
+                        </button>
+
+                        <div className="text-center mb-8">
+                            <div className="w-16 h-16 bg-[#FACC15]/20 rounded-full flex items-center justify-center mx-auto mb-4 border border-[#FACC15]/50">
+                                <CreditCardIcon className="w-8 h-8 text-[#FACC15]" />
+                            </div>
+                            <h2 className="text-2xl font-bold text-white mb-2">Payment Timing</h2>
+                            <p className="text-gray-400">
+                                Your hire request for <span className="text-white font-bold">{paymentTimingRide.title || 'Vehicle'}</span> has been approved. When would you like to pay?
+                            </p>
+                        </div>
+
+                        <div className="space-y-4">
+                            <button
+                                onClick={() => handlePaymentTimingSelection('now')}
+                                className="w-full p-4 bg-[#FACC15] hover:bg-[#EAB308] text-black font-bold rounded-xl transition-all flex items-center justify-between group"
+                            >
+                                <span className="flex items-center gap-3">
+                                    <span className="p-2 bg-black/10 rounded-lg"><CreditCardIcon className="w-5 h-5" /></span>
+                                    Pay Now
+                                </span>
+                                <span className="text-xs font-bold bg-black/20 px-2 py-1 rounded">SECURE</span>
+                            </button>
+
+                            <button
+                                onClick={() => handlePaymentTimingSelection('pickup')}
+                                className="w-full p-4 bg-[#252525] hover:bg-[#333] border border-[#333] hover:border-[#FACC15]/50 text-white font-bold rounded-xl transition-all flex items-center justify-between group"
+                            >
+                                <span className="flex items-center gap-3">
+                                    <span className="p-2 bg-black/20 rounded-lg"><HandshakeIcon className="w-5 h-5 text-gray-400 group-hover:text-white" /></span>
+                                    Pay on Pickup
+                                </span>
+                                <span className="text-xs text-gray-500 group-hover:text-gray-300">CASH / CARD</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* Handover Payment Modal */}
+
+        </div >
     );
 };

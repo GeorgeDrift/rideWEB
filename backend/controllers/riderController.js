@@ -126,6 +126,7 @@ exports.searchRideShareVehicles = async (req, res) => {
     try {
         // Pass full query to allow pagination (page, limit) and filters
         const filters = req.query || {};
+        if (!filters.pickupLocation && !filters.destination) return res.status(400).json({ error: 'pickupLocation or destination is required' });
         const result = await riderService.searchRideShareVehicles(filters.pickupLocation, filters.destination, filters);
         // service returns { total, page, limit, results }
         res.json(result);

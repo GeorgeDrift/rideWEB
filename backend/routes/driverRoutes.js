@@ -19,6 +19,7 @@ router.get('/stats/trips', authenticateToken, authorizeRole(['driver']), driverC
 router.get('/stats/distance', authenticateToken, authorizeRole(['driver']), driverController.getDistanceStats);
 router.get('/stats/hours', authenticateToken, authorizeRole(['driver']), driverController.getHoursStats);
 router.get('/stats/ontime', authenticateToken, authorizeRole(['driver']), driverController.getOnTimeStats);
+router.get('/transactions', authenticateToken, authorizeRole(['driver']), driverController.getTransactions);
 
 // Post Management
 router.post('/posts/share', authenticateToken, authorizeRole(['driver']), driverController.addSharePost);
@@ -28,9 +29,15 @@ router.get('/posts/hire', authenticateToken, authorizeRole(['driver']), driverCo
 
 // Job Confirmation
 router.post('/jobs/confirm', authenticateToken, authorizeRole(['driver']), driverController.confirmBooking);
+router.post('/jobs/handover', authenticateToken, authorizeRole(['driver']), driverController.confirmHandover);
+router.post('/jobs', authenticateToken, authorizeRole(['driver']), driverController.createManualJob);
+router.get('/jobs', authenticateToken, authorizeRole(['driver']), driverController.getContractedJobs);
 
 // Route for fetching driver payout details (accessible by authenticated users for payment processing)
 router.get('/:driverId/payout-details', authenticateToken, driverController.getDriverPayoutDetails);
+
+// Route for saving driver payout details (bank account info)
+router.post('/payout-details', authenticateToken, authorizeRole(['driver']), driverController.saveDriverPayoutDetails);
 
 // --- NEW: Approval Workflow Routes ---
 router.get('/requests/pending', authenticateToken, authorizeRole(['driver']), driverController.getPendingApprovals);

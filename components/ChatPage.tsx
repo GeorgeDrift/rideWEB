@@ -69,10 +69,10 @@ export const ChatPage: React.FC = () => {
                         />
                     </div>
                 </div>
-                
+
                 <div className="flex-1 overflow-y-auto no-scrollbar">
                     {conversations.map(chat => (
-                        <div 
+                        <div
                             key={chat.id}
                             onClick={() => setSelectedChatId(chat.id)}
                             className={`p-4 flex items-center cursor-pointer hover:bg-gray-50 dark:hover:bg-dark-700 transition-colors ${selectedChatId === chat.id ? 'bg-primary-50 dark:bg-primary-900/10 border-r-4 border-primary-500' : ''}`}
@@ -132,11 +132,10 @@ export const ChatPage: React.FC = () => {
                                     {msg.sender === 'user' && (
                                         <img src={activeChat.avatar} alt={activeChat.name} className="w-8 h-8 rounded-full mr-2 self-end mb-1" />
                                     )}
-                                    <div className={`max-w-[70%] px-4 py-3 rounded-2xl shadow-sm ${
-                                        msg.sender === 'agent' 
-                                        ? 'bg-primary-500 text-black rounded-tr-none' 
-                                        : 'bg-white dark:bg-dark-700 text-gray-900 dark:text-white rounded-tl-none'
-                                    }`}>
+                                    <div className={`max-w-[70%] px-4 py-3 rounded-2xl shadow-sm ${msg.sender === 'agent'
+                                            ? 'bg-primary-500 text-black rounded-tr-none'
+                                            : 'bg-white dark:bg-dark-700 text-gray-900 dark:text-white rounded-tl-none'
+                                        }`}>
                                         <p className="text-sm">{msg.text}</p>
                                         <p className={`text-[10px] mt-1 text-right ${msg.sender === 'agent' ? 'text-primary-900/60' : 'text-gray-400'}`}>
                                             {msg.timestamp}
@@ -161,14 +160,13 @@ export const ChatPage: React.FC = () => {
                                     placeholder="Type a message..."
                                     className="flex-1 bg-gray-100 dark:bg-dark-700 border-transparent focus:border-primary-500 focus:ring-0 rounded-lg px-4 py-2 text-gray-900 dark:text-white outline-none transition-colors"
                                 />
-                                <button 
-                                    type="submit" 
+                                <button
+                                    type="submit"
                                     disabled={!inputMessage.trim()}
-                                    className={`p-2 rounded-lg transition-colors ${
-                                        inputMessage.trim() 
-                                        ? 'bg-primary-500 text-black hover:bg-primary-600' 
-                                        : 'bg-gray-200 dark:bg-dark-600 text-gray-400 cursor-not-allowed'
-                                    }`}
+                                    className={`p-2 rounded-lg transition-colors ${inputMessage.trim()
+                                            ? 'bg-primary-500 text-black hover:bg-primary-600'
+                                            : 'bg-gray-200 dark:bg-dark-600 text-gray-400 cursor-not-allowed'
+                                        }`}
                                 >
                                     <SendIcon className="h-5 w-5" />
                                 </button>
