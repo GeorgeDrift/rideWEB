@@ -44,4 +44,10 @@ router.get('/requests/pending', authenticateToken, authorizeRole(['driver']), dr
 router.post('/requests/:requestId/approve', authenticateToken, authorizeRole(['driver']), driverController.approveRequest);
 router.post('/requests/:requestId/counter-offer', authenticateToken, authorizeRole(['driver']), driverController.makeDriverCounterOffer);
 
+// Notifications endpoint (placeholder)
+router.get('/notifications', authenticateToken, authorizeRole(['driver']), (req, res) => {
+    // Return empty array for now - no notifications system implemented yet
+    res.json([]);
+});
+
 module.exports = router;

@@ -97,10 +97,10 @@ const hireCategories = VEHICLE_CATEGORIES;
 import { ThemeToggle } from './ThemeToggle';
 
 const subscriptionPlans = {
-    '1m': { id: '1m', label: 'Monthly', price: 49900, discount: 0, billing: 'Billed monthly' },
-    '3m': { id: '3m', label: 'Quarterly', price: 134900, discount: 10, billing: 'Billed every 3 months' },
-    '6m': { id: '6m', label: 'Bi-Annual', price: 254900, discount: 15, billing: 'Billed every 6 months' },
-    '1y': { id: '1y', label: 'Yearly', price: 479900, discount: 20, billing: 'Billed annually' }
+    'monthly': { id: 'monthly', label: 'Monthly', price: 49900, discount: 0, billing: 'Billed monthly' },
+    'quarterly': { id: 'quarterly', label: 'Quarterly', price: 134900, discount: 10, billing: 'Billed every 3 months' },
+    'biannual': { id: 'biannual', label: 'Bi-Annual', price: 254900, discount: 15, billing: 'Billed every 6 months' },
+    'yearly': { id: 'yearly', label: 'Yearly', price: 479900, discount: 20, billing: 'Billed annually' }
 };
 
 export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) => {
@@ -343,9 +343,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     const unreadCount = notifications.filter(n => n.unread).length;
 
     // Subscription Page State
-    const [selectedDuration, setSelectedDuration] = useState<'1m' | '3m' | '6m' | '1y'>('1m');
-    const [paymentMethod, setPaymentMethod] = useState<'card' | 'mobile' | null>(null);
-    const [mobileProvider, setMobileProvider] = useState<'airtel' | 'mpamba'>('airtel');
+
     const [isSubscriptionPaid, setIsSubscriptionPaid] = useState(false);
     const [subStartDate] = useState(new Date().getDate() < 15 ? new Date(new Date().setMonth(new Date().getMonth() - 1)) : new Date());
     const [subEndDate] = useState(new Date(new Date().setMonth(subStartDate.getMonth() + 1)));
@@ -411,6 +409,74 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     // Subscription Modal State
     const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
     const [subscriptionStatus, setSubscriptionStatus] = useState<any>(null);
+
+    // Subscription Payment State
+    const [selectedDuration, setSelectedDuration] = useState<'monthly' | 'quarterly' | 'biannual' | 'yearly'>('monthly');
+    const [paymentMethod, setPaymentMethod] = useState<string | null>(null);
+    const [mobileProvider, setMobileProvider] = useState<string>('airtel');
+    const [mobileNumber, setMobileNumber] = useState<string>('');
+    const [isPaymentLoading, setIsPaymentLoading] = useState<boolean>(false);
+
+    // Handle Subscription Payment (Using same logic as for hire payments)
+    const handlePayment = async () => {
+        if (!paymentMethod) {
+            alert('Please select a payment method');
+            return;
+        }
+
+        if (paymentMethod === 'mobile' && !mobileNumber) {
+            alert('Please enter your mobile number');
+            return;
+        }
+
+        setIsPaymentLoading(true);
+        console.log('🚀 Initiating subscription payment...');
+        console.log('Plan:', selectedDuration);
+        console.log('Amount:', subscriptionPlans[selectedDuration].price);
+
+        try {
+            const response = await fetch('/api/subscriptions/initiate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify({
+                    plan: selectedDuration,
+                    mobileNumber: mobileNumber,
+                    providerRefId: mobileProvider === 'airtel' 
+                        ? '20be6c20-adeb-4b5b-a7ba-0769820df4fb'  // Real Airtel Money ID from PayChangu
+                        : '27494cb5-ba9e-437f-a114-4e7a7686bcca'   // Real TNM Mpamba ID from PayChangu
+                })
+            });
+
+            const data = await response.json();
+            console.log('Response:', data);
+
+            if (response.ok) {
+                // Show success message
+                alert('✅ Payment initiated successfully!\n\nPlease check your phone to approve the payment.\n\nYou will receive a notification once payment is confirmed.');
+                
+                // Reset form
+                setPaymentMethod(null);
+                setMobileNumber('');
+                
+                // Refresh subscription status
+                const statusRes = await fetch('/api/subscriptions/status', {
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+                });
+                const status = await statusRes.json();
+                setSubscriptionStatus(status);
+            } else {
+                alert('❌ Payment failed\n\n' + (data.error || 'Unknown error') + '\n\nPlease try again.');
+            }
+        } catch (error) {
+            console.error('Payment error:', error);
+            alert('❌ Payment failed\n\nPlease check your connection and try again.');
+        } finally {
+            setIsPaymentLoading(false);
+        }
+    };
 
     // --- Interactive Logic ---
 
@@ -997,14 +1063,6 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
         setTransactions([newTx, ...transactions]);
         setSettleAmount('');
         setSettleDesc('');
-    };
-
-    const handlePayment = () => {
-        setTimeout(() => {
-            setIsSubscriptionPaid(true);
-            setPaymentMethod(null);
-            alert('Payment processed successfully! Calendar updated.');
-        }, 1000);
     };
 
     const handleSendMessage = (e: React.FormEvent) => {
@@ -2775,22 +2833,22 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-fadeIn h-[calc(100vh-140px)]">
                                 {/* Left Column: Calendar & Status */}
                                 <div className="lg:col-span-7 flex flex-col gap-6 h-full overflow-y-auto pr-2 no-scrollbar">
-                                    <div className="bg-[#1E1E1E] rounded-2xl p-5 border border-[#FACC15]/30 relative overflow-hidden">
+                                    <div className="bg-[#1E1E1E] rounded-2xl p-8 border border-[#FACC15]/30 relative">
                                         <div className="absolute -right-10 -top-10 w-32 h-32 bg-[#FACC15]/10 rounded-full blur-2xl"></div>
 
-                                        <div className="flex items-center gap-3 mb-4 relative z-10">
-                                            <div className={`w-10 h-10 rounded-lg flex items-center justify-center border ${isSubscriptionPaid ? 'bg-green-500/20 border-green-500 text-green-500' : 'bg-red-500/20 border-red-500 text-red-500'}`}>
-                                                {isSubscriptionPaid ? <CheckBadgeIcon className="w-5 h-5" /> : <CreditCardIcon className="w-5 h-5" />}
+                                        <div className="flex items-center gap-4 mb-6 relative z-10">
+                                            <div className={`w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 border ${isSubscriptionPaid ? 'bg-green-500/20 border-green-500 text-green-500' : 'bg-red-500/20 border-red-500 text-red-500'}`}>
+                                                {isSubscriptionPaid ? <CheckBadgeIcon className="w-6 h-6" /> : <CreditCardIcon className="w-6 h-6" />}
                                             </div>
-                                            <div className="flex-1 min-w-0">
-                                                <h2 className="text-lg font-bold text-white truncate">Professional Plan</h2>
-                                                <p className={`text-sm font-medium truncate ${isSubscriptionPaid ? 'text-green-400' : 'text-red-400'}`}>
+                                            <div className="flex-1">
+                                                <h2 className="text-base font-bold text-white whitespace-nowrap">Professional Plan</h2>
+                                                <p className={`text-sm font-medium whitespace-nowrap ${isSubscriptionPaid ? 'text-green-400' : 'text-red-400'}`}>
                                                     {isSubscriptionPaid ? 'Active Subscription' : 'Payment Pending'}
                                                 </p>
                                             </div>
                                         </div>
 
-                                        <div className="flex gap-3 mb-3 relative z-10">
+                                        <div className="flex gap-4 mb-4 relative z-10">
                                             <div className="bg-[#252525] p-3 rounded-xl flex-1 border border-[#333]">
                                                 <p className="text-[10px] text-gray-400 uppercase font-bold">Cycle Start</p>
                                                 <p className="text-sm font-bold text-white">{subStartDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
@@ -2802,47 +2860,114 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                         </div>
                                     </div>
 
-                                    {/* Visual Calendar */}
-                                    <div className="bg-[#1E1E1E] rounded-2xl p-4 border border-[#2A2A2A] flex-1 flex flex-col">
-                                        <div className="flex items-center justify-between mb-3">
-                                            <h3 className="text-base font-bold text-white">Coverage Calendar</h3>
+                                    {/* Visual Calendar - Multi-Month Support */}
+                                    <div className="bg-[#1E1E1E] rounded-2xl p-3 border border-[#2A2A2A] flex-1 flex flex-col overflow-hidden">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <h3 className="text-sm font-bold text-white">Coverage Calendar</h3>
                                             <div className="flex items-center gap-2">
                                                 <div className="flex items-center gap-1 text-[10px] text-gray-400"><span className="w-1.5 h-1.5 rounded-full bg-[#FACC15]"></span> Paid</div>
                                                 <div className="flex items-center gap-1 text-[10px] text-gray-400"><span className="w-1.5 h-1.5 rounded-full bg-[#333]"></span> Unpaid</div>
                                             </div>
                                         </div>
 
-                                        <div className="grid grid-cols-7 gap-1 text-center mb-2 border-b border-[#333] pb-2">
-                                            {weekDays.map((d, i) => <span key={i} className="text-gray-500 font-bold text-xs">{d}</span>)}
+                                        <div className="flex-1 overflow-y-auto">
+                                            {(() => {
+                                                const now = new Date();
+                                                const today = now.getDate();
+                                                const currentMonth = now.getMonth();
+                                                const currentYear = now.getFullYear();
+
+                                                // Get subscription dates from API
+                                                const subStart = subscriptionStatus?.startDate ? new Date(subscriptionStatus.startDate) : null;
+                                                const subEnd = subscriptionStatus?.expiryDate ? new Date(subscriptionStatus.expiryDate) : null;
+                                                const isActive = subscriptionStatus?.status === 'active';
+
+                                                // Calculate how many months to show
+                                                let monthsToShow = 1;
+                                                if (subStart && subEnd && isActive) {
+                                                    const diffMonths = (subEnd.getFullYear() - subStart.getFullYear()) * 12 + (subEnd.getMonth() - subStart.getMonth()) + 1;
+                                                    monthsToShow = Math.min(diffMonths, 6); // Max 6 months to display
+                                                }
+
+                                                const calendarMonths = [];
+
+                                                for (let monthOffset = 0; monthOffset < monthsToShow; monthOffset++) {
+                                                    const displayMonth = currentMonth + monthOffset;
+                                                    const displayYear = currentYear + Math.floor(displayMonth / 12);
+                                                    const adjustedMonth = displayMonth % 12;
+
+                                                    const monthName = new Date(displayYear, adjustedMonth, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                                                    const firstDay = new Date(displayYear, adjustedMonth, 1).getDay();
+                                                    const daysInMonth = new Date(displayYear, adjustedMonth + 1, 0).getDate();
+
+                                                    const cells = [];
+
+                                                    // Empty cells before month starts
+                                                    for (let i = 0; i < firstDay; i++) {
+                                                        cells.push(<div key={`empty-${i}`}></div>);
+                                                    }
+
+                                                    // Days of the month
+                                                    for (let day = 1; day <= daysInMonth; day++) {
+                                                        const dayDate = new Date(displayYear, adjustedMonth, day);
+                                                        const isToday = day === today && adjustedMonth === currentMonth && displayYear === currentYear;
+
+                                                        // Check if within subscription period
+                                                        const isPaidDay = isActive && subStart && subEnd &&
+                                                            dayDate >= subStart && dayDate <= subEnd;
+
+                                                        const isStartDate = subStart && dayDate.toDateString() === subStart.toDateString();
+                                                        const isEndDate = subEnd && dayDate.toDateString() === subEnd.toDateString();
+
+                                                        cells.push(
+                                                            <div
+                                                                key={day}
+                                                                className={`
+                                                                    aspect-square rounded-md flex items-center justify-center text-[10px] font-bold border transition-all relative
+                                                                    ${isToday ? 'ring-2 ring-blue-400 ring-offset-1 ring-offset-[#1E1E1E]' : ''}
+                                                                    ${isPaidDay
+                                                                        ? 'bg-[#FACC15]/20 border-[#FACC15] text-[#FACC15] shadow-[0_0_6px_rgba(250,204,21,0.15)]'
+                                                                        : 'bg-[#252525] border-[#333] text-gray-500'}
+                                                                    ${(isStartDate || isEndDate) ? 'animate-pulse' : ''}
+                                                                `}
+                                                            >
+                                                                {day}
+                                                                {isStartDate && (
+                                                                    <span className="absolute -top-1 -right-1 text-[8px] bg-green-500 text-white px-1 rounded">START</span>
+                                                                )}
+                                                                {isEndDate && (
+                                                                    <span className="absolute -bottom-1 -right-1 text-[8px] bg-red-500 text-white px-1 rounded">END</span>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    }
+
+                                                    calendarMonths.push(
+                                                        <div key={monthOffset} className="mb-4 last:mb-0">
+                                                            <h4 className="text-xs font-bold text-white mb-2">{monthName}</h4>
+                                                            <div className="grid grid-cols-7 gap-0.5 text-center mb-1.5 border-b border-[#333] pb-1.5">
+                                                                {weekDays.map((d, i) => <span key={i} className="text-gray-500 font-bold text-[10px]">{d}</span>)}
+                                                            </div>
+                                                            <div className="grid grid-cols-7 gap-0.5">
+                                                                {cells}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                }
+
+                                                return calendarMonths;
+                                            })()}
                                         </div>
 
-                                        <div className="grid grid-cols-7 gap-1 flex-1 content-start">
-                                            {/* Mocking current month days */}
-                                            {Array.from({ length: 3 }).map((_, i) => <div key={`pre-${i}`}></div>)}
-                                            {Array.from({ length: 30 }).map((_, i) => {
-                                                const day = i + 1;
-                                                const isPaidDay = isSubscriptionPaid && (day >= 15 || day <= 15);
-
-                                                return (
-                                                    <div
-                                                        key={day}
-                                                        className={`
-                                                            aspect-square rounded-lg flex items-center justify-center text-xs font-bold border transition-all
-                                                            ${isPaidDay
-                                                                ? 'bg-[#FACC15]/20 border-[#FACC15] text-[#FACC15] shadow-[0_0_8px_rgba(250,204,21,0.15)]'
-                                                                : 'bg-[#252525] border-[#333] text-gray-500'}
-                                                        `}
-                                                    >
-                                                        {day}
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-
-                                        {isSubscriptionPaid && (
-                                            <p className="text-center text-[10px] text-gray-400 mt-2">
-                                                Your subscription is active from {subStartDate.toLocaleDateString()} to {subEndDate.toLocaleDateString()}.
-                                            </p>
+                                        {subscriptionStatus?.status === 'active' && subscriptionStatus?.startDate && subscriptionStatus?.expiryDate && (
+                                            <div className="mt-2 pt-2 border-t border-[#333]">
+                                                <p className="text-center text-[9px] text-gray-400">
+                                                    Active: {new Date(subscriptionStatus.startDate).toLocaleDateString()} - {new Date(subscriptionStatus.expiryDate).toLocaleDateString()}
+                                                </p>
+                                                <p className="text-center text-[9px] text-[#FACC15] font-bold">
+                                                    {subscriptionStatus.daysLeft} days remaining
+                                                </p>
+                                            </div>
                                         )}
                                     </div>
                                 </div>
@@ -2950,7 +3075,13 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                                     </div>
                                                     <div>
                                                         <label className="text-xs font-bold text-gray-400 uppercase mb-2 block">Phone Number</label>
-                                                        <input type="text" placeholder="+265..." className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white outline-none focus:border-[#FACC15]" />
+                                                        <input
+                                                            type="text"
+                                                            placeholder="+265..."
+                                                            value={mobileNumber}
+                                                            onChange={(e) => setMobileNumber(e.target.value)}
+                                                            className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white outline-none focus:border-[#FACC15]"
+                                                        />
                                                     </div>
                                                 </div>
                                             )}
@@ -2970,9 +3101,24 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
 
                                             <button
                                                 onClick={handlePayment}
-                                                className="w-full mt-auto bg-[#FACC15] text-black font-bold py-4 rounded-xl hover:bg-[#EAB308] transition-transform transform active:scale-95 shadow-lg shadow-[#FACC15]/20"
+                                                disabled={isPaymentLoading}
+                                                className={`w-full mt-auto font-bold py-4 rounded-xl transition-transform transform shadow-lg flex items-center justify-center gap-2 ${
+                                                    isPaymentLoading 
+                                                        ? 'bg-gray-600 text-gray-300 cursor-not-allowed' 
+                                                        : 'bg-[#FACC15] text-black hover:bg-[#EAB308] active:scale-95 shadow-[#FACC15]/20'
+                                                }`}
                                             >
-                                                Confirm Payment
+                                                {isPaymentLoading ? (
+                                                    <>
+                                                        <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                        </svg>
+                                                        Processing Payment...
+                                                    </>
+                                                ) : (
+                                                    'Confirm Payment'
+                                                )}
                                             </button>
                                         </div>
                                     )}

@@ -6,15 +6,27 @@ const payChanguService = require('../services/payChanguService');
 const SUBSCRIPTION_PLANS = {
     monthly: {
         name: 'Monthly Plan',
-        price: 5000, // MWK 5,000
-        duration: 30, // days
+        price: 49900, // MWK 49,900
+        duration: 30, // 30 days
         description: 'Full access for 30 days'
+    },
+    quarterly: {
+        name: 'Quarterly Plan',
+        price: 134900, // MWK 134,900
+        duration: 90, // 3 months = 90 days
+        description: 'Full access for 3 months - Save 10%'
+    },
+    biannual: {
+        name: 'Bi-Annual Plan',
+        price: 254900, // MWK 254,900
+        duration: 180, // 6 months = 180 days
+        description: 'Full access for 6 months - Save 15%'
     },
     yearly: {
         name: 'Yearly Plan',
-        price: 50000, // MWK 50,000 (2 months free)
-        duration: 365, // days
-        description: 'Full access for 365 days - Save 2 months!'
+        price: 479900, // MWK 479,900
+        duration: 365, // 12 months = 365 days
+        description: 'Full access for 12 months - Save 20%'
     }
 };
 
@@ -31,12 +43,14 @@ exports.getPlans = async (req, res) => {
     }
 };
 
-// Initiate subscription payment
+// Initiate subscription payment (COPIED FROM WORKING FOR HIRE PAYMENT)
 exports.initiateSubscriptionPayment = async (req, res) => {
-    try {
-        const { plan, mobileNumber, providerRefId } = req.body;
-        const userId = req.user.id;
+    const { plan, mobileNumber, providerRefId } = req.body;
+    const userId = req.user.id;
 
+    console.log(`💰 [SUBSCRIPTION] Initiating payment: ${plan} for user ${userId}`);
+
+    try {
         // Validate plan
         if (!SUBSCRIPTION_PLANS[plan]) {
             return res.status(400).json({ error: 'Invalid subscription plan' });
@@ -50,64 +64,50 @@ exports.initiateSubscriptionPayment = async (req, res) => {
 
         const selectedPlan = SUBSCRIPTION_PLANS[plan];
 
-        // Create transaction record
+        // 1. Create Pending Transaction in DB (SAME AS RIDES)
         const transaction = await Transaction.create({
             userId,
             type: 'Subscription',
             amount: selectedPlan.price,
             direction: 'debit',
             status: 'pending',
-            description: `${selectedPlan.name} - ${selectedPlan.description}`,
-            relatedId: userId // Link to user for subscription
+            reference: `PENDING-SUB-${Date.now()}`,
+            relatedId: userId,
+            description: `Subscription Payment - ${selectedPlan.name}`
         });
 
-        // Initiate payment via PayChangu
-        const paymentResult = await payChanguService.initiatePayment({
+        console.log('✅ Transaction created:', transaction.id);
+
+        // 2. Call PayChangu API (EXACT SAME AS RIDES)
+        const paymentResponse = await payChanguService.initiatePayment({
+            mobile: mobileNumber,
             amount: selectedPlan.price,
-            currency: 'MWK',
-            email: user.email,
-            first_name: user.name.split(' ')[0] || user.name,
-            last_name: user.name.split(' ')[1] || '',
-            callback_url: `${process.env.BACKEND_URL}/api/subscriptions/webhook`,
-            return_url: `${process.env.FRONTEND_URL}/driver/dashboard?tab=subscription`,
-            tx_ref: transaction.id,
-            title: selectedPlan.name,
-            description: selectedPlan.description,
-            mobile_number: mobileNumber,
-            provider_ref_id: providerRefId,
-            metadata: {
-                userId,
-                plan,
-                duration: selectedPlan.duration,
-                transactionId: transaction.id
-            }
+            mobile_money_operator_ref_id: providerRefId
         });
 
-        if (!paymentResult.success) {
-            await transaction.update({ status: 'failed' });
-            return res.status(400).json({
-                error: 'Payment initiation failed',
-                message: paymentResult.message
-            });
-        }
+        console.log('📥 PayChangu response received');
 
-        // Update transaction with PayChangu reference
+        // 3. Update Transaction with PayChangu details (SAME AS RIDES)
+        const chargeId = paymentResponse.data?.charge_id || paymentResponse.charge_id;
+
         await transaction.update({
-            reference: paymentResult.data.charge_id
+            reference: chargeId || transaction.reference,
+            description: `PayChangu Charge ID: ${chargeId}`
         });
 
+        console.log('✅ Payment initiated successfully. Charge ID:', chargeId);
+
+        // 4. Return response (SAME AS RIDES)
         res.json({
-            success: true,
-            chargeId: paymentResult.data.charge_id,
-            status: paymentResult.data.status,
-            amount: selectedPlan.price,
-            plan: selectedPlan.name,
-            message: 'Payment initiated. Please check your phone to complete the payment.'
+            status: 'success',
+            message: 'Payment initiated. Please approve on your phone.',
+            chargeId: chargeId,
+            data: paymentResponse
         });
 
-    } catch (error) {
-        console.error('Subscription payment error:', error);
-        res.status(500).json({ error: 'Failed to initiate subscription payment' });
+    } catch (err) {
+        console.error("Subscription Payment Initiation Error:", err);
+        res.status(500).json({ error: err.message });
     }
 };
 
