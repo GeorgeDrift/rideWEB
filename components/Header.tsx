@@ -27,7 +27,7 @@ export const Header: React.FC<HeaderProps> = ({ title, onMenuClick, onNavigate }
         if (view === 'rides') return <CarIcon className="h-4 w-4 text-gray-400" />;
         if (view === 'drivers') return <SteeringWheelIcon className="h-4 w-4 text-gray-400" />;
         if (view === 'riders') return <UsersIcon className="h-4 w-4 text-gray-400" />;
-        if (view === 'map') return <MapIcon className="h-4 w-4" />;
+
         if (view === 'chat') return <ChatBubbleIcon className="h-4 w-4" />;
         if (view === 'pricing') return <TagIcon className="h-4 w-4" />;
         if (view === 'revenue') return <div className="text-green-500 font-bold text-xs">$</div>;
