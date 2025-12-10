@@ -1,41 +1,17 @@
-const { User, Transaction, Subscription, sequelize } = require('../models');
+const { User, Transaction, Subscription, SubscriptionPlans, sequelize } = require('../models');
 const { Op } = require('sequelize');
 const payChanguService = require('../services/payChanguService');
-
-// Subscription Plans Configuration
-const SUBSCRIPTION_PLANS = {
-    monthly: {
-        name: 'Monthly Plan',
-        price: 49900, // MWK 49,900
-        duration: 30, // 30 days
-        description: 'Full access for 30 days'
-    },
-    quarterly: {
-        name: 'Quarterly Plan',
-        price: 134900, // MWK 134,900
-        duration: 90, // 3 months = 90 days
-        description: 'Full access for 3 months - Save 10%'
-    },
-    biannual: {
-        name: 'Bi-Annual Plan',
-        price: 254900, // MWK 254,900
-        duration: 180, // 6 months = 180 days
-        description: 'Full access for 6 months - Save 15%'
-    },
-    yearly: {
-        name: 'Yearly Plan',
-        price: 479900, // MWK 479,900
-        duration: 365, // 12 months = 365 days
-        description: 'Full access for 12 months - Save 20%'
-    }
-};
 
 // Get available subscription plans
 exports.getPlans = async (req, res) => {
     try {
+        const plans = await SubscriptionPlans.findAll({
+            where: { isActive: true },
+            order: [['price', 'ASC']]
+        });
         res.json({
-            plans: SUBSCRIPTION_PLANS,
-            trialDays: 7 // 7 days free trial for new drivers
+            plans: plans, // Returns array of plan objects
+            trialDays: 7
         });
     } catch (error) {
         console.error('Error fetching plans:', error);
@@ -43,16 +19,43 @@ exports.getPlans = async (req, res) => {
     }
 };
 
-// Initiate subscription payment (COPIED FROM WORKING FOR HIRE PAYMENT)
+// Admin: Create a new plan
+exports.createPlan = async (req, res) => {
+    try {
+        const { name, price, duration, description } = req.body;
+        const newPlan = await SubscriptionPlans.create({ name, price, duration, description });
+        res.status(201).json(newPlan);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Admin: Update a plan
+exports.updatePlan = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const plan = await SubscriptionPlans.findByPk(id);
+        if (!plan) return res.status(404).json({ error: 'Plan not found' });
+
+        await plan.update(req.body);
+        res.json(plan);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Initiate subscription payment
 exports.initiateSubscriptionPayment = async (req, res) => {
-    const { plan, mobileNumber, providerRefId } = req.body;
+    const { planId, mobileNumber, providerRefId } = req.body; // Changed 'plan' to 'planId' for clarity, but support both if needed
     const userId = req.user.id;
 
-    console.log(`💰 [SUBSCRIPTION] Initiating payment: ${plan} for user ${userId}`);
+    console.log(`💰 [SUBSCRIPTION] Initiating payment for plan ID: ${planId} for user ${userId}`);
 
     try {
-        // Validate plan
-        if (!SUBSCRIPTION_PLANS[plan]) {
+        // Fetch plan from DB
+        const selectedPlan = await SubscriptionPlans.findByPk(planId);
+
+        if (!selectedPlan) {
             return res.status(400).json({ error: 'Invalid subscription plan' });
         }
 
@@ -62,9 +65,7 @@ exports.initiateSubscriptionPayment = async (req, res) => {
             return res.status(403).json({ error: 'Only drivers can purchase subscriptions' });
         }
 
-        const selectedPlan = SUBSCRIPTION_PLANS[plan];
-
-        // 1. Create Pending Transaction in DB (SAME AS RIDES)
+        // 1. Create Pending Transaction in DB
         const transaction = await Transaction.create({
             userId,
             type: 'Subscription',
@@ -73,12 +74,12 @@ exports.initiateSubscriptionPayment = async (req, res) => {
             status: 'pending',
             reference: `PENDING-SUB-${Date.now()}`,
             relatedId: userId,
-            description: `Subscription Payment - ${selectedPlan.name}`
+            description: `${selectedPlan.name} Subscription (${selectedPlan.duration} days)`
         });
 
         console.log('✅ Transaction created:', transaction.id);
 
-        // 2. Call PayChangu API (EXACT SAME AS RIDES)
+        // 2. Call PayChangu API
         const paymentResponse = await payChanguService.initiatePayment({
             mobile: mobileNumber,
             amount: selectedPlan.price,
@@ -87,17 +88,16 @@ exports.initiateSubscriptionPayment = async (req, res) => {
 
         console.log('📥 PayChangu response received');
 
-        // 3. Update Transaction with PayChangu details (SAME AS RIDES)
+        // 3. Update Transaction with PayChangu details
         const chargeId = paymentResponse.data?.charge_id || paymentResponse.charge_id;
 
         await transaction.update({
             reference: chargeId || transaction.reference,
-            description: `PayChangu Charge ID: ${chargeId}`
+            description: `PayChangu Charge ID: ${chargeId} | Plan: ${selectedPlan.id}`
         });
 
         console.log('✅ Payment initiated successfully. Charge ID:', chargeId);
 
-        // 4. Return response (SAME AS RIDES)
         res.json({
             status: 'success',
             message: 'Payment initiated. Please approve on your phone.',
@@ -144,8 +144,24 @@ exports.handleWebhook = async (req, res) => {
             // Activate subscription
             const user = await User.findByPk(transaction.userId);
             if (user) {
-                const plan = metadata?.plan || 'monthly';
-                const duration = metadata?.duration || SUBSCRIPTION_PLANS[plan].duration;
+                // Parse Plan ID from transaction description "PayChangu Charge ID: ... | Plan: 123"
+                let planId = null;
+                const match = transaction.description.match(/Plan:\s*(\d+)/);
+                if (match) {
+                    planId = match[1];
+                }
+
+                // Fallback: Find plan by amount if not found in description
+                let plan = null;
+                if (planId) {
+                    plan = await SubscriptionPlans.findByPk(planId);
+                } else {
+                    plan = await SubscriptionPlans.findOne({ where: { price: transaction.amount } });
+                }
+
+                // If still no plan found, default to 30 days (Manual override safe guard)
+                const duration = plan ? plan.duration : 30;
+                const planName = plan ? plan.name : 'Unknown Plan';
 
                 // Calculate new expiry date
                 // Check for existing active subscription
@@ -165,7 +181,7 @@ exports.handleWebhook = async (req, res) => {
                 // Create Subscription Record
                 await Subscription.create({
                     userId: user.id,
-                    plan: plan,
+                    plan: planName, // Storing Name as 'plan' field is string/enum (we relaxed enum constraint)
                     amount: transaction.amount,
                     status: 'active',
                     startDate: new Date(),
@@ -188,7 +204,7 @@ exports.handleWebhook = async (req, res) => {
                     io.to(user.id).emit('subscription_activated', {
                         status: 'active',
                         expiry: newExpiry,
-                        plan: SUBSCRIPTION_PLANS[plan].name
+                        plan: planName
                     });
                 }
             }
@@ -251,9 +267,21 @@ exports.verifyPayment = async (req, res) => {
 
                 if (!existingSub) {
                     const user = await User.findByPk(userId);
-                    const metadata = verification.data.metadata || {};
-                    const plan = metadata.plan || 'monthly';
-                    const duration = metadata.duration || SUBSCRIPTION_PLANS[plan].duration;
+
+                    // Logic to find plan details similar to webhook
+                    let planId = null;
+                    const match = transaction.description.match(/Plan:\s*(\d+)/);
+                    if (match) planId = match[1];
+
+                    let plan = null;
+                    if (planId) {
+                        plan = await SubscriptionPlans.findByPk(planId);
+                    } else {
+                        plan = await SubscriptionPlans.findOne({ where: { price: transaction.amount } });
+                    }
+
+                    const duration = plan ? plan.duration : 30;
+                    const planName = plan ? plan.name : 'Monthly Plan';
 
                     // Check for existing active subscription
                     const activeSub = await Subscription.findOne({
@@ -272,7 +300,7 @@ exports.verifyPayment = async (req, res) => {
                     // Create Subscription Record
                     await Subscription.create({
                         userId: userId,
-                        plan: plan,
+                        plan: planName,
                         amount: transaction.amount,
                         status: 'active',
                         startDate: new Date(),
@@ -359,7 +387,9 @@ exports.getSubscriptionStatus = async (req, res) => {
 
         res.json({
             status: isActive || inTrialPeriod ? 'active' : 'inactive',
-            expiry: expiry,
+            plan: activeSub ? activeSub.plan : null,
+            startDate: activeSub ? activeSub.startDate : null,
+            expiryDate: expiry,
             daysRemaining: isActive ? daysRemaining : 0,
             inTrialPeriod,
             trialDaysRemaining: inTrialPeriod ? Math.max(0, 7 - accountAge) : 0,

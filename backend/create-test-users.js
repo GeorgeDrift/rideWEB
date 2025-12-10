@@ -1,5 +1,5 @@
-const { sequelize, User } = require('./models');
 require('dotenv').config();
+const { sequelize, User, Conversation } = require('./models');
 
 async function createTestUsers() {
     console.log('🚀 Creating Test Users...');
@@ -57,7 +57,28 @@ async function createTestUsers() {
             const driver = await User.findOne({ where: { email: 'driver@test.com' } });
 
             console.log('\n✅ Passenger:', passenger.email, passenger.id);
+            console.log('\n✅ Passenger:', passenger.email, passenger.id);
             console.log('✅ Driver:', driver.email, driver.id, `Balance: ${driver.walletBalance}`);
+
+            // 3. Create/Find Conversation
+            let conversation = null;
+            const allConvs = await Conversation.findAll();
+            for (const c of allConvs) {
+                const p = c.participants || [];
+                if (p.includes(driver.id) && p.includes(passenger.id)) {
+                    conversation = c;
+                    break;
+                }
+            }
+
+            if (!conversation) {
+                conversation = await Conversation.create({
+                    participants: [driver.id, passenger.id],
+                    lastMessage: 'Welcome to Ridex',
+                    unreadCount: 0
+                });
+            }
+            console.log('\n✅ Conversation Ready:', conversation.id);
         } else {
             console.error('❌ Error:', error);
         }

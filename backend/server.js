@@ -160,14 +160,78 @@ io.on('connection', (socket) => {
     });
 
     // 4. Chat
+    socket.on('join_conversation', (conversationId) => {
+        socket.join(`conversation_${conversationId}`);
+        // console.log(`User ${socket.userId} joined conversation ${conversationId}`);
+    });
+
+    socket.on('leave_conversation', (conversationId) => {
+        socket.leave(`conversation_${conversationId}`);
+    });
+
     socket.on('send_message', async (data) => {
-        const { senderId, recipientId, text, rideId } = data;
+        const { senderId, recipientId, text, rideId, conversationId } = data;
+        // console.log("Server received message:", data);
+
         try {
-            const message = await Message.create({ senderId, rideId, text });
-            // In SQL we often iterate participants to notify, here we assume 1-on-1 via socket room
-            io.to(`user_${recipientId}`).emit('new_message', message);
-            socket.emit('message_sent', message);
-        } catch (e) { console.error("Message error", e); }
+            let message;
+
+            if (conversationId) {
+                // New Flow: Conversation-based
+                // Ensure senderId is valid (for admin it might be string 'admin' or UUID)
+                // If it's a real user (driver/rider), validation might be needed, but for now we trust the payload or socket.userId
+
+                message = await Message.create({
+                    senderId: senderId || socket.userId, // Fallback if not provided
+                    conversationId,
+                    text,
+                    read: false,
+                    // If your schema requires 'rideId' even if null, handle it. Sequelize usually allows null.
+                });
+
+                // Broadcast to conversation room 
+                io.to(`conversation_${conversationId}`).emit('new_message', message);
+
+                // Update Conversation metadata
+                try {
+                    const { Conversation } = require('./models');
+                    await Conversation.update(
+                        {
+                            lastMessage: text,
+                            updatedAt: new Date(),
+                            // Increment unread for the OTHER participant. 
+                            // Since we don't track who is who easily here without a query, we might skip or do a raw increment if possible.
+                            // For now, simple update.
+                        },
+                        { where: { id: conversationId } }
+                    );
+                } catch (e) { console.error("Conv update error", e); }
+
+                // Notify specific user rooms if needed (e.g. for push notifications outside the chat view)
+                if (recipientId) {
+                    io.to(`user_${recipientId}`).emit('newMessageNotification', {
+                        title: 'New Message',
+                        body: text,
+                        conversationId
+                    });
+                }
+
+            } else {
+                // Legacy Flow: Ride-based
+                message = await Message.create({ senderId: senderId || socket.userId, rideId, text });
+
+                if (recipientId) {
+                    io.to(`user_${recipientId}`).emit('new_message', message);
+                } else if (rideId) {
+                    io.to(`ride_${rideId}`).emit('new_message', message);
+                }
+
+                socket.emit('message_sent', message);
+            }
+        } catch (e) {
+            console.error("Message persistence error:", e);
+            socket.emit('error', { message: 'Failed to save message' });
+        }
     });
 
     socket.on('disconnect', async () => {

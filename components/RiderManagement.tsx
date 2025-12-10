@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Rider, RiderStatus } from '../types';
 import { ApiService } from '../services/api';
+import { ChatBubbleIcon } from './Icons';
 
 const RiderStatusBadge: React.FC<{ status: RiderStatus }> = ({ status }) => {
     const baseClasses = "px-3 py-1 text-xs font-medium rounded-full inline-block border";
@@ -12,7 +13,7 @@ const RiderStatusBadge: React.FC<{ status: RiderStatus }> = ({ status }) => {
     return <span className={`${baseClasses} ${statusClasses[status]}`}>{status}</span>;
 };
 
-export const RiderManagement: React.FC = () => {
+export const RiderManagement: React.FC<{ onMessageUser?: (id: string) => void }> = ({ onMessageUser }) => {
     const [riders, setRiders] = useState<Rider[]>([]);
 
     useEffect(() => {
@@ -56,7 +57,18 @@ export const RiderManagement: React.FC = () => {
                                 <td className="px-6 py-4 hidden lg:table-cell">{rider.memberSince}</td>
                                 <td className="px-6 py-4"><RiderStatusBadge status={rider.status} /></td>
                                 <td className="px-6 py-4 text-center">
-                                    <button className="font-medium text-primary-600 dark:text-primary-500 hover:underline">View Profile</button>
+                                    <div className="flex items-center justify-center space-x-3">
+                                        <button className="font-medium text-primary-600 dark:text-primary-500 hover:underline">View Profile</button>
+                                        {onMessageUser && (
+                                            <button
+                                                onClick={() => onMessageUser(rider.id)}
+                                                className="text-gray-400 hover:text-primary-500 transition-colors"
+                                                title="Message Rider"
+                                            >
+                                                <ChatBubbleIcon className="h-5 w-5" />
+                                            </button>
+                                        )}
+                                    </div>
                                 </td>
                             </tr>
                         ))}

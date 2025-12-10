@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Driver, DriverStatus } from '../types';
 import { ApiService } from '../services/api';
 import { socketService } from '../services/socket';
+import { ChatBubbleIcon } from './Icons';
 //new cahnges //
 const DriverStatusBadge: React.FC<{ status: DriverStatus }> = ({ status }) => {
     const baseClasses = "px-3 py-1 text-xs font-medium rounded-full inline-block border";
@@ -13,7 +14,7 @@ const DriverStatusBadge: React.FC<{ status: DriverStatus }> = ({ status }) => {
     return <span className={`${baseClasses} ${statusClasses[status]}`}>{status}</span>;
 };
 //new code coming in through
-export const DriverManagement: React.FC = () => {
+export const DriverManagement: React.FC<{ onMessageUser?: (id: string) => void }> = ({ onMessageUser }) => {
     const [drivers, setDrivers] = useState<Driver[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
 
@@ -88,7 +89,18 @@ export const DriverManagement: React.FC = () => {
                                 </td>
                                 <td className="px-6 py-4"><DriverStatusBadge status={driver.status} /></td>
                                 <td className="px-6 py-4 text-center">
-                                    <button className="font-medium text-primary-600 dark:text-primary-500 hover:underline">Edit</button>
+                                    <div className="flex items-center justify-center space-x-3">
+                                        <button className="font-medium text-primary-600 dark:text-primary-500 hover:underline">Edit</button>
+                                        {onMessageUser && (
+                                            <button
+                                                onClick={() => onMessageUser(driver.id)}
+                                                className="text-gray-400 hover:text-primary-500 transition-colors"
+                                                title="Message Driver"
+                                            >
+                                                <ChatBubbleIcon className="h-5 w-5" />
+                                            </button>
+                                        )}
+                                    </div>
                                 </td>
                             </tr>
                         ))}

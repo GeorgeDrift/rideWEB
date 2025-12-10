@@ -225,9 +225,48 @@ export const ApiService = {
         }
     },
 
+    getSubscriptionPlans: async (): Promise<any> => {
+        try {
+            const response = await fetch('/api/admin/plans', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch subscription plans');
+            return await response.json();
+        } catch (error) {
+            console.error('API Error:', error);
+            return { plans: [] };
+        }
+    },
+
+    createSubscriptionPlan: async (planData: any): Promise<any> => {
+        const response = await fetch('/api/admin/plans', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(planData)
+        });
+        if (!response.ok) throw new Error('Failed to create subscription plan');
+        return await response.json();
+    },
+
+    updateSubscriptionPlan: async (id: number, planData: any): Promise<any> => {
+        const response = await fetch(`/api/admin/plans/${id}`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(planData)
+        });
+        if (!response.ok) throw new Error('Failed to update subscription plan');
+        return await response.json();
+    },
+
     getRides: async (): Promise<Ride[]> => {
         try {
-            const response = await fetch('/api/rides', {
+            const response = await fetch('/api/admin/rides', {
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
             });
             if (!response.ok) throw new Error('Failed to fetch rides');
@@ -253,7 +292,7 @@ export const ApiService = {
 
     getDrivers: async (): Promise<Driver[]> => {
         try {
-            const response = await fetch('/api/driver/list', { // Assuming admin endpoint
+            const response = await fetch('/api/admin/drivers', {
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
             });
             if (!response.ok) throw new Error('Failed to fetch drivers');
@@ -266,7 +305,7 @@ export const ApiService = {
 
     getRiders: async (): Promise<Rider[]> => {
         try {
-            const response = await fetch('/api/rider/list', { // Assuming admin endpoint
+            const response = await fetch('/api/admin/riders', {
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
             });
             if (!response.ok) throw new Error('Failed to fetch riders');
@@ -312,6 +351,19 @@ export const ApiService = {
         } catch (error) {
             console.error("API Error:", error);
             return { weekly: [], monthly: [], yearly: [] };
+        }
+    },
+
+    getAllVehicles: async () => {
+        try {
+            const response = await fetch('/api/admin/vehicles', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            if (!response.ok) throw new Error('Failed to fetch vehicles');
+            return await response.json();
+        } catch (error) {
+            console.error('Error fetching vehicles:', error);
+            throw error;
         }
     },
 

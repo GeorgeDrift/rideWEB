@@ -15,7 +15,7 @@ const SummaryCard = ({ title, value, subtitle, type }: { title: string, value: s
         green: 'text-green-600 dark:text-green-500 border-green-500/30 bg-green-500/5',
         blue: 'text-blue-600 dark:text-blue-500 border-blue-500/30 bg-blue-500/5',
     };
-    
+
     return (
         <div className={`p-6 rounded-xl border ${colors[type].replace('text-', 'border-')} bg-white dark:bg-dark-800`}>
             <h3 className="text-gray-500 dark:text-gray-400 text-sm font-medium uppercase tracking-wider mb-2">{title}</h3>
@@ -26,7 +26,7 @@ const SummaryCard = ({ title, value, subtitle, type }: { title: string, value: s
 };
 
 export const RevenuePage: React.FC<RevenuePageProps> = ({ onBack }) => {
-    const [revenueData, setRevenueData] = useState<any>({ annual: [], transactions: [] });
+    const [revenueData, setRevenueData] = useState<any>({ annual: [], transactions: [], stats: { totalRevenue: 0, pendingPayouts: 0, avgRevenue: 0 } });
 
     useEffect(() => {
         let mounted = true;
@@ -43,7 +43,7 @@ export const RevenuePage: React.FC<RevenuePageProps> = ({ onBack }) => {
 
     const annualData = revenueData.annual || [];
     const transactions = revenueData.transactions || [];
-    
+
     const CustomTooltip = ({ active, payload, label }: any) => {
         if (active && payload && payload.length) {
             return (
@@ -61,7 +61,7 @@ export const RevenuePage: React.FC<RevenuePageProps> = ({ onBack }) => {
     return (
         <div className="space-y-6">
             <div className="flex items-center space-x-4 mb-6">
-                <button 
+                <button
                     onClick={onBack}
                     className="p-2 rounded-lg bg-gray-200 dark:bg-dark-700 hover:bg-gray-300 dark:hover:bg-dark-600 text-gray-900 dark:text-white transition-colors"
                 >
@@ -75,68 +75,68 @@ export const RevenuePage: React.FC<RevenuePageProps> = ({ onBack }) => {
 
             {/* Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <SummaryCard 
-                    title="Net Revenue" 
-                    value="MWK 1,245,920" 
-                    subtitle="+18.2% vs last year" 
-                    type="primary" 
+                <SummaryCard
+                    title="Net Revenue"
+                    value={`MWK ${revenueData.stats?.totalRevenue?.toLocaleString() || '0'}`}
+                    subtitle="Total Platform Earnings"
+                    type="primary"
                 />
-                <SummaryCard 
-                    title="Pending Payouts" 
-                    value="MWK 42,300" 
-                    subtitle="Processing next Monday" 
-                    type="blue" 
+                <SummaryCard
+                    title="Pending Payouts"
+                    value={`MWK ${revenueData.stats?.pendingPayouts?.toLocaleString() || '0'}`}
+                    subtitle="Processing next Monday"
+                    type="blue"
                 />
-                <SummaryCard 
-                    title="Avg Revenue / Ride" 
-                    value="MWK 28.45" 
-                    subtitle="+2.4% vs last month" 
-                    type="green" 
+                <SummaryCard
+                    title="Avg Revenue / Ride"
+                    value={`MWK ${revenueData.stats?.avgRevenue?.toLocaleString() || '0'}`}
+                    subtitle="Based on completed rides"
+                    type="green"
                 />
             </div>
 
             {/* Main Chart */}
             <div className="bg-white dark:bg-dark-800 p-6 rounded-xl border border-gray-300 dark:border-dark-700 shadow-sm">
                 <div className="flex justify-between items-center mb-6">
-                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Annual Revenue Growth</h3>
-                     <div className="flex items-center space-x-2">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Revenue Overview (Last 30 Days)</h3>
+                    <div className="flex items-center space-x-2">
                         <span className="flex items-center text-xs text-gray-500 dark:text-gray-400">
                             <span className="w-2 h-2 rounded-full bg-primary-500 mr-2"></span>
                             2023
                         </span>
-                     </div>
+                    </div>
                 </div>
                 <div className="h-80 w-full">
                     <ResponsiveContainer width="100%" height="100%">
                         <AreaChart data={annualData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                             <defs>
                                 <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#FACC15" stopOpacity={0.3}/>
-                                    <stop offset="95%" stopColor="#FACC15" stopOpacity={0}/>
+                                    <stop offset="5%" stopColor="#FACC15" stopOpacity={0.3} />
+                                    <stop offset="95%" stopColor="#FACC15" stopOpacity={0} />
                                 </linearGradient>
                             </defs>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#383838" opacity={0.2} />
-                            <XAxis 
-                                dataKey="name" 
-                                axisLine={false} 
-                                tickLine={false} 
-                                tick={{ fill: '#9CA3AF', fontSize: 12 }} 
+                            <XAxis
+                                dataKey="name"
+                                axisLine={false}
+                                tickLine={false}
+                                tick={{ fill: '#9CA3AF', fontSize: 12 }}
                                 dy={10}
                             />
-                            <YAxis 
-                                axisLine={false} 
-                                tickLine={false} 
+                            <YAxis
+                                axisLine={false}
+                                tickLine={false}
                                 tick={{ fill: '#9CA3AF', fontSize: 12 }}
-                                tickFormatter={(value) => `MWK ${value >= 1000 ? (value/1000).toFixed(0) + 'k' : value}`}
+                                tickFormatter={(value) => `MWK ${value >= 1000 ? (value / 1000).toFixed(0) + 'k' : value}`}
                             />
                             <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#383838', strokeWidth: 1, strokeDasharray: '5 5' }} />
-                            <Area 
-                                type="monotone" 
-                                dataKey="value" 
-                                stroke="#FACC15" 
-                                strokeWidth={3} 
-                                fillOpacity={1} 
-                                fill="url(#colorRevenue)" 
+                            <Area
+                                type="monotone"
+                                dataKey="value"
+                                stroke="#FACC15"
+                                strokeWidth={3}
+                                fillOpacity={1}
+                                fill="url(#colorRevenue)"
                             />
                         </AreaChart>
                     </ResponsiveContainer>
@@ -157,7 +157,7 @@ export const RevenuePage: React.FC<RevenuePageProps> = ({ onBack }) => {
                                 <th className="px-4 py-3">Source</th>
                                 <th className="px-4 py-3">Date</th>
                                 <th className="px-4 py-3">Status</th>
-                                <th className="px-4 py-3 text-right rounded-r-lg">Amount</th>
+                                <th className="px-4 py-3 text-right rounded-r-lg">Amount (MWK)</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -167,11 +167,10 @@ export const RevenuePage: React.FC<RevenuePageProps> = ({ onBack }) => {
                                     <td className="px-4 py-4 text-gray-900 dark:text-white font-medium">{trx.source}</td>
                                     <td className="px-4 py-4">{trx.date}</td>
                                     <td className="px-4 py-4">
-                                        <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                            trx.status === 'Completed' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' :
+                                        <span className={`px-2 py-1 rounded text-xs font-medium ${trx.status === 'Completed' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' :
                                             trx.status === 'Pending' ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400' :
-                                            'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                                        }`}>
+                                                'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                                            }`}>
                                             {trx.status}
                                         </span>
                                     </td>

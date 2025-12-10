@@ -203,6 +203,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
     const [conversations, setConversations] = useState<Conversation[]>([]);
     const [activeChatId, setActiveChatId] = useState<string>('');
     const [messageInput, setMessageInput] = useState('');
+    const messagesEndRef = useRef<HTMLDivElement>(null);
 
     // Data States
     const [profile, setProfile] = useState<any>({ name: '', avatar: '', rating: 0 });
@@ -324,55 +325,24 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                 return prev.map((t: any) => t.id === (data.id || data.rideId) ? approvedRideData : t);
             });
 
-            // Show notification to rider to check Active Trip tab
+            // Show notification to rider to check Active Trip tab  
             setNotifications(prev => [{
                 title: 'Request Approved!',
-                msg: data.message || 'Your request was approved! Please select a payment method to confirm.',
+                msg: data.message || 'Your request was approved! Check your Active Trip tab.',
                 time: 'Just now',
                 unread: true
             }, ...prev]);
 
             setShowNegotiationModal(false);
 
-            // Auto-open payment modal to prompt user for payment method selection
-            setShowPaymentModal(true);
+            // Switch to active trip tab to show the approved trip
+            setActiveTab('active-trip');
         });
 
         // Listen for payment selection required (For Hire trips after approval)
-        socketService.on('payment_selection_required', (data) => {
-            console.log('💳 payment_selection_required received:', data);
-            const rideData = { ...data, status: 'Awaiting Payment Selection' };
-
-            // Update activeTrips and history with the ride
-            setHistory((prev: any) => {
-                const exists = prev.find((t: any) => t.id === (data.id || data.rideId));
-                if (exists) {
-                    return prev.map((t: any) => t.id === (data.id || data.rideId) ? rideData : t);
-                }
-                return [rideData, ...prev];
-            });
-
-            setActiveTrips((prev: any) => {
-                const exists = prev.find((t: any) => t.id === (data.id || data.rideId));
-                if (!exists) {
-                    return [rideData, ...prev];
-                }
-                return prev.map((t: any) => t.id === (data.id || data.rideId) ? rideData : t);
-            });
-
-            // Open payment timing modal
-            setPaymentTimingRide(rideData);
-            setIsPaymentTimingModalOpen(true);
-            setActiveTab('active-trip');
-
-            // Show notification
-            setNotifications(prev => [{
-                title: 'Payment Selection Required',
-                msg: data.message || 'Choose when to pay for your vehicle hire.',
-                time: 'Just now',
-                unread: true
-            }, ...prev]);
-        });
+        // socketService.on('payment_selection_required', (data) => {
+        //     console.log('💳 payment_selection_required ignored (logic removed):', data);
+        // });
 
         // Listen for payment required (e.g., after selecting "Pay Now" for hire)
         socketService.on('payment_required', (data) => {
@@ -438,55 +408,8 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
 
 
 
-        socketService.on('payment_selection_required', (data: any) => {
-            console.log('💰 payment_selection_required received:', data);
-            const rideId = data?.rideId || data?.id;
-
-            // Check if this is actually a handover success (isActive or Paid)
-            const isPaid = data.paymentStatus === 'paid' || data.status === 'Scheduled';
-
-            if (rideId) {
-                const newRideState = {
-                    ...data,
-                    id: rideId,
-                    status: isPaid ? 'Scheduled' : 'Awaiting Payment Selection',
-                    type: data.type || 'hire',
-                    origin: data.origin,
-                    destination: data.destination,
-                    price: data.price,
-                    driver: data.driver
-                };
-
-                // 1. Force update activeTrips immediately
-                setActiveTrips(prev => {
-                    // Remove existing if present to avoid dupes
-                    const filtered = prev.filter(t => t.id !== rideId);
-                    return [newRideState, ...filtered];
-                });
-
-                // 2. Set as current active trip for component rendering
-                setCurrentActiveTrip(newRideState);
-
-                // 3. Switch to active trip tab so user sees the context
-                setActiveTab('active-trip');
-
-                if (isPaid) {
-                    // Handover confirmed / Success case
-                    setNotifications(prev => [{
-                        title: 'Handover Complete',
-                        msg: 'Driver has handed over the vehicle. Ride is active.',
-                        time: 'Just now',
-                        unread: true
-                    }, ...prev]);
-                    setIsHandoverModalOpen(false);
-                } else {
-                    // 4. Open Payment Timing Modal (Pay Now / Pickup)
-                    console.log('Opening payment timing modal for selection');
-                    setPaymentTimingRide(newRideState);
-                    setIsPaymentTimingModalOpen(true);
-                }
-            }
-        });
+        // DUPLICATE LISTENER REMOVED
+        // socketService.on('payment_selection_required', ... );
 
         // Listen for request approval (Ride Share)
         socketService.on('request_approved', (data: any) => {
@@ -508,11 +431,19 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
 
                 setActiveTrips(prev => {
                     const exists = prev.find(t => t.id === rideId);
-                    if (!exists) return [{ ...data, status: 'Approved' }, ...prev];
+                    if (!exists) return [{ ...data, status: 'Waiting for Pickup' }, ...prev];
                     return prev.map(updateRide);
                 });
 
+                // Switch to active trip tab and show notification
                 setActiveTab('active-trip');
+
+                setNotifications(prev => [{
+                    title: 'Request Approved!',
+                    msg: 'Your request was approved! Check your Active Trip tab.',
+                    time: 'Just now',
+                    unread: true
+                }, ...prev]);
             }
         });
 
@@ -1309,8 +1240,9 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
         if (!currentActiveTrip) return;
 
         let driverId = currentActiveTrip.driverId;
-        if (!driverId && typeof currentActiveTrip.driver === 'object') {
-            driverId = currentActiveTrip.driver.id; // Correctly access nested ID
+        // Fallback: Check if driver info is nested in an object
+        if (!driverId && currentActiveTrip.driver && typeof currentActiveTrip.driver === 'object') {
+            driverId = (currentActiveTrip.driver as any).id;
         }
 
         // Final fallback if driverId is still missing
@@ -1321,25 +1253,38 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
         }
 
         try {
-            let chat = conversations.find((c: any) => c.participants && c.participants.includes(driverId));
+            // Refresh conversations first to ensure we have the latest list
+            const latestConversations = await ApiService.getRiderConversations();
+            setConversations(latestConversations);
+
+            // Find existing conversation (normalize IDs to strings for defensive comparison)
+            let chat = latestConversations.find((c: any) =>
+                c.participants && c.participants.some((p: any) => String(p) === String(driverId))
+            );
 
             if (!chat) {
-                await ApiService.createConversation(driverId);
+                // Create new conversation if none exists
+                const newChat = await ApiService.createConversation(driverId);
+                // Re-fetch to get the full conversation object with details
                 const updatedConvs = await ApiService.getRiderConversations();
                 setConversations(updatedConvs);
-                chat = updatedConvs.find((c: any) => c.participants && c.participants.includes(driverId));
+                chat = updatedConvs.find((c: any) => c.id === newChat.id);
             }
 
             if (chat) {
                 setActiveChatId(chat.id);
+                // State update batching in React sometimes requires a small delay or effect, but setting state sequentially usually works.
+                // We set activeChatId first, then switch tab.
                 setActiveTab('messages');
             } else {
-                // If we created it but can't find it in list yet, just go to messages
-                setActiveTab('messages');
+                console.error("Failed to find or create chat after API call");
+                setActiveTab('messages'); // Still go to messages, user might see it there
             }
         } catch (e) {
             console.error("Failed to start chat", e);
-            alert("Failed to open chat. Please try again.");
+            // alert("Failed to open chat. Please try again.");
+            // Just go to messages tab on error might be safer than alert
+            setActiveTab('messages');
         }
     };
 
@@ -1501,6 +1446,26 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
         e.preventDefault();
         if (!messageInput.trim()) return;
 
+        // EMIT SOCKET EVENT
+        if (activeChatId) {
+            let currentSenderId = profile?.id;
+            if (!currentSenderId) {
+                try {
+                    const token = localStorage.getItem('token');
+                    if (token) currentSenderId = JSON.parse(atob(token.split('.')[1])).id;
+                } catch (e) { console.error('Token decode error', e); }
+            }
+
+            if (currentSenderId) {
+                socketService.emit('send_message', {
+                    conversationId: activeChatId,
+                    text: messageInput,
+                    senderId: currentSenderId,
+                    senderRole: 'rider'
+                });
+            }
+        }
+
         const newMessage: Message = {
             id: Date.now().toString(),
             text: messageInput,
@@ -1523,6 +1488,57 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
         setConversations(updatedConversations);
         setMessageInput('');
     };
+
+    // Handle incoming messages from socket
+    const handleNewMessage = (msg: any) => {
+        console.log('📩 New message received:', msg);
+        if (msg.conversationId === activeChatId) {
+            setConversations(prev => prev.map(c => {
+                if (c.id === activeChatId) {
+                    // Avoid duplicates if optimistic update already added it
+                    const exists = c.messages.some(m =>
+                        m.id === msg.id ||
+                        (m.sender === 'user' && m.text === msg.text)
+                    );
+
+                    if (exists) return c;
+
+                    return {
+                        ...c,
+                        messages: [...c.messages, {
+                            id: msg.id || Date.now().toString(),
+                            text: msg.text,
+                            sender: msg.senderId === profile?.id ? 'user' : 'agent',
+                            timestamp: 'Just now'
+                        }],
+                        lastMessage: msg.text,
+                        time: 'Just now'
+                    };
+                }
+                return c;
+            }));
+        }
+    };
+
+    // Socket listener for new messages
+    useEffect(() => {
+        if (!activeChatId) return;
+
+        console.log('🔌 Joining conversation:', activeChatId);
+        socketService.emit('join_conversation', activeChatId);
+
+        socketService.on('new_message', handleNewMessage);
+
+        return () => {
+            socketService.off('new_message', handleNewMessage);
+            socketService.emit('leave_conversation', activeChatId);
+        };
+    }, [activeChatId, profile]);
+
+    // Auto-scroll to newest message
+    useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [conversations, activeChatId]);
 
     // Negotiation Handlers
     const handleSearch = async (pickup: string, destination: string) => {
@@ -2302,45 +2318,22 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                             </div>
                                                         )}
 
-                                                        {/* FOR HIRE: Payment Options (Original Approved Status) */}
+                                                        {/* FOR HIRE: Approved (Go to Pickup) - NO PAYMENT YET */}
                                                         {currentActiveTrip.type === 'hire' && currentActiveTrip.status === 'Approved' && (
-                                                            <>
-                                                                <div className="bg-[#252525] border border-[#FACC15]/30 rounded-xl p-4 mb-3">
-                                                                    <p className="text-xs text-gray-400 mb-2">Hire approved! Choose payment option:</p>
-                                                                    <p className="text-sm font-bold text-white">MWK {currentActiveTrip.price || 0}</p>
+                                                            <div className="bg-[#1E1E1E] border border-blue-500/30 rounded-xl p-6 text-center animate-fadeIn">
+                                                                <div className="w-12 h-12 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
+                                                                    <MapIcon className="w-6 h-6 text-blue-400" />
                                                                 </div>
-                                                                <button
-                                                                    onClick={() => {
-                                                                        // Ensure we have pricing
-                                                                        const price = currentActiveTrip.acceptedPrice || currentActiveTrip.price || 0;
-                                                                        const rideWithPrice = { ...currentActiveTrip, price };
-
-                                                                        // Set approvedRide for consistency (though modal uses currentActiveTrip mostly)
-                                                                        setApprovedRide(rideWithPrice);
-                                                                        setCurrentActiveTrip(rideWithPrice); // Ensure price is set in current trip
-
-                                                                        setIsPaymentModalOpen(true);
-                                                                        setPaymentStep('method');
-                                                                    }}
-                                                                    className="w-full py-3 bg-[#FACC15] text-black rounded-xl font-bold text-sm hover:bg-[#EAB308] transition-colors shadow-lg flex items-center justify-center gap-2"
-                                                                >
-                                                                    <CreditCardIcon className="w-4 h-4" /> Pay Now
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => {
-                                                                        handlePaymentSelection('later');
-                                                                        setNotifications(prev => [{
-                                                                            title: 'Payment Deferred',
-                                                                            msg: 'You will pay when you pick up the vehicle.',
-                                                                            time: 'Just now',
-                                                                            unread: true
-                                                                        }, ...prev]);
-                                                                    }}
-                                                                    className="w-full py-3 border-2 border-[#FACC15] text-[#FACC15] rounded-xl font-bold text-sm hover:bg-[#FACC15]/10 transition-colors flex items-center justify-center gap-2"
-                                                                >
-                                                                    Pay on Pickup
-                                                                </button>
-                                                            </>
+                                                                <h3 className="text-white font-bold mb-1">Hire Request Approved!</h3>
+                                                                <p className="text-xs text-gray-400 mb-4">Please proceed to the dealership or pickup location to meet the driver.</p>
+                                                                <div className="bg-[#252525] p-3 rounded-lg border border-[#333] mb-3">
+                                                                    <p className="text-xs text-gray-500 uppercase font-bold mb-1">Pickup Location</p>
+                                                                    <p className="text-sm text-white font-bold">{currentActiveTrip.origin}</p>
+                                                                </div>
+                                                                <p className="text-[10px] text-gray-500 italic">
+                                                                    You will be prompted to complete payment when the driver initiates the vehicle handover.
+                                                                </p>
+                                                            </div>
                                                         )}
 
                                                         {/* RIDE SHARE: Manual Pickup Confirmation */}
@@ -2402,7 +2395,8 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                         (currentActiveTrip.type === 'hire' && currentActiveTrip.status === 'Approved') ||
                                                         (currentActiveTrip.type === 'share' && ['Scheduled', 'Inbound', 'Arrived'].includes(currentActiveTrip.status)) ||
                                                         (currentActiveTrip.type === 'share' && currentActiveTrip.status === 'In Progress') ||
-                                                        (currentActiveTrip.status === 'Payment Due')
+                                                        (currentActiveTrip.status === 'Payment Due') ||
+                                                        (currentActiveTrip.status === 'Awaiting Payment Selection') // Keep this to prevent "No actions" text
                                                     ) && (
                                                             <p className="text-xs text-gray-500 italic">No actions available for this status.</p>
                                                         )}
@@ -2432,28 +2426,9 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                     )}
 
                                                     {/* Payment Selection Action */}
-                                                    {currentActiveTrip.status === 'Awaiting Payment Selection' && (
-                                                        <div className="bg-[#1E1E1E] border border-[#FACC15] rounded-xl p-4 mt-4 animate-pulse-slow">
-                                                            <div className="flex items-center gap-3 mb-3">
-                                                                <div className="p-2 bg-[#FACC15]/20 rounded-full text-[#FACC15]">
-                                                                    <CreditCardIcon className="w-5 h-5" />
-                                                                </div>
-                                                                <div>
-                                                                    <h4 className="text-white font-bold text-sm">Action Required</h4>
-                                                                    <p className="text-xs text-gray-400">Please select how update you want to pay.</p>
-                                                                </div>
-                                                            </div>
-                                                            <button
-                                                                onClick={() => {
-                                                                    setPaymentTimingRide(currentActiveTrip);
-                                                                    setIsPaymentTimingModalOpen(true);
-                                                                }}
-                                                                className="w-full py-2 bg-[#FACC15] text-black font-bold rounded-lg text-sm hover:bg-[#EAB308] transition-colors"
-                                                            >
-                                                                Select Payment Option
-                                                            </button>
-                                                        </div>
-                                                    )}
+                                                    {/* Payment Selection Action - DEPRECATED/REMOVED to prevent early payment */
+                                                        /* {currentActiveTrip.status === 'Awaiting Payment Selection' && ( ... )} */
+                                                    }
                                                 </div>
                                             )}
                                         </div>
@@ -2676,7 +2651,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                         <h3 className="text-white font-bold text-sm">{activeChat.name}</h3>
                                                         <div className="flex items-center gap-1 text-xs text-gray-400">
                                                             <span className={`w-1.5 h-1.5 rounded-full ${activeChat.status === 'online' ? 'bg-green-500' : 'bg-gray-500'}`}></span>
-                                                            {activeChat.status === 'online' ? 'Online' : 'Offline'}
+                                                            {activeChat.status === 'online' ? 'Online' : ''}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -2691,6 +2666,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                         </div>
                                                     </div>
                                                 ))}
+                                                <div ref={messagesEndRef} />
                                             </div>
 
                                             <div className="p-4 border-t border-[#333] bg-[#252525]">
@@ -2843,19 +2819,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
 
                                                     <div className="flex gap-3">
                                                         {/* Payment Action */}
-                                                        {trip.status === 'Awaiting Payment Selection' && (
-                                                            <button
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    setPaymentTimingRide(trip);
-                                                                    setIsPaymentTimingModalOpen(true);
-                                                                }}
-                                                                className="px-4 py-2 bg-[#FACC15] text-black text-sm font-bold rounded-lg hover:bg-[#EAB308] transition-colors flex items-center gap-2"
-                                                            >
-                                                                <CreditCardIcon className="w-4 h-4" />
-                                                                Select Pay Option
-                                                            </button>
-                                                        )}
+                                                        {/* Payment Action - REMOVED */}
 
                                                         {/* Track / View Details Action */}
                                                         {['In Progress', 'Inbound', 'Arrived', 'Payment Due', 'Handover Pending'].includes(trip.status) && (

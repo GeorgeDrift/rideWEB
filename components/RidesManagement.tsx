@@ -46,8 +46,8 @@ export const RidesManagement: React.FC<RidesManagementProps> = ({ onNavigate }) 
     }, []);
 
     const totalRides = rides.length;
-    const rideShareCount = rides.filter(r => r.type === 'Ride Share').length;
-    const forHireCount = rides.filter(r => r.type === 'For Hire').length;
+    const rideShareCount = rides.filter(r => r.type === 'share').length;
+    const forHireCount = rides.filter(r => r.type === 'hire').length;
 
     return (
         <div className="space-y-6">
@@ -101,8 +101,8 @@ export const RidesManagement: React.FC<RidesManagementProps> = ({ onNavigate }) 
                                 <div>
                                     <div className="flex items-center gap-2">
                                         <span className="text-xs font-mono font-semibold text-gray-500 dark:text-gray-400">#{ride.id}</span>
-                                        <span className={`px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide ${ride.type === 'Ride Share' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400' : 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-400'}`}>
-                                            {ride.type}
+                                        <span className={`px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide ${ride.type === 'share' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400' : 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-400'}`}>
+                                            {ride.type === 'share' ? 'Ride Share' : 'For Hire'}
                                         </span>
                                     </div>
                                     <div className="text-xs text-gray-400 mt-1">{ride.date}</div>
@@ -135,7 +135,7 @@ export const RidesManagement: React.FC<RidesManagementProps> = ({ onNavigate }) 
                                     </div>
                                 </div>
                                 <div className="text-right">
-                                    <p className="text-lg font-bold text-gray-900 dark:text-white">MWK {ride.fare.toFixed(2)}</p>
+                                    <p className="text-lg font-bold text-gray-900 dark:text-white">MWK {(ride.price || 0).toFixed(2)}</p>
                                     <button className="text-xs font-medium text-primary-600 dark:text-primary-500 hover:underline">View Details</button>
                                 </div>
                             </div>
@@ -164,8 +164,8 @@ export const RidesManagement: React.FC<RidesManagementProps> = ({ onNavigate }) 
                                 <tr key={ride.id} className="bg-white dark:bg-dark-800 border-b border-gray-200 dark:border-dark-700 hover:bg-gray-50 dark:hover:bg-dark-700/50 transition-colors">
                                     <td className="px-6 py-4 font-medium text-primary-600 dark:text-primary-500 whitespace-nowrap">{ride.id}</td>
                                     <td className="px-6 py-4">
-                                        <span className={`px-2 py-1 rounded text-xs font-medium ${ride.type === 'Ride Share' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'}`}>
-                                            {ride.type}
+                                        <span className={`px-2 py-1 rounded text-xs font-medium ${ride.type === 'share' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'}`}>
+                                            {ride.type === 'share' ? 'Ride Share' : 'For Hire'}
                                         </span>
                                     </td>
                                     <td className="px-6 py-4">
@@ -191,7 +191,7 @@ export const RidesManagement: React.FC<RidesManagementProps> = ({ onNavigate }) 
                                             <span className="text-gray-900 dark:text-white font-medium">{ride.destination}</span>
                                         </div>
                                     </td>
-                                    <td className="px-6 py-4 font-bold text-gray-900 dark:text-white">MWK {ride.fare.toFixed(2)}</td>
+                                    <td className="px-6 py-4 font-bold text-gray-900 dark:text-white">MWK {(ride.price || 0).toFixed(2)}</td>
                                     <td className="px-6 py-4 hidden xl:table-cell text-xs text-gray-500">{ride.date}</td>
                                     <td className="px-6 py-4"><RideStatusBadge status={ride.status} /></td>
                                     <td className="px-6 py-4 text-center">

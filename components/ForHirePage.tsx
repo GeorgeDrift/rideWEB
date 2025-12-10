@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { 
-    AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar 
+import {
+    AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar
 } from 'recharts';
 import { ArrowLeftIcon, TagIcon, DocumentIcon, MapIcon, CarIcon, PlusIcon } from './Icons';
 import { ApiService } from '../services/api';
@@ -22,7 +22,7 @@ const StatCard = ({ title, value, subValue, icon: Icon, trend, trendUp }: { titl
         <div className="flex flex-col">
             <div className="text-2xl font-bold text-gray-900 dark:text-white mb-1">{value}</div>
             <div className="flex items-center text-xs">
-                 {trend && (
+                {trend && (
                     <span className={`font-medium mr-2 ${trendUp ? 'text-green-500' : 'text-red-500'}`}>
                         {trendUp ? '↑' : '↓'} {trend}
                     </span>
@@ -34,7 +34,7 @@ const StatCard = ({ title, value, subValue, icon: Icon, trend, trendUp }: { titl
 );
 
 const FleetCard: React.FC<{ category: any; onClick: () => void }> = ({ category, onClick }) => (
-    <div 
+    <div
         onClick={onClick}
         className="cursor-pointer bg-white dark:bg-dark-800 p-5 rounded-xl border border-gray-300 dark:border-dark-700 shadow-sm hover:shadow-lg hover:border-purple-500 hover:scale-[1.02] transition-all duration-300"
     >
@@ -50,11 +50,11 @@ const FleetCard: React.FC<{ category: any; onClick: () => void }> = ({ category,
                 {category.available} Avail.
             </div>
         </div>
-        
+
         {/* Availability Bar */}
         <div className="w-full bg-gray-100 dark:bg-dark-700 rounded-full h-1.5 mb-4">
-            <div 
-                className="bg-purple-500 h-1.5 rounded-full transition-all duration-500" 
+            <div
+                className="bg-purple-500 h-1.5 rounded-full transition-all duration-500"
                 style={{ width: `${(category.available / category.count) * 100}%` }}
             ></div>
         </div>
@@ -78,7 +78,7 @@ const FleetCard: React.FC<{ category: any; onClick: () => void }> = ({ category,
 export const ForHirePage: React.FC<ForHirePageProps> = ({ onBack }) => {
     const [timeRange, setTimeRange] = useState<'Weekly' | 'Monthly'>('Weekly');
     const [selectedCategory, setSelectedCategory] = useState<any | null>(null);
-    
+
     const [forHireData, setForHireData] = useState<any>({ weekly: [], monthly: [], categories: [] });
 
     useEffect(() => {
@@ -94,8 +94,8 @@ export const ForHirePage: React.FC<ForHirePageProps> = ({ onBack }) => {
         return () => { mounted = false; };
     }, []);
 
-    const getData = () => (timeRange === 'Weekly' ? (forHireData.weekly || []) : (forHireData.monthly || []));
-    
+    // const getData = () => (timeRange === 'Weekly' ? (forHireData.weekly || []) : (forHireData.monthly || []));
+
     const CustomTooltip = ({ active, payload, label }: any) => {
         if (active && payload && payload.length) {
             return (
@@ -115,7 +115,7 @@ export const ForHirePage: React.FC<ForHirePageProps> = ({ onBack }) => {
         return (
             <div className="space-y-6 animate-fadeIn">
                 <div className="flex items-center space-x-4 mb-6">
-                    <button 
+                    <button
                         onClick={() => setSelectedCategory(null)}
                         className="p-2 rounded-lg bg-gray-200 dark:bg-dark-700 hover:bg-gray-300 dark:hover:bg-dark-600 text-gray-900 dark:text-white transition-colors"
                     >
@@ -132,33 +132,33 @@ export const ForHirePage: React.FC<ForHirePageProps> = ({ onBack }) => {
 
                 {/* Detailed Stats Grid */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <StatCard 
-                        title="Active Rentals" 
-                        value={selectedCategory.stats.activeRentals.toString()} 
+                    <StatCard
+                        title="Active Rentals"
+                        value={selectedCategory.stats.activeRentals.toString()}
                         subValue="People currently hiring"
                         trend={`${Math.abs(selectedCategory.stats.growth)}%`}
                         trendUp={selectedCategory.stats.growth > 0}
-                        icon={DocumentIcon} 
+                        icon={DocumentIcon}
                     />
-                    <StatCard 
-                        title="Fleet Size" 
-                        value={selectedCategory.count.toString()} 
+                    <StatCard
+                        title="Fleet Size"
+                        value={selectedCategory.count.toString()}
                         subValue={`${selectedCategory.available} currently available`}
-                        icon={CarIcon} 
+                        icon={CarIcon}
                     />
-                    <StatCard 
-                        title="Weekly Revenue" 
-                        value={`MWK ${(selectedCategory?.stats?.revenue ?? 0).toLocaleString()}`} 
+                    <StatCard
+                        title="Weekly Revenue"
+                        value={`MWK ${(selectedCategory?.stats?.revenue ?? 0).toLocaleString()}`}
                         subValue="From this category"
                         trend="4.2%"
                         trendUp={true}
-                        icon={TagIcon} 
+                        icon={TagIcon}
                     />
-                    <StatCard 
-                        title="Avg Rate" 
-                        value={`MWK ${selectedCategory.stats.avgRate}`} 
+                    <StatCard
+                        title="Avg Rate"
+                        value={`MWK ${selectedCategory.stats.avgRate}`}
                         subValue="Per day / job"
-                        icon={DocumentIcon} 
+                        icon={DocumentIcon}
                     />
                 </div>
 
@@ -170,31 +170,31 @@ export const ForHirePage: React.FC<ForHirePageProps> = ({ onBack }) => {
                             <AreaChart data={selectedCategory.stats.chartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                                 <defs>
                                     <linearGradient id="colorCategory" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3}/>
-                                        <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
+                                        <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
+                                        <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
                                     </linearGradient>
                                 </defs>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#374151" opacity={0.2} />
-                                <XAxis 
-                                    dataKey="day" 
-                                    axisLine={false} 
-                                    tickLine={false} 
-                                    tick={{ fill: '#9CA3AF', fontSize: 12 }} 
+                                <XAxis
+                                    dataKey="day"
+                                    axisLine={false}
+                                    tickLine={false}
+                                    tick={{ fill: '#9CA3AF', fontSize: 12 }}
                                     dy={10}
                                 />
-                                <YAxis 
-                                    axisLine={false} 
-                                    tickLine={false} 
+                                <YAxis
+                                    axisLine={false}
+                                    tickLine={false}
                                     tick={{ fill: '#9CA3AF', fontSize: 12 }}
                                 />
                                 <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#374151', strokeWidth: 1 }} />
-                                <Area 
-                                    type="monotone" 
-                                    dataKey="value" 
-                                    stroke="#8b5cf6" 
-                                    strokeWidth={3} 
-                                    fillOpacity={1} 
-                                    fill="url(#colorCategory)" 
+                                <Area
+                                    type="monotone"
+                                    dataKey="value"
+                                    stroke="#8b5cf6"
+                                    strokeWidth={3}
+                                    fillOpacity={1}
+                                    fill="url(#colorCategory)"
                                 />
                             </AreaChart>
                         </ResponsiveContainer>
@@ -223,7 +223,7 @@ export const ForHirePage: React.FC<ForHirePageProps> = ({ onBack }) => {
     return (
         <div className="space-y-6">
             <div className="flex items-center space-x-4 mb-6">
-                <button 
+                <button
                     onClick={onBack}
                     className="p-2 rounded-lg bg-gray-200 dark:bg-dark-700 hover:bg-gray-300 dark:hover:bg-dark-600 text-gray-900 dark:text-white transition-colors"
                 >
@@ -239,23 +239,23 @@ export const ForHirePage: React.FC<ForHirePageProps> = ({ onBack }) => {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                <StatCard 
-                    title="Total Hire Jobs" 
-                    value="2,450" 
+                <StatCard
+                    title="Total Hire Jobs"
+                    value="2,450"
                     subValue="+5% vs last week"
-                    icon={TagIcon} 
+                    icon={TagIcon}
                 />
-                <StatCard 
-                    title="Advance Bookings" 
-                    value="32%" 
+                <StatCard
+                    title="Advance Bookings"
+                    value="32%"
                     subValue="Of total trips"
-                    icon={DocumentIcon} 
+                    icon={DocumentIcon}
                 />
-                <StatCard 
-                    title="Avg Trip Distance" 
-                    value="12.4 km" 
+                <StatCard
+                    title="Avg Trip Distance"
+                    value="12.4 km"
                     subValue="Longer than ride share"
-                    icon={MapIcon} 
+                    icon={MapIcon}
                 />
             </div>
 
@@ -267,11 +267,10 @@ export const ForHirePage: React.FC<ForHirePageProps> = ({ onBack }) => {
                             <button
                                 key={range}
                                 onClick={() => setTimeRange(range as 'Weekly' | 'Monthly')}
-                                className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                                    timeRange === range 
-                                    ? 'bg-white dark:bg-dark-600 text-purple-600 dark:text-purple-500 shadow-sm' 
+                                className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${timeRange === range
+                                    ? 'bg-white dark:bg-dark-600 text-purple-600 dark:text-purple-500 shadow-sm'
                                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-                                }`}
+                                    }`}
                             >
                                 {range}
                             </button>
@@ -281,47 +280,47 @@ export const ForHirePage: React.FC<ForHirePageProps> = ({ onBack }) => {
 
                 <div className="h-80 w-full">
                     <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={getData()} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                        <AreaChart data={timeRange === 'Weekly' ? (forHireData.weekly || []) : (forHireData.monthly || [])} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                             <defs>
                                 <linearGradient id="colorScheduled" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.3}/>
-                                    <stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/>
+                                    <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.3} />
+                                    <stop offset="95%" stopColor="#4f46e5" stopOpacity={0} />
                                 </linearGradient>
                                 <linearGradient id="colorImmediate" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#a855f7" stopOpacity={0.3}/>
-                                    <stop offset="95%" stopColor="#a855f7" stopOpacity={0}/>
+                                    <stop offset="5%" stopColor="#a855f7" stopOpacity={0.3} />
+                                    <stop offset="95%" stopColor="#a855f7" stopOpacity={0} />
                                 </linearGradient>
                             </defs>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#374151" opacity={0.2} />
-                            <XAxis 
-                                dataKey="name" 
-                                axisLine={false} 
-                                tickLine={false} 
-                                tick={{ fill: '#9CA3AF', fontSize: 12 }} 
+                            <XAxis
+                                dataKey="name"
+                                axisLine={false}
+                                tickLine={false}
+                                tick={{ fill: '#9CA3AF', fontSize: 12 }}
                                 dy={10}
                             />
-                            <YAxis 
-                                axisLine={false} 
-                                tickLine={false} 
+                            <YAxis
+                                axisLine={false}
+                                tickLine={false}
                                 tick={{ fill: '#9CA3AF', fontSize: 12 }}
                             />
                             <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#374151', strokeWidth: 1 }} />
-                            <Area 
-                                type="monotone" 
-                                dataKey="scheduled" 
-                                stroke="#4f46e5" 
-                                strokeWidth={3} 
-                                fillOpacity={1} 
-                                fill="url(#colorScheduled)" 
+                            <Area
+                                type="monotone"
+                                dataKey="scheduled"
+                                stroke="#4f46e5"
+                                strokeWidth={3}
+                                fillOpacity={1}
+                                fill="url(#colorScheduled)"
                                 name="Scheduled"
                             />
-                            <Area 
-                                type="monotone" 
-                                dataKey="immediate" 
-                                stroke="#a855f7" 
-                                strokeWidth={3} 
-                                fillOpacity={1} 
-                                fill="url(#colorImmediate)" 
+                            <Area
+                                type="monotone"
+                                dataKey="immediate"
+                                stroke="#a855f7"
+                                strokeWidth={3}
+                                fillOpacity={1}
+                                fill="url(#colorImmediate)"
                                 name="Immediate"
                             />
                         </AreaChart>
@@ -333,12 +332,12 @@ export const ForHirePage: React.FC<ForHirePageProps> = ({ onBack }) => {
             <div className="pt-4">
                 <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-1">Fleet Availability & Categories</h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">Select a category below to view specific hiring statistics and trends.</p>
-                
+
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                     {forHireData.categories.map((category: any, index: number) => (
-                        <FleetCard 
-                            key={index} 
-                            category={category} 
+                        <FleetCard
+                            key={index}
+                            category={category}
                             onClick={() => setSelectedCategory(category)}
                         />
                     ))}

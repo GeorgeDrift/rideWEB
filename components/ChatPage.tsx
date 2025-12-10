@@ -1,11 +1,102 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { SearchIcon, ChatBubbleIcon, SendIcon } from './Icons';
 import { ApiService, Conversation, Message } from '../services/api';
+import { socketService } from '../services/socket';
 
-export const ChatPage: React.FC = () => {
+export const ChatPage: React.FC<{ initialChatId?: string; currentUserId?: string }> = ({ initialChatId, currentUserId }) => {
     const [conversations, setConversations] = useState<Conversation[]>([]);
-    // Default to first conversation when loaded
     const [selectedChatId, setSelectedChatId] = useState<string>('');
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+    const activeChat = conversations.find(c => c.id === selectedChatId);
+
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    };
+
+    useEffect(() => {
+        scrollToBottom();
+    }, [activeChat?.messages, selectedChatId]);
+
+    // Socket Integration: Listen for new messages
+    useEffect(() => {
+        const handleNewMessage = (msg: Message | any) => {
+            console.log('Socket received message:', msg);
+            // Defensive check
+            if (!msg.conversationId && !msg.rideId) return;
+
+            setConversations(prev => prev.map(c => {
+                // Check if message belongs to this conversation
+                // Note: msg.conversationId is the robust way, msg.rideId is legacy fallback
+                if (c.id === msg.conversationId || (msg.rideId && c.id === msg.rideId)) {
+
+                    // Determine sender type based on ID
+                    const isMe = msg.senderId === currentUserId || msg.senderId === 'admin';
+                    // 'admin' check kept for legacy/fallback if string is ever used
+
+                    // Check for duplicates
+                    // If optimistic update already added it (local temp ID), we might have overlap. 
+                    // Usually real ID differs from temp ID, so we might check content + timestamp approx?
+                    // Ideally, we replace the optimistic one. For now, simple dedupe on ID if backend returns same ID (unlikely if optimistic was temp)
+                    // OR if we sent it, we typically ignore the echo if we trust optimistic. 
+                    // BUT socket echo confirms receipt. 
+                    // Let's filter duplicates by text + time window if needed, or simply ID.
+
+                    // Improve duplication/echo check
+                    // If it's my message (isMe), and I already have a message with same text sent "Just now" or recently, ignore it
+                    // The optimistic message has a temp ID but same text.
+                    const isDuplicate = c.messages.some(m => {
+                        // Same ID (if server returned valid ID matching ours? rare for temp)
+                        if (m.id === msg.id) return true;
+                        // OR Same text and sender and recent timestamp (last 60s)
+                        const timeDiff = Math.abs(new Date(m.timestamp).getTime() - new Date(msg.createdAt || Date.now()).getTime());
+                        // Note: m.timestamp is string HH:MM, tricky to compare precise time.
+                        // Lets stick to text + sender match for the very last message if it's 'agent'
+                        if (isMe && m.sender === 'agent' && m.text === msg.text) return true;
+
+                        return false;
+                    });
+
+                    if (isDuplicate) return c;
+
+                    const incomingMsg: Message = {
+                        id: msg.id || Date.now().toString(),
+                        text: msg.text,
+                        sender: isMe ? 'agent' : 'user',
+                        timestamp: new Date(msg.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    };
+
+                    return {
+                        ...c,
+                        messages: [...c.messages, incomingMsg],
+                        lastMessage: msg.text,
+                        time: 'Just now',
+                        unread: (selectedChatId !== c.id) ? (c.unread || 0) + 1 : 0
+                    };
+                }
+                return c;
+            }));
+        };
+
+        socketService.on('new_message', handleNewMessage);
+
+        return () => {
+            socketService.off('new_message', handleNewMessage);
+        };
+    }, [selectedChatId]);
+
+    // Join Conversation Room when selected
+    useEffect(() => {
+        if (selectedChatId) {
+            console.log('Joining conversation room:', selectedChatId);
+            socketService.emit('join_conversation', selectedChatId);
+        }
+    }, [selectedChatId]);
+
+    useEffect(() => {
+        if (initialChatId) {
+            setSelectedChatId(initialChatId);
+        }
+    }, [initialChatId]);
 
     useEffect(() => {
         let mounted = true;
@@ -14,30 +105,36 @@ export const ChatPage: React.FC = () => {
                 const items = await ApiService.getConversations();
                 if (mounted && items) {
                     setConversations(items);
-                    if (items.length) setSelectedChatId(items[0].id);
+                    if (!initialChatId && items.length && !selectedChatId) {
+                        setSelectedChatId(items[0].id);
+                    }
+                    if (initialChatId && items.some(c => c.id === initialChatId)) {
+                        setSelectedChatId(initialChatId);
+                    }
                 }
             } catch (e) {
                 console.warn('Failed to load conversations', e);
             }
         })();
         return () => { mounted = false; };
-    }, []);
-    const [inputMessage, setInputMessage] = useState('');
+    }, [initialChatId]);
 
-    const activeChat = conversations.find(c => c.id === selectedChatId);
+    const [inputMessage, setInputMessage] = useState('');
 
     const handleSendMessage = (e: React.FormEvent) => {
         e.preventDefault();
         if (!inputMessage.trim() || !activeChat) return;
 
+        // Optimistic UI Update
+        const tempId = Date.now().toString();
         const newMessage: Message = {
-            id: Date.now().toString(),
+            id: tempId,
             text: inputMessage,
             sender: 'agent',
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         };
 
-        const updatedConversations = conversations.map(c => {
+        setConversations(prev => prev.map(c => {
             if (c.id === selectedChatId) {
                 return {
                     ...c,
@@ -47,10 +144,25 @@ export const ChatPage: React.FC = () => {
                 };
             }
             return c;
-        });
+        }));
 
-        setConversations(updatedConversations);
+        const messageText = inputMessage; // capture for closure
         setInputMessage('');
+
+        // Emit to Server
+        // We know 'activeChat' exists (checked above)
+        // For conversation flow, we rely on conversationId.
+        // RecipientId is optional but good for notifications if needed.
+        const recipient = activeChat.participants && activeChat.participants.length > 0
+            ? activeChat.participants[0]
+            : undefined;
+
+        socketService.emit('send_message', {
+            conversationId: selectedChatId,
+            text: messageText,
+            // senderId: 'admin', // REMOVED: Let server use socket.userId (which is valid UUID)
+            recipientId: recipient
+        });
     };
 
     return (
@@ -133,8 +245,8 @@ export const ChatPage: React.FC = () => {
                                         <img src={activeChat.avatar} alt={activeChat.name} className="w-8 h-8 rounded-full mr-2 self-end mb-1" />
                                     )}
                                     <div className={`max-w-[70%] px-4 py-3 rounded-2xl shadow-sm ${msg.sender === 'agent'
-                                            ? 'bg-primary-500 text-black rounded-tr-none'
-                                            : 'bg-white dark:bg-dark-700 text-gray-900 dark:text-white rounded-tl-none'
+                                        ? 'bg-primary-500 text-black rounded-tr-none'
+                                        : 'bg-white dark:bg-dark-700 text-gray-900 dark:text-white rounded-tl-none'
                                         }`}>
                                         <p className="text-sm">{msg.text}</p>
                                         <p className={`text-[10px] mt-1 text-right ${msg.sender === 'agent' ? 'text-primary-900/60' : 'text-gray-400'}`}>
@@ -143,6 +255,7 @@ export const ChatPage: React.FC = () => {
                                     </div>
                                 </div>
                             ))}
+                            <div ref={messagesEndRef} />
                         </div>
 
                         {/* Input Area */}
@@ -164,8 +277,8 @@ export const ChatPage: React.FC = () => {
                                     type="submit"
                                     disabled={!inputMessage.trim()}
                                     className={`p-2 rounded-lg transition-colors ${inputMessage.trim()
-                                            ? 'bg-primary-500 text-black hover:bg-primary-600'
-                                            : 'bg-gray-200 dark:bg-dark-600 text-gray-400 cursor-not-allowed'
+                                        ? 'bg-primary-500 text-black hover:bg-primary-600'
+                                        : 'bg-gray-200 dark:bg-dark-600 text-gray-400 cursor-not-allowed'
                                         }`}
                                 >
                                     <SendIcon className="h-5 w-5" />

@@ -306,6 +306,26 @@ const NegotiationHistory = sequelize.define('NegotiationHistory', {
     status: { type: DataTypes.ENUM('pending', 'accepted', 'rejected', 'countered'), defaultValue: 'pending' }
 });
 
+// --- SubscriptionPlans Model ---
+const SubscriptionPlans = sequelize.define('SubscriptionPlans', {
+    id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
+    name: { type: DataTypes.STRING, allowNull: false },
+    price: { type: DataTypes.FLOAT, allowNull: false },
+    duration: { type: DataTypes.INTEGER, allowNull: false }, // Days
+    description: { type: DataTypes.TEXT },
+    isActive: { type: DataTypes.BOOLEAN, defaultValue: true }
+});
+
+// --- Disputes Model ---
+const Disputes = sequelize.define('Disputes', {
+    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
+    reason: { type: DataTypes.TEXT, allowNull: false },
+    status: { type: DataTypes.ENUM('pending', 'resolved', 'dismissed'), defaultValue: 'pending' },
+    userId: { type: DataTypes.UUID },
+    rideId: { type: DataTypes.UUID }
+});
+
+
 // --- Relationships ---
 
 // User <-> Vehicle (Legacy)
@@ -402,5 +422,7 @@ module.exports = {
     Notification,
     RiderStats,
     DriverStats,
-    NegotiationHistory
+    NegotiationHistory,
+    SubscriptionPlans,
+    Disputes
 };

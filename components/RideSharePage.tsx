@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { 
-    AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
+import {
+    AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
 import { ArrowLeftIcon, CarIcon, SteeringWheelIcon, DocumentIcon } from './Icons';
 import { ApiService } from '../services/api';
@@ -42,7 +42,7 @@ export const RideSharePage: React.FC<RideSharePageProps> = ({ onBack }) => {
         return () => { mounted = false; };
     }, []);
 
-    const getData = () => (timeRange === 'Weekly' ? (rideShareData.weekly || []) : (rideShareData.monthly || []));
+    // const getData = () => (timeRange === 'Weekly' ? (rideShareData.weekly || []) : (rideShareData.monthly || []));
 
     const CustomTooltip = ({ active, payload, label }: any) => {
         if (active && payload && payload.length) {
@@ -61,7 +61,7 @@ export const RideSharePage: React.FC<RideSharePageProps> = ({ onBack }) => {
     return (
         <div className="space-y-6">
             <div className="flex items-center space-x-4 mb-6">
-                <button 
+                <button
                     onClick={onBack}
                     className="p-2 rounded-lg bg-gray-200 dark:bg-dark-700 hover:bg-gray-300 dark:hover:bg-dark-600 text-gray-900 dark:text-white transition-colors"
                 >
@@ -77,23 +77,23 @@ export const RideSharePage: React.FC<RideSharePageProps> = ({ onBack }) => {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                <StatCard 
-                    title="Total Ride Shares" 
-                    value="13,720" 
+                <StatCard
+                    title="Total Ride Shares"
+                    value="13,720"
                     subValue="+12% vs last week"
-                    icon={CarIcon} 
+                    icon={CarIcon}
                 />
-                <StatCard 
-                    title="Active Vehicles" 
-                    value="845" 
+                <StatCard
+                    title="Active Vehicles"
+                    value="845"
                     subValue="Currently on road"
-                    icon={SteeringWheelIcon} 
+                    icon={SteeringWheelIcon}
                 />
-                <StatCard 
-                    title="Avg Fare" 
-                    value="MWK 24.50" 
+                <StatCard
+                    title="Avg Fare"
+                    value="MWK 24.50"
                     subValue="Per completed trip"
-                    icon={DocumentIcon} 
+                    icon={DocumentIcon}
                 />
             </div>
 
@@ -105,48 +105,47 @@ export const RideSharePage: React.FC<RideSharePageProps> = ({ onBack }) => {
                             <button
                                 key={range}
                                 onClick={() => setTimeRange(range as 'Weekly' | 'Monthly')}
-                                className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                                    timeRange === range 
-                                    ? 'bg-white dark:bg-dark-600 text-blue-600 dark:text-blue-500 shadow-sm' 
+                                className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${timeRange === range
+                                    ? 'bg-white dark:bg-dark-600 text-blue-600 dark:text-blue-500 shadow-sm'
                                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-                                }`}
+                                    }`}
                             >
                                 {range}
                             </button>
                         ))}
                     </div>
                 </div>
-                
+
                 <div className="h-80 w-full">
                     <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={getData()} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                        <AreaChart data={timeRange === 'Weekly' ? (rideShareData.weekly || []) : (rideShareData.monthly || [])} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                             <defs>
                                 <linearGradient id="colorRideShare" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+                                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
                                 </linearGradient>
                             </defs>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#374151" opacity={0.2} />
-                            <XAxis 
-                                dataKey="name" 
-                                axisLine={false} 
-                                tickLine={false} 
-                                tick={{ fill: '#9CA3AF', fontSize: 12 }} 
+                            <XAxis
+                                dataKey="name"
+                                axisLine={false}
+                                tickLine={false}
+                                tick={{ fill: '#9CA3AF', fontSize: 12 }}
                                 dy={10}
                             />
-                            <YAxis 
-                                axisLine={false} 
-                                tickLine={false} 
+                            <YAxis
+                                axisLine={false}
+                                tickLine={false}
                                 tick={{ fill: '#9CA3AF', fontSize: 12 }}
                             />
                             <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#3b82f6', strokeWidth: 1 }} />
-                            <Area 
-                                type="monotone" 
-                                dataKey="rides" 
-                                stroke="#3b82f6" 
-                                strokeWidth={3} 
-                                fillOpacity={1} 
-                                fill="url(#colorRideShare)" 
+                            <Area
+                                type="monotone"
+                                dataKey="rides"
+                                stroke="#3b82f6"
+                                strokeWidth={3}
+                                fillOpacity={1}
+                                fill="url(#colorRideShare)"
                             />
                         </AreaChart>
                     </ResponsiveContainer>

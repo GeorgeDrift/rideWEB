@@ -26,4 +26,17 @@ router.post('/pricing-zones', adminController.createPricingZone);
 router.get('/settings', adminController.getSettings);
 router.put('/settings', adminController.updateSettings);
 
+// Analytics & Reports
+router.get('/revenue', adminController.getRevenueStats);
+router.get('/stats/rides', adminController.getTotalRideStats);
+router.get('/stats/share', adminController.getShareStats);
+router.get('/stats/hire', adminController.getHireStats);
+router.get('/vehicles', adminController.getAllVehicles);
+
+// Subscription Plan Management
+const subscriptionController = require('../controllers/subscriptionController');
+router.get('/plans', subscriptionController.getPlans);
+router.post('/plans', subscriptionController.createPlan);
+router.put('/plans/:id', subscriptionController.updatePlan);
+
 module.exports = router;

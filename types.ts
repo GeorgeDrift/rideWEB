@@ -1,10 +1,10 @@
 
-export type View = 'dashboard' | 'rides' | 'drivers' | 'riders' | 'revenue' | 'pricing' | 'disputes' | 'reports' | 'total-rides' | 'ride-share' | 'for-hire' | 'chat' | 'map';
+export type View = 'dashboard' | 'rides' | 'drivers' | 'riders' | 'revenue' | 'pricing' | 'disputes' | 'reports' | 'total-rides' | 'ride-share' | 'for-hire' | 'chat' | 'subscriptions' | 'vehicles';
 
 export type RideStatus = 'Completed' | 'In Progress' | 'Cancelled' | 'Scheduled';
 export type DriverStatus = 'Approved' | 'Pending' | 'Suspended';
 export type RiderStatus = 'Active' | 'Flagged' | 'Suspended';
-export type RideType = 'Ride Share' | 'For Hire';
+export type RideType = 'share' | 'hire';
 export type UserRole = 'admin' | 'driver' | 'rider';
 
 
@@ -15,13 +15,13 @@ export interface Ride {
     avatar: string;
   };
   driver: {
-    name:string;
+    name: string;
     avatar: string;
   };
   type: RideType;
   origin: string;
   destination: string;
-  fare: number;
+  price: number;
   date: string;
   status: RideStatus;
 }
@@ -39,12 +39,12 @@ export interface Driver {
 }
 
 export interface Rider {
-    id: string;
-    name: string;
-    avatar: string;
-    totalRides: number;
-    memberSince: string;
-    status: RiderStatus;
+  id: string;
+  name: string;
+  avatar: string;
+  totalRides: number;
+  memberSince: string;
+  status: RiderStatus;
 }
 
 export interface RevenueData {

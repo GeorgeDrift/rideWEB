@@ -65,7 +65,7 @@ exports.getConversations = async (req, res) => {
                     messages: messages.map(m => ({
                         id: m.id,
                         text: m.text,
-                        sender: m.senderId === userId ? 'user' : 'other', // api.ts expects 'user' | 'agent' - strict mapping needed
+                        sender: m.senderId === userId ? 'agent' : 'user', // 'agent' aligns right (Me), 'user' aligns left (Them)
                         timestamp: new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                     }))
                 });

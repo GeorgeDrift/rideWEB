@@ -2,7 +2,11 @@
   "compilerOptions": {
     "target": "ESNext",
     "useDefineForClassFields": true,
-    "lib": ["DOM", "DOM.Iterable", "ESNext"],
+    "lib": [
+      "DOM",
+      "DOM.Iterable",
+      "ESNext"
+    ],
     "allowJs": false,
     "skipLibCheck": true,
     "esModuleInterop": false,
@@ -14,8 +18,22 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "types": [
+      "vite/client"
+    ]
   },
-  "include": ["./**/*.ts", "./**/*.tsx"],
-  "exclude": ["tests", "tests/**", "playwright.config.ts", "**/node_modules"]
+  "include": [
+    "./**/*.ts",
+    "./**/*.tsx",
+    "./vite-env.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "backups",
+    "dist",
+    "build",
+    "tests",
+    "playwright.config.ts"
+  ]
 }
