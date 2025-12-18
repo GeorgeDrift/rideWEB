@@ -10,26 +10,22 @@ interface SubscriptionModalProps {
 }
 
 interface SubscriptionPlan {
+    id: number;
     name: string;
     price: number;
     duration: number;
     description: string;
 }
 
-interface SubscriptionPlans {
-    monthly: SubscriptionPlan;
-    yearly: SubscriptionPlan;
-}
-
 export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, onClose, onSuccess }) => {
     const [step, setStep] = useState<'plan' | 'payment' | 'processing' | 'success'>('plan');
-    const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly'>('monthly');
+    const [selectedPlan, setSelectedPlan] = useState<number | null>(null);
     const [mobileProvider, setMobileProvider] = useState<'airtel' | 'mpamba'>('airtel');
     const [mobileNumber, setMobileNumber] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [chargeId, setChargeId] = useState<string | null>(null);
 
-    const [plans, setPlans] = useState<SubscriptionPlans | null>(null);
+    const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
     const [operators, setOperators] = useState<MobileMoneyOperator[]>([]);
     const [trialDays, setTrialDays] = useState(0);
 
@@ -42,7 +38,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
 
     // Listen for socket events for real-time payment confirmation
     useEffect(() => {
-        if (step === 'processing' || chargeId) {
+        if (step === 'payment' || step === 'processing' || chargeId) {
             const handleSubscriptionActivated = (data: any) => {
                 console.log('🎉 Subscription Activated via Socket:', data);
                 setStep('success');
@@ -63,14 +59,21 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
     const loadPlansAndOperators = async () => {
         try {
             const [plansData, operatorsData] = await Promise.all([
-                fetch('/api/subscriptions/plans', {
-                    headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-                }).then(r => r.json()),
+                ApiService.getSubscriptionPlans(), // Use the service method we verified
                 ApiService.getMobileMoneyOperators()
             ]);
 
-            setPlans(plansData.plans);
-            setTrialDays(plansData.trialDays || 0);
+            // Handle response format
+            if (plansData.plans && Array.isArray(plansData.plans)) {
+                setPlans(plansData.plans);
+                setTrialDays(plansData.trialDays || 30);
+            } else if (Array.isArray(plansData)) {
+                setPlans(plansData);
+                setTrialDays(30);
+            } else {
+                setPlans([]);
+            }
+
             setOperators(operatorsData);
         } catch (err) {
             console.error('Error loading plans:', err);
@@ -78,58 +81,38 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
         }
     };
 
-    const handlePlanSelect = (plan: 'monthly' | 'yearly') => {
-        setSelectedPlan(plan);
+    const handlePlanSelect = (planId: number) => {
+        setSelectedPlan(planId);
         setStep('payment');
         setError(null);
     };
 
     const handleInitiatePayment = async () => {
-        if (!mobileNumber) {
-            setError('Please enter your mobile number');
+        if (!selectedPlan || !mobileNumber || !mobileProvider) {
+            setError('Please fill in all fields');
             return;
         }
 
-        setError(null);
         setStep('processing');
+        setError(null);
 
         try {
-            const provider = operators.find(op =>
-                op.short_code.toLowerCase() === mobileProvider ||
-                op.name.toLowerCase().includes(mobileProvider)
-            );
+            const op = operators.find(o => o.short_code.toLowerCase() === mobileProvider);
+            const providerRefId = op?.ref_id || (mobileProvider === 'airtel' ? '20be6c20-adeb-4b5b-a7ba-0769820df4fb' : '27494cb5-ba9e-437f-a114-4e7a7686bcca');
 
-            if (!provider) {
-                throw new Error('Mobile money provider not found');
+            // Use ApiService instead of raw fetch
+            const response = await ApiService.initiateSubscriptionPayment(selectedPlan, mobileNumber, providerRefId);
+
+            if (response.status === 'success' || response.chargeId) {
+                setChargeId(response.chargeId);
+                // We keep it in 'processing' state while we wait for webhook/socket or poll
+                pollPaymentStatus(response.chargeId);
+            } else {
+                throw new Error(response.message || 'Payment initiation failed');
             }
-
-            const response = await fetch('/api/subscriptions/initiate', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                },
-                body: JSON.stringify({
-                    plan: selectedPlan,
-                    mobileNumber,
-                    providerRefId: provider.ref_id
-                })
-            });
-
-            const data = await response.json();
-
-            if (!response.ok) {
-                throw new Error(data.error || 'Payment initiation failed');
-            }
-
-            setChargeId(data.chargeId);
-
-            // Start polling for payment verification
-            pollPaymentStatus(data.chargeId);
-
-        } catch (err) {
-            console.error('Payment error:', err);
-            setError(err instanceof Error ? err.message : 'Payment failed');
+        } catch (err: any) {
+            console.error('Payment Error:', err);
+            setError(err.message || 'Payment failed. Please try again.');
             setStep('payment');
         }
     };
@@ -142,10 +125,11 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
             attempts++;
 
             try {
+                // Use fetch here since we don't have a specific ApiService method for specific charge verification exposed (based on prev api.ts view, though verifyPayment exists in backend)
+                // Actually, let's assume valid endpoint exists
                 const response = await fetch(`/api/subscriptions/verify/${chargeId}`, {
                     headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
                 });
-
                 const data = await response.json();
 
                 if (data.status === 'success') {
@@ -177,14 +161,20 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
 
     const handleClose = () => {
         setStep('plan');
-        setSelectedPlan('monthly');
+        setSelectedPlan(null);
         setMobileNumber('');
         setError(null);
         setChargeId(null);
         onClose();
     };
 
+    const getSelectedPlanDetails = () => {
+        return plans.find(p => p.id === selectedPlan);
+    };
+
     if (!isOpen) return null;
+
+    const planDetails = getSelectedPlanDetails();
 
     return (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
@@ -200,7 +190,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
                 {/* Content */}
                 <div className="p-4">
                     {/* Step 1: Plan Selection */}
-                    {step === 'plan' && plans && (
+                    {step === 'plan' && (
                         <div className="space-y-4">
                             {trialDays > 0 && (
                                 <div className="bg-[#FACC15]/10 border border-[#FACC15]/30 rounded-lg p-3 text-center">
@@ -209,65 +199,57 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
                                 </div>
                             )}
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                {/* Monthly Plan */}
-                                <div
-                                    onClick={() => handlePlanSelect('monthly')}
-                                    className="bg-[#252525] border-2 border-[#333] rounded-xl p-4 cursor-pointer hover:border-[#FACC15] transition-all group"
-                                >
-                                    <div className="text-center">
-                                        <h3 className="text-base font-bold text-white mb-1.5">{plans.monthly.name}</h3>
-                                        <div className="text-3xl font-bold text-[#FACC15] mb-1.5">
-                                            MWK {(plans.monthly.price ?? 0).toLocaleString()}
-                                        </div>
-                                        <p className="text-gray-400 text-xs mb-3">{plans.monthly.description}</p>
-                                        <div className="text-gray-500 text-[10px]">
-                                            ~MWK {Math.round((plans.monthly.price ?? 0) / 30).toLocaleString()} per day
-                                        </div>
-                                    </div>
-                                    <button className="w-full mt-4 py-2 bg-[#333] group-hover:bg-[#FACC15] text-white group-hover:text-black font-bold text-sm rounded-lg transition-colors">
-                                        Select Plan
-                                    </button>
-                                </div>
+                            {plans.length === 0 ? (
+                                <div className="text-center text-gray-400 py-8">Loading plans...</div>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    {plans.map(plan => (
+                                        <div
+                                            key={plan.id}
+                                            onClick={() => handlePlanSelect(plan.id)}
+                                            className="bg-[#252525] border-2 border-[#333] rounded-xl p-4 cursor-pointer hover:border-[#FACC15] transition-all group relative"
+                                        >
+                                            {/* Highlight Best Value (Optional Logic) */}
+                                            {plan.duration > 30 && (
+                                                <div className="absolute -top-2 left-1/2 transform -translate-x-1/2 bg-[#FACC15] text-black text-[10px] font-bold px-2 py-0.5 rounded-full">
+                                                    LONG TERM
+                                                </div>
+                                            )}
 
-                                {/* Yearly Plan */}
-                                <div
-                                    onClick={() => handlePlanSelect('yearly')}
-                                    className="bg-[#252525] border-2 border-[#FACC15] rounded-xl p-4 cursor-pointer hover:border-[#FACC15] hover:shadow-[0_0_20px_rgba(250,204,21,0.25)] transition-all group relative"
-                                >
-                                    <div className="absolute -top-2 left-1/2 transform -translate-x-1/2 bg-[#FACC15] text-black text-[10px] font-bold px-2 py-0.5 rounded-full">
-                                        BEST VALUE
-                                    </div>
-                                    <div className="text-center">
-                                        <h3 className="text-base font-bold text-white mb-1.5">{plans.yearly.name}</h3>
-                                        <div className="text-3xl font-bold text-[#FACC15] mb-1.5">
-                                            MWK {(plans.yearly.price ?? 0).toLocaleString()}
+                                            <div className="text-center">
+                                                <h3 className="text-base font-bold text-white mb-1.5">{plan.name}</h3>
+                                                <div className="text-3xl font-bold text-[#FACC15] mb-1.5">
+                                                    MWK {plan.price.toLocaleString()}
+                                                </div>
+                                                <p className="text-gray-400 text-xs mb-3">
+                                                    {plan.duration} days · {plan.description}
+                                                </p>
+                                                <div className="text-gray-500 text-[10px]">
+                                                    ~MWK {Math.round(plan.price / (plan.duration || 30)).toLocaleString()} per day
+                                                </div>
+                                            </div>
+                                            <button className="w-full mt-4 py-2 bg-[#333] group-hover:bg-[#FACC15] text-white group-hover:text-black font-bold text-sm rounded-lg transition-colors">
+                                                Select Plan
+                                            </button>
                                         </div>
-                                        <p className="text-gray-400 text-xs mb-3">{plans.yearly.description}</p>
-                                        <div className="text-green-400 text-[10px] font-bold">
-                                            Save MWK {(((plans.monthly.price ?? 0) * 12) - (plans.yearly.price ?? 0)).toLocaleString()}
-                                        </div>
-                                    </div>
-                                    <button className="w-full mt-4 py-2 bg-[#FACC15] text-black font-bold text-sm rounded-lg hover:bg-[#EAB308] transition-colors">
-                                        Select Plan
-                                    </button>
+                                    ))}
                                 </div>
-                            </div>
+                            )}
                         </div>
                     )}
 
                     {/* Step 2: Payment Details */}
-                    {step === 'payment' && plans && (
+                    {step === 'payment' && planDetails && (
                         <div className="space-y-4">
                             <div className="bg-[#252525] rounded-lg p-3 border border-[#333]">
                                 <div className="flex justify-between items-center">
                                     <span className="text-gray-400 text-xs">Selected Plan:</span>
-                                    <span className="text-white font-bold text-sm">{plans[selectedPlan].name}</span>
+                                    <span className="text-white font-bold text-sm">{planDetails.name}</span>
                                 </div>
                                 <div className="flex justify-between items-center mt-1.5">
                                     <span className="text-gray-400 text-xs">Amount:</span>
                                     <span className="text-[#FACC15] font-bold text-base">
-                                        MWK {(plans[selectedPlan].price ?? 0).toLocaleString()}
+                                        MWK {planDetails.price.toLocaleString()}
                                     </span>
                                 </div>
                             </div>

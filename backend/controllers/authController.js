@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { User } = require('../models');
 const { JWT_SECRET } = require('../middleware/auth');
+const emailService = require('../services/emailService');
 
 exports.register = async (req, res) => {
     try {
@@ -41,6 +42,13 @@ exports.register = async (req, res) => {
         // Set account status based on role
         const accountStatus = role === 'driver' ? 'pending' : 'active';
 
+        // Set trial dates for new users (30-day trial)
+        const now = new Date();
+        const trialEnd = new Date(now);
+        trialEnd.setDate(trialEnd.getDate() + 30); // 30 days from now
+
+        const verificationToken = require('crypto').randomBytes(32).toString('hex');
+
         const user = await User.create({
             name,
             email,
@@ -55,8 +63,27 @@ exports.register = async (req, res) => {
             mpambaNumber,
             bankName,
             bankAccountNumber,
-            bankAccountName
+            bankAccountName,
+            // Trial dates for subscription safeback
+            trialStartDate: now,
+            trialEndDate: trialEnd,
+            subscriptionStatus: 'active', // Active during trial period
+
+            // Verification
+            isVerified: true, // Optimistic verification, confirmed if email sends below
+            verificationToken: null // No token needed for this flow
         });
+
+        // Send Welcome Email (Wait for success)
+        const emailSent = await emailService.sendWelcomeEmail(email, name, password);
+
+        if (!emailSent) {
+            // Rollback: Delete the user we just created
+            await User.destroy({ where: { id: user.id } });
+            return res.status(400).json({
+                error: 'Registration failed: Unable to send email to this address. Please ensure your email is valid.'
+            });
+        }
 
         const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
 
@@ -69,9 +96,7 @@ exports.register = async (req, res) => {
                 avatar: user.avatar,
                 accountStatus: user.accountStatus
             },
-            message: role === 'driver'
-                ? 'Registration successful! Your account is pending approval.'
-                : 'Registration successful!'
+            message: 'Registration successful! Credentials have been sent to your email.'
         });
     } catch (err) {
         console.error(err);
@@ -87,14 +112,19 @@ exports.login = async (req, res) => {
 
         if (!user) {
             console.log('User not found:', email);
-            return res.status(404).json({ error: 'User not found' });
+            return res.status(404).json({ error: 'Email not registered' });
         }
 
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
             console.log('Invalid password for:', email);
-            return res.status(400).json({ error: 'Invalid credentials' });
+            return res.status(400).json({ error: 'Wrong password' });
         }
+
+        // Check Verification Status - disabled for auto-login flow
+        // if (!user.isVerified) {
+        //      return res.status(403).json({ error: 'Please verify your email first.' });
+        // }
 
         const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
 
@@ -106,6 +136,34 @@ exports.login = async (req, res) => {
         });
     } catch (err) {
         console.error('Login error:', err);
+        res.status(500).json({ error: err.message });
+    }
+};
+
+exports.verifyEmail = async (req, res) => {
+    try {
+        const { token } = req.body;
+        const user = await User.findOne({ where: { verificationToken: token } });
+
+        if (!user) {
+            return res.status(400).json({ error: 'Invalid or expired verification token' });
+        }
+
+        // Verify User
+        await user.update({ isVerified: true, verificationToken: null });
+
+        // Auto-login? Or just success message.
+        // Let's return success and let user login manually for security or return token.
+        // Better UX: Return token so they are logged in.
+        const authToken = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
+
+        res.json({
+            message: 'Email verified successfully!',
+            token: authToken,
+            user: { id: user.id, name: user.name, role: user.role, avatar: user.avatar }
+        });
+    } catch (err) {
+        console.error('Verification error:', err);
         res.status(500).json({ error: err.message });
     }
 };

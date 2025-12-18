@@ -139,7 +139,9 @@ export const Header: React.FC<HeaderProps> = ({ title, onMenuClick, onNavigate }
 
                     <div className="relative">
                         <button className="flex text-sm border-2 border-transparent rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 transition">
-                            <img className="h-9 w-9 rounded-full object-cover" src="https://picsum.photos/id/1005/100/100" alt="Admin" />
+                            <div className="h-9 w-9 rounded-full bg-primary-500 flex items-center justify-center text-white dark:text-dark-900 font-bold text-sm">
+                                SA
+                            </div>
                         </button>
                     </div>
                 </div>

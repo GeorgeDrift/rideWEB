@@ -1,0 +1,12 @@
+/* Fix for logo black background */
+.logo-blend {
+    mix-blend-mode: multiply !important;
+    filter: brightness(1.3) contrast(1.2) !important;
+}
+
+@media (prefers-color-scheme: dark) {
+    .logo-blend {
+        mix-blend-mode: screen !important;
+        filter: brightness(1.1) contrast(1.1) !important;
+    }
+}

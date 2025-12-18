@@ -13,6 +13,7 @@ import { RideSharePage } from './components/RideSharePage';
 import { ForHirePage } from './components/ForHirePage';
 import { ChatPage } from './components/ChatPage';
 import { LoginPage } from './components/LoginPage';
+import { VerifyEmail } from './components/VerifyEmail';
 import { SubscriptionManagement } from './components/SubscriptionManagement';
 import { VehiclesList } from './components/VehiclesList';
 import { DriverDashboard } from './components/DriverDashboard';
@@ -23,6 +24,11 @@ import { ApiService } from './services/api';
 import { socketService } from './services/socket';
 
 const App: React.FC = () => {
+    // Check for verification route first
+    if (window.location.pathname === '/verify') {
+        return <VerifyEmail />;
+    }
+
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [userRole, setUserRole] = useState<UserRole>('admin');
     const [profile, setProfile] = useState<any | null>(null);

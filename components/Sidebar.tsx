@@ -51,10 +51,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, setActiveView, isO
         <div className="flex flex-col h-full">
             <div className="flex items-center justify-between h-20 px-4 border-b border-gray-200 dark:border-dark-700">
                 <div className="flex items-center">
-                    <div className="bg-primary-500 rounded-lg h-8 w-8 flex items-center justify-center">
-                        <SteeringWheelIcon className="h-5 w-5 text-white dark:text-dark-900" />
-                    </div>
-                    <span className="text-2xl font-bold text-gray-900 dark:text-white ml-3">Ridex</span>
+                    <span className="text-2xl font-bold text-gray-900 dark:text-white">RideX</span>
                 </div>
                 <button onClick={() => setIsOpen(false)} className="lg:hidden text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">
                     <CloseIcon className="h-6 w-6" />

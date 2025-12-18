@@ -2,7 +2,7 @@
 export interface VehicleCategoryType {
     id: string;
     name: string;
-    icon: string; // We'll use string identifiers for icons and map them in the component
+    icon: string;
     subCategories: string[];
 }
 
@@ -14,59 +14,93 @@ export interface MainCategoryType {
 
 export const VEHICLE_HIRE_CATEGORIES: MainCategoryType[] = [
     {
-        id: 'personal',
-        title: 'Personal Vehicles',
-        categories: [
-            { id: 'sedan', name: 'Sedan', icon: 'CarIcon', subCategories: ['Economy', 'Luxury', 'Standard'] },
-            { id: 'hatchback', name: 'Hatchback', icon: 'CarIcon', subCategories: ['Compact', 'Sport'] },
-            { id: 'suv', name: 'SUV', icon: 'CarIcon', subCategories: ['4x4', 'Crossover', 'Full-size'] },
-            { id: 'pickup', name: 'Pickup', icon: 'TruckIcon', subCategories: ['Single Cab', 'Double Cab', '4x4'] },
-        ]
-    },
-    {
         id: 'passenger',
         title: 'Passenger Vehicles',
         categories: [
-            { id: 'minibus', name: 'Minibus', icon: 'BusIcon', subCategories: ['15 Seater', '26 Seater'] },
-            { id: 'coaster', name: 'Coaster', icon: 'BusIcon', subCategories: ['Standard', 'Executive'] },
-            { id: 'exec_bus', name: 'Executive Bus', icon: 'BusIcon', subCategories: ['Luxury Coach', 'Sleeper'] },
-            { id: 'vip_van', name: 'VIP Van', icon: 'BusIcon', subCategories: ['Alphard', 'Elgrand', 'V-Class'] },
+            { id: 'sedan', name: 'Sedan', icon: 'CarIcon', subCategories: [] },
+            { id: 'hatchback', name: 'Hatchback', icon: 'CarIcon', subCategories: [] },
+            { id: 'coupe', name: 'Coupe', icon: 'CarIcon', subCategories: [] },
+            { id: 'convertible', name: 'Convertible', icon: 'CarIcon', subCategories: [] },
+            { id: 'station_wagon', name: 'Station Wagon', icon: 'CarIcon', subCategories: [] },
+            { id: 'suv', name: 'SUV', icon: 'CarIcon', subCategories: [] },
+            { id: 'crossover', name: 'Crossover', icon: 'CarIcon', subCategories: [] },
+            { id: 'limousine', name: 'Limousine', icon: 'CarIcon', subCategories: [] },
+            { id: 'taxi', name: 'Taxi', icon: 'CarIcon', subCategories: [] },
+            { id: 'minibus', name: 'Minibus', icon: 'BusIcon', subCategories: [] },
+            { id: 'bus', name: 'Bus', icon: 'BusIcon', subCategories: [] },
         ]
     },
     {
         id: 'commercial',
-        title: 'Commercial Vehicles',
+        title: 'Commercial',
         categories: [
-            { id: 'flatbed', name: 'Flatbed Truck', icon: 'TruckIcon', subCategories: ['Small', 'Medium', 'Large'] },
-            { id: 'box_truck', name: 'Box Truck', icon: 'TruckIcon', subCategories: ['Closed', 'Van'] },
-            { id: 'refrigerated', name: 'Refrigerated', icon: 'TruckIcon', subCategories: ['Cold Chain'] },
-            { id: 'curtain', name: 'Curtain-Side', icon: 'TruckIcon', subCategories: [] },
-            { id: 'canter', name: 'Canter', icon: 'TruckIcon', subCategories: ['Light Duty'] },
-            { id: 'hgv', name: 'Heavy Goods', icon: 'TruckIcon', subCategories: ['10-Ton', '20-Ton', 'Long-Haul'] },
-            { id: 'tanker', name: 'Tanker', icon: 'TruckIcon', subCategories: ['Water', 'Fuel', 'Chemical'] },
-            { id: 'tipper', name: 'Tipper', icon: 'TruckIcon', subCategories: ['Dump Truck'] },
-            { id: 'specialized', name: 'Specialized', icon: 'TruckIcon', subCategories: ['Tow Truck', 'Crane Truck', 'Vacuum Truck', 'Skip Loader'] },
+            { id: 'pickup', name: 'Pickup', icon: 'TruckIcon', subCategories: [] },
+            { id: 'cargo_van', name: 'Cargo Van', icon: 'TruckIcon', subCategories: [] },
+            { id: 'panel_van', name: 'Panel Van', icon: 'TruckIcon', subCategories: [] },
+            { id: 'light_truck', name: 'Light Truck', icon: 'TruckIcon', subCategories: [] },
+            { id: 'heavy_truck', name: 'Heavy Truck', icon: 'TruckIcon', subCategories: [] },
+            { id: 'lorry', name: 'Lorry', icon: 'TruckIcon', subCategories: [] },
+            { id: 'articulated_truck', name: 'Articulated Truck', icon: 'TruckIcon', subCategories: [] },
+            { id: 'trailer_truck', name: 'Trailer Truck', icon: 'TruckIcon', subCategories: [] },
+            { id: 'fuel_tanker', name: 'Fuel Tanker', icon: 'TruckIcon', subCategories: [] },
+            { id: 'refrigerated_truck', name: 'Refrigerated Truck', icon: 'TruckIcon', subCategories: [] },
         ]
     },
     {
         id: 'construction',
-        title: 'Construction Machinery',
+        title: 'Construction',
         categories: [
-            { id: 'tipper_const', name: 'Tipper', icon: 'TruckIcon', subCategories: [] },
-            { id: 'excavator', name: 'Excavator', icon: 'TruckIcon', subCategories: [] },
-            { id: 'grader', name: 'Grader', icon: 'TruckIcon', subCategories: [] },
-            { id: 'loader', name: 'Loader', icon: 'TruckIcon', subCategories: [] },
+            { id: 'dump_truck', name: 'Dump Truck', icon: 'TruckIcon', subCategories: [] },
+            { id: 'cement_mixer', name: 'Cement Mixer', icon: 'TruckIcon', subCategories: [] },
+            { id: 'tractor_const', name: 'Tractor (Construction)', icon: 'TruckIcon', subCategories: [] },
             { id: 'bulldozer', name: 'Bulldozer', icon: 'TruckIcon', subCategories: [] },
+            { id: 'excavator', name: 'Excavator', icon: 'TruckIcon', subCategories: [] },
+            { id: 'road_roller', name: 'Road Roller', icon: 'TruckIcon', subCategories: [] },
+            { id: 'crane_truck', name: 'Crane Truck', icon: 'TruckIcon', subCategories: [] },
         ]
     },
     {
-        id: 'farm',
+        id: 'special',
+        title: 'Special',
+        categories: [
+            { id: 'tow_truck', name: 'Tow Truck', icon: 'TruckIcon', subCategories: [] },
+            { id: 'car_carrier', name: 'Car Carrier', icon: 'TruckIcon', subCategories: [] },
+            { id: 'garbage_truck', name: 'Garbage Truck', icon: 'TruckIcon', subCategories: [] },
+            { id: 'mobile_crane', name: 'Mobile Crane', icon: 'TruckIcon', subCategories: [] },
+            { id: 'street_sweeper', name: 'Street Sweeper', icon: 'TruckIcon', subCategories: [] },
+            { id: 'armoured_vehicle', name: 'Armoured Vehicle', icon: 'TruckIcon', subCategories: [] },
+        ]
+    },
+    {
+        id: 'farm_machinery',
         title: 'Farm Machinery',
         categories: [
-            { id: 'tractor', name: 'Tractor', icon: 'TruckIcon', subCategories: [] },
+            { id: 'tractor_farm', name: 'Tractor', icon: 'TruckIcon', subCategories: ['Standard', 'Compact', 'Track', 'Utility'] },
+            { id: 'seed_drill', name: 'Seed Drill', icon: 'TruckIcon', subCategories: [] },
             { id: 'planter', name: 'Planter', icon: 'TruckIcon', subCategories: [] },
-            { id: 'harvester', name: 'Harvester', icon: 'TruckIcon', subCategories: [] },
-            { id: 'sprayer', name: 'Boom Sprayer', icon: 'TruckIcon', subCategories: [] },
+            { id: 'transplanter', name: 'Transplanter', icon: 'TruckIcon', subCategories: [] },
+            { id: 'broadcast_seeder', name: 'Broadcast Seeder', icon: 'TruckIcon', subCategories: [] },
+            { id: 'plough', name: 'Plough', icon: 'TruckIcon', subCategories: [] },
+            { id: 'harrow', name: 'Harrow', icon: 'TruckIcon', subCategories: [] },
+            { id: 'rotary_tiller', name: 'Rotavator / Rotary Tiller', icon: 'TruckIcon', subCategories: [] },
+            { id: 'cultivator', name: 'Cultivator', icon: 'TruckIcon', subCategories: [] },
+            { id: 'ridger', name: 'Ridger', icon: 'TruckIcon', subCategories: [] },
+            { id: 'irrigation_pump', name: 'Irrigation Pump', icon: 'TruckIcon', subCategories: [] },
+            { id: 'sprinkler_system', name: 'Sprinkler System (Mobile)', icon: 'TruckIcon', subCategories: [] },
+            { id: 'drip_irrigation', name: 'Drip Irrigation Rig', icon: 'TruckIcon', subCategories: [] },
+            { id: 'combine_harvester', name: 'Combine Harvester', icon: 'TruckIcon', subCategories: [] },
+            { id: 'forage_harvester', name: 'Forage Harvester', icon: 'TruckIcon', subCategories: [] },
+            { id: 'sugarcane_harvester', name: 'Sugarcane Harvester', icon: 'TruckIcon', subCategories: [] },
+            { id: 'potato_harvester', name: 'Potato Harvester', icon: 'TruckIcon', subCategories: [] },
+            { id: 'corn_harvester', name: 'Corn Harvester', icon: 'TruckIcon', subCategories: [] },
+            { id: 'thresher', name: 'Thresher', icon: 'TruckIcon', subCategories: [] },
+            { id: 'grain_dryer', name: 'Grain Dryer', icon: 'TruckIcon', subCategories: [] },
+            { id: 'bale_wrapper', name: 'Bale Wrapper', icon: 'TruckIcon', subCategories: [] },
+            { id: 'chopper', name: 'Chopper / Shredder', icon: 'TruckIcon', subCategories: [] },
+            { id: 'farm_trailer', name: 'Farm Trailer', icon: 'TruckIcon', subCategories: [] },
+            { id: 'wagon', name: 'Wagon', icon: 'TruckIcon', subCategories: [] },
+            { id: 'utv', name: 'Utility Vehicle (UTV)', icon: 'TruckIcon', subCategories: [] },
+            { id: 'small_pickup_farm', name: 'Small Pickup (Farm)', icon: 'TruckIcon', subCategories: [] },
         ]
     }
 ];

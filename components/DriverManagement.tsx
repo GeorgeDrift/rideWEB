@@ -72,7 +72,9 @@ export const DriverManagement: React.FC<{ onMessageUser?: (id: string) => void }
                             <tr key={driver.id} className="bg-white dark:bg-dark-800 border-b border-gray-200 dark:border-dark-700 hover:bg-gray-50 dark:hover:bg-dark-700/50">
                                 <td className="px-6 py-4">
                                     <div className="flex items-center">
-                                        <img className="h-10 w-10 rounded-full object-cover" src={driver.avatar} alt={driver.name} />
+                                        <div className="h-10 w-10 rounded-full bg-primary-500 flex items-center justify-center text-white font-bold text-sm">
+                                            {driver.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
+                                        </div>
                                         <div className="pl-3">
                                             <div className="text-base font-semibold text-gray-900 dark:text-white">{driver.name}</div>
                                             <div className="font-normal text-gray-500">{driver.id}</div>

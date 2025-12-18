@@ -227,7 +227,7 @@ export const ApiService = {
 
     getSubscriptionPlans: async (): Promise<any> => {
         try {
-            const response = await fetch('/api/admin/plans', {
+            const response = await fetch('/api/subscriptions/plans', {
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
             });
             if (!response.ok) throw new Error('Failed to fetch subscription plans');
@@ -251,7 +251,7 @@ export const ApiService = {
         return await response.json();
     },
 
-    updateSubscriptionPlan: async (id: number, planData: any): Promise<any> => {
+    updateSubscriptionPlan: async (id: number | string, planData: any): Promise<any> => {
         const response = await fetch(`/api/admin/plans/${id}`, {
             method: 'PUT',
             headers: {
@@ -1160,6 +1160,18 @@ export const ApiService = {
             const error = await response.json();
             throw new Error(error.error || error.message || 'Payout failed');
         }
+        return await response.json();
+    },
+
+    initiateSubscriptionPayment: async (planId: number, mobileNumber: string, providerRefId: string) => {
+        const response = await fetch('/api/subscriptions/initiate', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ planId, mobileNumber, providerRefId }) // Send planId as expected by backend
+        });
         return await response.json();
     }
 };

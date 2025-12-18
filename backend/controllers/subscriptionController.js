@@ -11,7 +11,7 @@ exports.getPlans = async (req, res) => {
         });
         res.json({
             plans: plans, // Returns array of plan objects
-            trialDays: 7
+            trialDays: 30
         });
     } catch (error) {
         console.error('Error fetching plans:', error);
@@ -244,107 +244,21 @@ exports.verifyPayment = async (req, res) => {
             return res.status(404).json({ error: 'Transaction not found' });
         }
 
-        // Verify with PayChangu
-        const verification = await payChanguService.verifyPayment(chargeId);
+        if (verification.status === 'success' || verification.status === 'successful') {
+            await transaction.update({ status: 'completed' });
+            res.json({ status: 'success', message: 'Payment verified successfully' });
 
-        if (!verification.success) {
-            return res.status(400).json({
-                error: 'Verification failed',
-                message: verification.message
-            });
-        }
-
-        const status = verification.data.status;
-
-        // Update transaction if status changed
-        if (status === 'successful' || status === 'success') {
-            if (transaction.status !== 'completed') {
-                await transaction.update({ status: 'completed' });
-
-                // Activate subscription if not already done
-                // Check if subscription record exists for this transaction
-                const existingSub = await Subscription.findOne({ where: { transactionId: transaction.id } });
-
-                if (!existingSub) {
-                    const user = await User.findByPk(userId);
-
-                    // Logic to find plan details similar to webhook
-                    let planId = null;
-                    const match = transaction.description.match(/Plan:\s*(\d+)/);
-                    if (match) planId = match[1];
-
-                    let plan = null;
-                    if (planId) {
-                        plan = await SubscriptionPlans.findByPk(planId);
-                    } else {
-                        plan = await SubscriptionPlans.findOne({ where: { price: transaction.amount } });
-                    }
-
-                    const duration = plan ? plan.duration : 30;
-                    const planName = plan ? plan.name : 'Monthly Plan';
-
-                    // Check for existing active subscription
-                    const activeSub = await Subscription.findOne({
-                        where: {
-                            userId: userId,
-                            status: 'active',
-                            endDate: { [Op.gt]: new Date() }
-                        },
-                        order: [['endDate', 'DESC']]
-                    });
-
-                    const currentExpiry = activeSub ? new Date(activeSub.endDate) : new Date();
-                    const newExpiry = new Date(currentExpiry);
-                    newExpiry.setDate(newExpiry.getDate() + duration);
-
-                    // Create Subscription Record
-                    await Subscription.create({
-                        userId: userId,
-                        plan: planName,
-                        amount: transaction.amount,
-                        status: 'active',
-                        startDate: new Date(),
-                        endDate: newExpiry,
-                        paymentMethod: 'PayChangu',
-                        transactionId: transaction.id
-                    });
-
-                    await user.update({
-                        subscriptionStatus: 'active',
-                        subscriptionExpiry: newExpiry
-                    });
-                }
-            }
-
-            // Get updated expiry
-            const latestSub = await Subscription.findOne({
-                where: { userId, status: 'active' },
-                order: [['endDate', 'DESC']]
-            });
-
-            return res.json({
-                status: 'success',
-                message: 'Subscription activated successfully',
-                subscriptionExpiry: latestSub ? latestSub.endDate : null
-            });
-
-        } else if (status === 'failed' || status === 'cancelled') {
+        } else if (verification.status === 'failed' || verification.status === 'cancelled') {
             await transaction.update({ status: 'failed' });
-            return res.json({
-                status: 'failed',
-                message: 'Payment failed'
-            });
+            res.json({ status: 'failed', message: 'Payment failed or cancelled' });
 
         } else {
-            return res.json({
-                status: 'pending',
-                message: 'Payment is still pending'
-            });
+            res.json({ status: 'pending', message: 'Payment verification pending' });
         }
 
     } catch (error) {
         console.error('Payment verification error:', error);
-        res.status(500).json({ error: 'Failed to verify payment' });
+        res.status(500).json({ error: 'Verification failed' });
     }
 };
 
@@ -364,7 +278,7 @@ exports.getSubscriptionStatus = async (req, res) => {
         });
 
         const user = await User.findByPk(userId, {
-            attributes: ['createdAt']
+            attributes: ['createdAt', 'trialStartDate', 'trialEndDate']
         });
 
         if (!user) {
@@ -381,9 +295,21 @@ exports.getSubscriptionStatus = async (req, res) => {
             daysRemaining = Math.ceil((expiry - now) / (1000 * 60 * 60 * 24));
         }
 
-        // Check if in trial period (7 days from registration)
-        const accountAge = Math.ceil((now - new Date(user.createdAt)) / (1000 * 60 * 60 * 24));
-        const inTrialPeriod = accountAge <= 7 && !isActive; // Only show trial if no active sub
+        // Check if in trial period (30 days from registration or trialEndDate)
+        let inTrialPeriod = false;
+        let trialDaysRemaining = 0;
+
+        if (user.trialEndDate) {
+            // Use trialEndDate if available
+            const trialEnd = new Date(user.trialEndDate);
+            inTrialPeriod = trialEnd > now && !isActive;
+            trialDaysRemaining = inTrialPeriod ? Math.ceil((trialEnd - now) / (1000 * 60 * 60 * 24)) : 0;
+        } else {
+            // Fallback: calculate from registration (30 days)
+            const accountAge = Math.ceil((now - new Date(user.createdAt)) / (1000 * 60 * 60 * 24));
+            inTrialPeriod = accountAge <= 30 && !isActive;
+            trialDaysRemaining = inTrialPeriod ? Math.max(0, 30 - accountAge) : 0;
+        }
 
         res.json({
             status: isActive || inTrialPeriod ? 'active' : 'inactive',
@@ -392,7 +318,7 @@ exports.getSubscriptionStatus = async (req, res) => {
             expiryDate: expiry,
             daysRemaining: isActive ? daysRemaining : 0,
             inTrialPeriod,
-            trialDaysRemaining: inTrialPeriod ? Math.max(0, 7 - accountAge) : 0,
+            trialDaysRemaining,
             needsRenewal: daysRemaining > 0 && daysRemaining <= 7
         });
 

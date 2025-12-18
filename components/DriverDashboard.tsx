@@ -96,12 +96,9 @@ const hireCategories = VEHICLE_CATEGORIES;
 
 import { ThemeToggle } from './ThemeToggle';
 
-const subscriptionPlans = {
-    'monthly': { id: 'monthly', label: 'Monthly', price: 49900, discount: 0, billing: 'Billed monthly' },
-    'quarterly': { id: 'quarterly', label: 'Quarterly', price: 134900, discount: 10, billing: 'Billed every 3 months' },
-    'biannual': { id: 'biannual', label: 'Bi-Annual', price: 254900, discount: 15, billing: 'Billed every 6 months' },
-    'yearly': { id: 'yearly', label: 'Yearly', price: 479900, discount: 20, billing: 'Billed annually' }
-};
+// Hardcoded plans removed in favor of dynamic fetching
+// 'monthly': { id: 'monthly', ... } -> Now fetched from API
+
 
 export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) => {
     // Global State
@@ -117,13 +114,14 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     const [tripCoordinates, setTripCoordinates] = useState<{ origin: [number, number] | null, destination: [number, number] | null }>({ origin: null, destination: null });
     const [tripDistance, setTripDistance] = useState<number | null>(null);
 
-    // Load driver profile
+    // Subscription Plans State
+    const [plans, setPlans] = useState<any[]>([]);
+
     useEffect(() => {
         const loadProfile = async () => {
             const profile = await ApiService.getDriverProfile();
             setDriverProfile(profile);
         };
-        loadProfile();
         loadProfile();
     }, []);
 
@@ -411,105 +409,133 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     const [subscriptionStatus, setSubscriptionStatus] = useState<any>(null);
 
     // Subscription Payment State
-    const [selectedDuration, setSelectedDuration] = useState<'monthly' | 'quarterly' | 'biannual' | 'yearly'>('monthly');
+    const [selectedPlan, setSelectedPlan] = useState<any>(null);
     const [paymentMethod, setPaymentMethod] = useState<string | null>(null);
     const [mobileProvider, setMobileProvider] = useState<string>('airtel');
     const [mobileNumber, setMobileNumber] = useState<string>('');
     const [isPaymentLoading, setIsPaymentLoading] = useState<boolean>(false);
 
-    // Handle Subscription Payment (Using same logic as for hire payments)
+    // UI State for Payment Modal (if needed, or reuse existing logic)
+    const [showPaymentModal, setShowPaymentModal] = useState(false);
+    const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+    const [paymentResponse, setPaymentResponse] = useState<any>(null);
+    const pollIntervalRef = useRef<any>(null);
+
+    // Cancel Payment Handler
+    const handleCancelPayment = () => {
+        if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+        }
+        setIsProcessingPayment(false);
+        setIsPaymentLoading(false);
+        alert('Payment processing cancelled by user.');
+    };
+
+    // Handle Subscription Payment
     const handlePayment = async () => {
-        if (!paymentMethod) {
-            alert('Please select a payment method');
+        if (!selectedPlan) {
+            alert('Please select a plan');
             return;
         }
 
-        if (paymentMethod === 'mobile' && !mobileNumber) {
-            alert('Please enter your mobile number');
+        // Handle Free Trial Selection
+        if (selectedPlan === 'free_trial') {
+            if (subscriptionStatus?.inTrialPeriod) {
+                alert("You are already active on the 30-Day Free Trial!");
+                return;
+            }
+            if (subscriptionStatus?.status === 'active') {
+                alert("You already have an active subscription.");
+                return;
+            }
+            alert("The 30-Day Free Trial is automatically applied for new drivers. If you are eligible, it is already active.");
             return;
         }
 
+        setIsProcessingPayment(true);
         setIsPaymentLoading(true);
-        console.log('🚀 Initiating subscription payment...');
 
         try {
-            const planDetails = subscriptionPlans[selectedDuration];
+            // Find the selected plan object to get its ID
+            const planObj = plans.find(p => p.id === selectedPlan || p.name === selectedPlan);
 
-            // 1. Initiate Payment
-            const response = await fetch('/api/subscriptions/initiate', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                },
-                body: JSON.stringify({
-                    plan: selectedDuration,
-                    mobileNumber: mobileNumber,
-                    providerRefId: mobileProvider === 'airtel'
-                        ? '20be6c20-adeb-4b5b-a7ba-0769820df4fb'
-                        : '27494cb5-ba9e-437f-a114-4e7a7686bcca'
-                })
-            });
-
-            const data = await response.json();
-
-            if (!response.ok) {
-                throw new Error(data.error || 'Payment initiation failed');
+            if (!planObj) {
+                alert('Invalid plan selected');
+                setIsProcessingPayment(false);
+                setIsPaymentLoading(false);
+                return;
             }
 
-            console.log('✅ Payment initiated, Charge ID:', data.charge_id);
-            alert(`✅ Payment initiated! Please check your phone to approve MWK ${planDetails.price.toLocaleString()}.`);
+            const providerRefId = mobileProvider === 'airtel'
+                ? '20be6c20-adeb-4b5b-a7ba-0769820df4fb'
+                : '27494cb5-ba9e-437f-a114-4e7a7686bcca';
 
-            // 2. Start Polling for Verification
-            const pollInterval = setInterval(async () => {
+            const res = await ApiService.initiateSubscriptionPayment(planObj.id, mobileNumber, providerRefId);
+            setPaymentResponse(res);
+
+            // Polling for Payment Verification
+            const chargeId = res.chargeId || res.data?.charge_id;
+            if (!chargeId) {
+                throw new Error("No charge ID returned");
+            }
+
+            // Clear any existing intervals
+            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+
+            pollIntervalRef.current = setInterval(async () => {
                 try {
-                    console.log('🔄 Checking payment status...');
-                    const verifyRes = await fetch(`/api/subscriptions/verify/${data.charge_id}`, {
+                    const verifyRes = await fetch(`/api/subscriptions/verify/${chargeId}`, {
                         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
                     });
-
                     const verifyData = await verifyRes.json();
 
-                    if (verifyData.status === 'success' || verifyData.status === 'successful') {
-                        clearInterval(pollInterval);
+                    if (verifyData.status === 'success') {
+                        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+                        setIsProcessingPayment(false);
                         setIsPaymentLoading(false);
-
-                        alert('🎉 Payment Successful! Subscription Activated.');
-                        setIsSubscriptionPaid(true); // Update local state immediately
-
-                        // Reset form
-                        setPaymentMethod(null);
-                        setMobileNumber('');
+                        setShowPaymentModal(false);
+                        setIsSubscriptionPaid(true);
 
                         // Refresh full status
                         const statusRes = await fetch('/api/subscriptions/status', {
                             headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
                         });
-                        const status = await statusRes.json();
-                        setSubscriptionStatus(status);
+                        if (statusRes.ok) {
+                            setSubscriptionStatus(await statusRes.json());
+                        }
+
+                        alert('Subscription Activated Successfully!');
                     } else if (verifyData.status === 'failed') {
-                        clearInterval(pollInterval);
+                        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+                        setIsProcessingPayment(false);
                         setIsPaymentLoading(false);
-                        alert('❌ Payment Failed or Cancelled.');
+                        alert(`Payment Failed: ${verifyData.message}`);
                     }
-                } catch (err) {
-                    console.error('Bottom polling error', err);
+                    // If 'pending', continues polling
+                } catch (e) {
+                    console.error("Polling error", e);
                 }
-            }, 3000); // Poll every 3 seconds
+            }, 3000);
 
-            // Stop polling after 2 minutes (timeout)
+            // Stop polling after 45 seconds timeout (User Request: reduced from 2 mins)
             setTimeout(() => {
-                clearInterval(pollInterval);
-                if (isPaymentLoading) {
-                    setIsPaymentLoading(false);
-                    alert('⚠️ Payment verification timed out. Please check your subscription status later.');
+                if (pollIntervalRef.current) {
+                    clearInterval(pollIntervalRef.current);
+                    // Only alert if we were still processing (didn't finish or cancel)
+                    if (isProcessingPayment) {
+                        setIsProcessingPayment(false);
+                        setIsPaymentLoading(false);
+                        alert("Payment verification timed out. Please check your phone or try again.");
+                    }
                 }
-            }, 120000);
+            }, 45000);
 
-        } catch (error: any) {
-            console.error('Payment error:', error);
+        } catch (err) {
+            console.error('Payment failed', err);
+            setIsProcessingPayment(false);
             setIsPaymentLoading(false);
-            alert('❌ Payment failed: ' + (error.message || 'Connection error'));
+            alert('Payment Initiation Failed. Please try again.');
         }
     };
 
@@ -532,7 +558,35 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
             }
         };
 
+        const fetchPlans = async () => {
+            try {
+                const res = await ApiService.getSubscriptionPlans();
+                const plansArray = res.plans || (Array.isArray(res) ? res : []);
+
+                // Add Free Trial Plan manually
+                const freePlan = {
+                    id: 'free_trial',
+                    name: '30-Day Free Trial',
+                    price: 0,
+                    duration: 30,
+                    description: 'Get started with a 30-day free trial.'
+                };
+
+                setPlans([freePlan, ...plansArray]);
+
+                if (plansArray.length > 0) {
+                    // Default to free trial if available? Or keep existing logic.
+                    // Let's default to the *actual* first plan (free trial) if they want it top of list.
+                    setSelectedPlan('free_trial');
+                }
+            } catch (error) {
+                console.error('Failed to fetch subscription plans:', error);
+                setPlans([]);
+            }
+        };
+
         fetchStatus();
+        fetchPlans();
     }, []);
 
     // --- Interactive Logic ---
@@ -800,7 +854,9 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                 category: newHireJob.category,
                 location: newHireJob.location,
                 rate: newHireJob.rate,
-                status: 'Active'
+                rateAmount: parseFloat(newHireJob.rate) || 0, // Parse rate to float
+                rateUnit: 'day',
+                status: 'available' // Lowercase status to match enum
             };
             try {
                 const created = await ApiService.addDriverHirePost(payload);
@@ -1587,8 +1643,34 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
 
 
     const weekDays = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-    const octDays = Array.from({ length: 31 }, (_, i) => i + 1);
-    const novDays = Array.from({ length: 30 }, (_, i) => i + 1);
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonthIndex = today.getMonth();
+
+    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+    const getMonthData = (year: number, month: number) => {
+        const firstDay = new Date(year, month, 1);
+        const lastDay = new Date(year, month + 1, 0);
+        const daysInMonth = lastDay.getDate();
+        // Adjust for Monday start: 0 is Mon, 6 is Sun
+        let startOffset = firstDay.getDay() - 1;
+        if (startOffset < 0) startOffset = 6;
+
+        return {
+            name: monthNames[month],
+            days: Array.from({ length: daysInMonth }, (_, i) => i + 1),
+            offset: startOffset,
+            year: year,
+            month: month
+        };
+    };
+
+    const currentMonthData = getMonthData(currentYear, currentMonthIndex);
+    const nextMonthFullIndex = currentMonthIndex + 1;
+    const nextMonthYear = nextMonthFullIndex > 11 ? currentYear + 1 : currentYear;
+    const nextMonthIndex = nextMonthFullIndex % 12;
+    const nextMonthData = getMonthData(nextMonthYear, nextMonthIndex);
 
     // Reusable Components
 
@@ -2155,21 +2237,24 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                         </div>
 
                                         <div className="overflow-y-auto pr-1 no-scrollbar flex-1">
-                                            <div className="text-xs font-bold text-[#FACC15] mb-2 mt-1 sticky top-0 bg-[#1E1E1E] py-1 z-10">October</div>
+                                            <div className="text-xs font-bold text-[#FACC15] mb-2 mt-1 sticky top-0 bg-[#1E1E1E] py-1 z-10">{currentMonthData.name}</div>
                                             <div className="grid grid-cols-7 gap-1 text-center mb-4">
-                                                {Array.from({ length: 2 }).map((_, i) => <div key={`empty-${i}`}></div>)}
-                                                {octDays.map((d) => (
-                                                    <div key={`oct-${d}`} className={`h-7 w-7 flex items-center justify-center rounded-lg text-xs font-medium ${d === 24 ? 'bg-[#FACC15] text-black shadow-lg' : [5, 12, 19, 26].includes(d) ? 'bg-[#252525] text-gray-300' : 'text-gray-500 hover:bg-[#252525] cursor-pointer'}`}>
-                                                        {d}
-                                                    </div>
-                                                ))}
+                                                {Array.from({ length: currentMonthData.offset }).map((_, i) => <div key={`empty-cur-${i}`}></div>)}
+                                                {currentMonthData.days.map((d) => {
+                                                    const isToday = d === today.getDate() && currentMonthIndex === today.getMonth() && currentYear === today.getFullYear();
+                                                    return (
+                                                        <div key={`cur-${d}`} className={`h-7 w-7 flex items-center justify-center rounded-lg text-xs font-medium ${isToday ? 'bg-[#FACC15] text-black shadow-lg' : [5, 12, 19, 26].includes(d) ? 'bg-[#252525] text-gray-300' : 'text-gray-500 hover:bg-[#252525] cursor-pointer'}`}>
+                                                            {d}
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
 
-                                            <div className="text-xs font-bold text-[#FACC15] mb-2 mt-1 sticky top-0 bg-[#1E1E1E] py-1 z-10">November</div>
+                                            <div className="text-xs font-bold text-[#FACC15] mb-2 mt-1 sticky top-0 bg-[#1E1E1E] py-1 z-10">{nextMonthData.name}</div>
                                             <div className="grid grid-cols-7 gap-1 text-center">
-                                                {Array.from({ length: 5 }).map((_, i) => <div key={`empty-nov-${i}`}></div>)}
-                                                {novDays.map((d) => (
-                                                    <div key={`nov-${d}`} className={`h-7 w-7 flex items-center justify-center rounded-lg text-xs font-medium ${d === 15 ? 'bg-[#2A2A2A] text-[#FACC15] border border-[#FACC15]/30' : 'text-gray-500 hover:bg-[#252525] cursor-pointer'}`}>
+                                                {Array.from({ length: nextMonthData.offset }).map((_, i) => <div key={`empty-next-${i}`}></div>)}
+                                                {nextMonthData.days.map((d) => (
+                                                    <div key={`next-${d}`} className={`h-7 w-7 flex items-center justify-center rounded-lg text-xs font-medium ${[5, 12, 19, 26].includes(d) ? 'bg-[#252525] text-gray-300' : 'text-gray-500 hover:bg-[#252525] cursor-pointer'}`}>
                                                         {d}
                                                     </div>
                                                 ))}
@@ -2967,13 +3052,15 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                         <div className="absolute -right-10 -top-10 w-32 h-32 bg-[#FACC15]/10 rounded-full blur-2xl"></div>
 
                                         <div className="flex items-center gap-4 mb-6 relative z-10">
-                                            <div className={`w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 border ${isSubscriptionPaid ? 'bg-green-500/20 border-green-500 text-green-500' : 'bg-red-500/20 border-red-500 text-red-500'}`}>
-                                                {isSubscriptionPaid ? <CheckBadgeIcon className="w-6 h-6" /> : <CreditCardIcon className="w-6 h-6" />}
+                                            <div className={`w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 border ${isSubscriptionPaid || subscriptionStatus?.inTrialPeriod ? 'bg-green-500/20 border-green-500 text-green-500' : 'bg-red-500/20 border-red-500 text-red-500'}`}>
+                                                {isSubscriptionPaid || subscriptionStatus?.inTrialPeriod ? <CheckBadgeIcon className="w-6 h-6" /> : <CreditCardIcon className="w-6 h-6" />}
                                             </div>
                                             <div className="flex-1">
-                                                <h2 className="text-base font-bold text-white whitespace-nowrap">Professional Plan</h2>
-                                                <p className={`text-sm font-medium whitespace-nowrap ${isSubscriptionPaid ? 'text-green-400' : 'text-red-400'}`}>
-                                                    {isSubscriptionPaid ? 'Active Subscription' : 'Payment Pending'}
+                                                <h2 className="text-base font-bold text-white whitespace-nowrap">
+                                                    {subscriptionStatus?.inTrialPeriod && !isSubscriptionPaid ? '30-Day Free Trial' : 'Professional Plan'}
+                                                </h2>
+                                                <p className={`text-sm font-medium whitespace-nowrap ${isSubscriptionPaid || subscriptionStatus?.inTrialPeriod ? 'text-green-400' : 'text-red-400'}`}>
+                                                    {isSubscriptionPaid ? 'Active Subscription' : (subscriptionStatus?.inTrialPeriod ? `${subscriptionStatus.trialDaysRemaining} Days Remaining` : 'Payment Pending')}
                                                 </p>
                                             </div>
                                         </div>
@@ -3119,31 +3206,29 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                             <h3 className="text-xl font-bold text-white mb-6">Select a Plan</h3>
 
                                             <div className="space-y-4 mb-auto overflow-y-auto pr-2 custom-scrollbar">
-                                                {Object.entries(subscriptionPlans).map(([key, plan]) => {
-                                                    const isActivePlan = subscriptionStatus?.plan === key && subscriptionStatus?.status === 'active';
+                                                {plans.map((plan: any) => {
+                                                    const isActivePlan = subscriptionStatus?.plan === plan.id && subscriptionStatus?.status === 'active';
 
                                                     return (
                                                         <div
-                                                            key={key}
-                                                            onClick={() => !isActivePlan && setSelectedDuration(key as any)}
-                                                            className={`relative p-4 rounded-xl border-2 cursor-pointer transition-all ${selectedDuration === key
+                                                            key={plan.id}
+                                                            onClick={() => !isActivePlan && setSelectedPlan(plan.id)}
+                                                            className={`relative p-4 rounded-xl border-2 cursor-pointer transition-all ${selectedPlan === plan.id
                                                                 ? 'border-[#FACC15] bg-[#FACC15]/5'
                                                                 : 'border-[#333] bg-[#252525] hover:border-gray-500'
                                                                 } ${isActivePlan ? 'opacity-50 cursor-not-allowed' : ''}`}
                                                         >
                                                             <div className="flex justify-between items-center mb-1">
-                                                                <span className={`font-bold ${selectedDuration === key ? 'text-[#FACC15]' : 'text-white'}`}>
-                                                                    {plan.label}
+                                                                <span className={`font-bold ${selectedPlan === plan.id ? 'text-[#FACC15]' : 'text-white'}`}>
+                                                                    {plan.name}
                                                                 </span>
                                                                 <span className="text-white font-bold">
                                                                     MWK {plan.price.toLocaleString()}
                                                                 </span>
                                                             </div>
                                                             <div className="flex justify-between items-center">
-                                                                <span className="text-xs text-gray-500">{plan.billing}</span>
-                                                                {plan.discount > 0 && (
-                                                                    <span className="text-xs font-bold text-green-500">Save {plan.discount}%</span>
-                                                                )}
+                                                                <span className="text-xs text-gray-500">{plan.duration} days</span>
+                                                                {/* Discount logic could be added here if backend provides comparable monthly rate */}
                                                             </div>
 
                                                             {isActivePlan && (
@@ -3152,7 +3237,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                                                 </div>
                                                             )}
 
-                                                            {selectedDuration === key && !isActivePlan && (
+                                                            {selectedPlan === plan.id && !isActivePlan && (
                                                                 <div className="absolute top-2 right-2 w-4 h-4 bg-[#FACC15] rounded-full flex items-center justify-center">
                                                                     <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
@@ -3186,11 +3271,15 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                             <div className="bg-[#252525] rounded-2xl p-4 mb-6 border border-[#333]">
                                                 <div className="flex justify-between items-center mb-2">
                                                     <span className="text-gray-400 text-sm">Selected Plan</span>
-                                                    <span className="text-white font-bold">{subscriptionPlans[selectedDuration].label}</span>
+                                                    <span className="text-white font-bold">
+                                                        {plans.find(p => p.id === selectedPlan || p.name === selectedPlan)?.name || 'Unknown Plan'}
+                                                    </span>
                                                 </div>
                                                 <div className="flex justify-between items-center">
                                                     <span className="text-gray-400 text-sm">Total</span>
-                                                    <span className="text-[#FACC15] font-bold text-xl">MWK {(subscriptionPlans[selectedDuration].price ?? 0).toLocaleString()}</span>
+                                                    <span className="text-[#FACC15] font-bold text-xl">
+                                                        MWK {(plans.find(p => p.id === selectedPlan || p.name === selectedPlan)?.price ?? 0).toLocaleString()}
+                                                    </span>
                                                 </div>
                                             </div>
 
@@ -3256,26 +3345,37 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                                 </div>
                                             )}
 
-                                            <button
-                                                onClick={handlePayment}
-                                                disabled={isPaymentLoading}
-                                                className={`w-full mt-auto font-bold py-4 rounded-xl transition-transform transform shadow-lg flex items-center justify-center gap-2 ${isPaymentLoading
-                                                    ? 'bg-gray-600 text-gray-300 cursor-not-allowed'
-                                                    : 'bg-[#FACC15] text-black hover:bg-[#EAB308] active:scale-95 shadow-[#FACC15]/20'
-                                                    }`}
-                                            >
-                                                {isPaymentLoading ? (
-                                                    <>
-                                                        <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                                        </svg>
-                                                        Processing Payment...
-                                                    </>
-                                                ) : (
-                                                    'Confirm Payment'
+                                            <div className="flex flex-col gap-2 mt-auto">
+                                                <button
+                                                    onClick={handlePayment}
+                                                    disabled={isPaymentLoading}
+                                                    className={`w-full font-bold py-4 rounded-xl transition-transform transform shadow-lg flex items-center justify-center gap-2 ${isPaymentLoading
+                                                        ? 'bg-gray-600 text-gray-300 cursor-not-allowed'
+                                                        : 'bg-[#FACC15] text-black hover:bg-[#EAB308] active:scale-95 shadow-[#FACC15]/20'
+                                                        }`}
+                                                >
+                                                    {isPaymentLoading ? (
+                                                        <>
+                                                            <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                            </svg>
+                                                            Processing Payment...
+                                                        </>
+                                                    ) : (
+                                                        'Confirm Payment'
+                                                    )}
+                                                </button>
+
+                                                {isPaymentLoading && (
+                                                    <button
+                                                        onClick={handleCancelPayment}
+                                                        className="w-full font-semibold py-3 rounded-xl border border-red-500/50 text-red-500 hover:bg-red-500/10 transition-colors"
+                                                    >
+                                                        Cancel Processing
+                                                    </button>
                                                 )}
-                                            </button>
+                                            </div>
                                         </div>
                                     )}
                                 </div>

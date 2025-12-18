@@ -251,13 +251,45 @@ exports.requestPayout = async (req, res) => {
     console.log(`💸 [Payout] Driver ${userId} requesting ${amount} via ${payoutMethod || 'mobile'} to ${mobileNumber || 'Bank'}`);
 
     try {
-        // 1. Validate Driver Role
+        // 1. Validate Driver Role and fetch user data
         const user = await User.findByPk(userId);
         if (!user || user.role !== 'driver') {
             return res.status(403).json({ error: 'Only drivers can request payouts' });
         }
 
-        // 2. Check Wallet Balance
+        // 2. Check Subscription Status (must have active subscription or be within trial)
+        const now = new Date();
+        let hasActiveAccess = false;
+
+        // Check paid subscription
+        if (user.subscriptionStatus === 'active' && user.subscriptionExpiry && new Date(user.subscriptionExpiry) > now) {
+            hasActiveAccess = true;
+        }
+
+        // Check trial period
+        if (!hasActiveAccess) {
+            if (user.trialEndDate && new Date(user.trialEndDate) > now) {
+                hasActiveAccess = true;
+            } else {
+                // Fallback: calculate from registration (30 days)
+                const registrationDate = new Date(user.createdAt);
+                const trialEndDate = new Date(registrationDate);
+                trialEndDate.setDate(trialEndDate.getDate() + 30);
+                if (trialEndDate > now) {
+                    hasActiveAccess = true;
+                }
+            }
+        }
+
+        if (!hasActiveAccess) {
+            return res.status(403).json({
+                error: 'Subscription Required',
+                message: 'Your 30-day free trial has expired. Please purchase a subscription to withdraw funds.',
+                code: 'SUBSCRIPTION_EXPIRED'
+            });
+        }
+
+        // 3. Check Wallet Balance
         if (user.walletBalance < amount) {
             return res.status(400).json({
                 error: 'Insufficient balance',

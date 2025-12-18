@@ -26,6 +26,10 @@ const User = sequelize.define('User', {
     rating: { type: DataTypes.FLOAT, defaultValue: 5.0 },
     walletBalance: { type: DataTypes.FLOAT, defaultValue: 0.0 },
 
+    // Email Verification
+    isVerified: { type: DataTypes.BOOLEAN, defaultValue: false },
+    verificationToken: { type: DataTypes.STRING },
+
     // Account Status for Admin Management
     accountStatus: {
         type: DataTypes.ENUM('pending', 'active', 'suspended'),
@@ -55,8 +59,10 @@ const User = sequelize.define('User', {
     currentLng: { type: DataTypes.FLOAT },
     currentHeading: { type: DataTypes.FLOAT },
 
-    subscriptionStatus: { type: DataTypes.ENUM('active', 'inactive', 'expired'), defaultValue: 'inactive' },
+    subscriptionStatus: { type: DataTypes.ENUM('active', 'inactive', 'expired'), defaultValue: 'active' },
     subscriptionExpiry: { type: DataTypes.DATE },
+    trialStartDate: { type: DataTypes.DATE },
+    trialEndDate: { type: DataTypes.DATE },
 
     permissions: { type: DataTypes.JSON }, // Store array as JSON
 });

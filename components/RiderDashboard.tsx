@@ -1049,15 +1049,21 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
     // Filtered Listings
     const rideShareArray = getSearchResultsArray(searchResults);
     const filteredRideShares = rideShareArray.filter((post: any) => {
+        // Search by Origin or Destination
         const matchesSearch = (post.destination?.toLowerCase() || '').includes((searchTerm || '').toLowerCase()) ||
             (post.origin?.toLowerCase() || '').includes((searchTerm || '').toLowerCase());
 
-        const matchesCategory = matchesVehicleCategory(post, selectedShareCategory);
+        // Basic availability check (if supported by backend data) checks if seats are available or no status implies available
+        // Note: DriverRidePost interface doesn't strictly define status, but runtime objects might have it.
+        const isAvailable = (!post.status || post.status === 'available' || post.status === 'active') && (post.seats === undefined || post.seats > 0);
 
-        return matchesSearch && matchesCategory;
+        return matchesSearch && isAvailable;
     });
 
     const filteredHireListings = forHireListings.filter(post => {
+        // Strict availability filter
+        if (post.status !== 'available') return false;
+
         const matchesSearch = (post.title?.toLowerCase() || '').includes((searchTerm || '').toLowerCase()) ||
             (post.category?.toLowerCase() || '').includes((searchTerm || '').toLowerCase());
         const matchesCategory = matchesVehicleCategory(post, selectedHireCategory);
@@ -1961,31 +1967,6 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                             <LocationSearch onSearch={handleSearch} isLoading={isSearching} />
                                         </div>
 
-                                        {/* Vehicle Type Filter (Share) */}
-                                        <div className="flex flex-wrap gap-2 mt-4 mb-3">
-                                            <button
-                                                onClick={() => { setSelectedShareCategory(null); updateQueryParam('shareCat', null); }}
-                                                className={`px-3 py-1 rounded-xl font-medium text-sm transition-all ${selectedShareCategory === null
-                                                    ? 'bg-[#FACC15] text-black'
-                                                    : 'bg-[#252525] text-gray-400 hover:bg-[#2A2A2A] hover:text-white'
-                                                    }`}
-                                            >
-                                                {getCategoryIcon('All')}
-                                                All Categories
-                                            </button>
-                                            {VEHICLE_HIRE_CATEGORIES.flatMap(m => m.categories).map((cat) => (
-                                                <button
-                                                    key={cat.id}
-                                                    onClick={() => { setSelectedShareCategory(cat.name); updateQueryParam('shareCat', cat.name); }}
-                                                    className={`px-3 py-1 rounded-xl font-medium text-sm transition-all ${selectedShareCategory === cat.name
-                                                        ? 'bg-[#FACC15] text-black'
-                                                        : 'bg-[#252525] text-gray-400 hover:bg-[#2A2A2A] hover:text-white'
-                                                        }`}
-                                                >
-                                                    {getCategoryIcon(cat.name)}{cat.name}
-                                                </button>
-                                            ))}
-                                        </div>
 
                                         {/* Search Results */}
                                         {rideShareArray.length > 0 && (
@@ -2019,28 +2000,63 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                 ) : (
                                     <div className="space-y-8">
                                         {/* Category Filter Tags */}
-                                        <div className="flex flex-wrap gap-2 mb-4">
+                                        <div className="mb-6 space-y-4">
+                                            {/* Reset / All Button */}
                                             <button
-                                                onClick={() => { setSelectedHireCategory(null); updateQueryParam('hireCat', null); }}
-                                                className={`px-4 py-2 rounded-xl font-medium transition-all ${selectedHireCategory === null
+                                                onClick={() => {
+                                                    setSelectedHireCategory(null);
+                                                    updateQueryParam('hireCat', null);
+                                                }}
+                                                className={`w-full py-3 rounded-xl font-bold transition-all ${selectedHireCategory === null
                                                     ? 'bg-[#FACC15] text-black'
-                                                    : 'bg-[#252525] text-gray-400 hover:bg-[#2A2A2A] hover:text-white'
+                                                    : 'bg-[#252525] border border-[#333] text-gray-400 hover:text-white'
                                                     }`}
                                             >
-                                                {getCategoryIcon('All')}All Categories
+                                                Show All Vehicles
                                             </button>
-                                            {VEHICLE_HIRE_CATEGORIES.flatMap(mainCat => mainCat.categories).map((cat) => (
-                                                <button
-                                                    key={cat.id}
-                                                    onClick={() => { setSelectedHireCategory(cat.name); updateQueryParam('hireCat', cat.name); }}
-                                                    className={`px-4 py-2 rounded-xl font-medium transition-all ${selectedHireCategory === cat.name
-                                                        ? 'bg-[#FACC15] text-black'
-                                                        : 'bg-[#252525] text-gray-400 hover:bg-[#2A2A2A] hover:text-white'
-                                                        }`}
-                                                >
-                                                    {getCategoryIcon(cat.name)}{cat.name}
-                                                </button>
-                                            ))}
+
+                                            {/* Category Groups as Compact Horizontal Dropdowns */}
+                                            <div className="flex flex-row overflow-x-auto gap-4 pb-2 scrollbar-none">
+                                                {VEHICLE_HIRE_CATEGORIES.map((group) => (
+                                                    <div key={group.id} className="min-w-[140px] flex-shrink-0">
+                                                        <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 ml-1 truncate">
+                                                            {group.title}
+                                                        </label>
+                                                        <div className="relative">
+                                                            <select
+                                                                value={
+                                                                    group.categories.some(c => c.name === selectedHireCategory)
+                                                                        ? selectedHireCategory || ''
+                                                                        : ''
+                                                                }
+                                                                onChange={(e) => {
+                                                                    const val = e.target.value;
+                                                                    if (val) {
+                                                                        setSelectedHireCategory(val);
+                                                                        updateQueryParam('hireCat', val);
+                                                                    }
+                                                                }}
+                                                                className={`w-full appearance-none bg-[#1E1E1E] border border-[#333] text-xs py-2 px-3 pr-6 rounded-lg focus:outline-none focus:border-[#FACC15] transition-colors truncate ${group.categories.some(c => c.name === selectedHireCategory)
+                                                                    ? 'text-[#FACC15] border-[#FACC15]'
+                                                                    : 'text-gray-300'
+                                                                    }`}
+                                                            >
+                                                                <option value="">Select...</option>
+                                                                {group.categories.map((cat) => (
+                                                                    <option key={cat.id} value={cat.name}>
+                                                                        {cat.name}
+                                                                    </option>
+                                                                ))}
+                                                            </select>
+                                                            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
+                                                                <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+                                                                    <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
+                                                                </svg>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
                                         </div>
 
                                         {/* For Hire Listings */}

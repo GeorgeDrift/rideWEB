@@ -3,12 +3,17 @@ import React, { useState, useEffect } from 'react';
 import { ApiService } from '../services/api';
 
 interface SubscriptionPlan {
-    id: number;
+    id: string;
     name: string;
     price: number;
     duration: number;
     description: string;
     isActive: boolean;
+}
+
+interface GetPlansResponse {
+    plans: SubscriptionPlan[];
+    trialDays: number;
 }
 
 export const SubscriptionManagement: React.FC = () => {
@@ -33,7 +38,7 @@ export const SubscriptionManagement: React.FC = () => {
     const loadPlans = async () => {
         try {
             setLoading(true);
-            const response = await ApiService.getSubscriptionPlans();
+            const response: GetPlansResponse = await ApiService.getSubscriptionPlans();
             // Ensure we handle both response formats (plan object or array)
             if (response.plans) {
                 // Check if it's the old object format or new array format
@@ -44,7 +49,7 @@ export const SubscriptionManagement: React.FC = () => {
                     setPlans(Object.values(response.plans));
                 }
             } else if (Array.isArray(response)) {
-                setPlans(response);
+                setPlans(response as any);
             }
         } catch (error) {
             console.error('Failed to load plans', error);
@@ -133,7 +138,7 @@ export const SubscriptionManagement: React.FC = () => {
                             </div>
 
                             <p className="text-gray-600 dark:text-gray-300 text-sm mb-6 min-h-[40px]">
-                                {plan.description}
+                                30 days free trial · {plan.description || 'Full access to all features'}
                             </p>
 
                             <button
