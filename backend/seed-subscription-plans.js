@@ -13,17 +13,31 @@ const { SubscriptionPlans, Subscription, Transaction } = require('./models');
 
         await SubscriptionPlans.bulkCreate([
             {
-                name: 'Real Payment Test',
-                price: 50, // MWK 50 for real small payment testing
+                name: 'Basic - 1 Month',
+                price: 5000,
                 duration: 30,
-                description: 'Testing purposes only - Small real payment',
+                description: 'Full access to RideX marketplace and driver tools for 30 days',
                 isActive: true
             },
             {
-                name: 'RideX Subscription',
-                price: 5000, // MWK 5,000
+                name: 'Standard - 3 Months',
+                price: 13500,
+                duration: 90,
+                description: 'Save 10% - Full access for 3 months',
+                isActive: true
+            },
+            {
+                name: 'Premium - 6 Months',
+                price: 25000,
+                duration: 180,
+                description: 'Save 15% - Best value for long term drivers',
+                isActive: true
+            },
+            {
+                name: 'Real Payment Test',
+                price: 50,
                 duration: 30,
-                description: 'Full access to RideX marketplace and driver tools',
+                description: 'Testing purposes only - Small real payment (MWK 50)',
                 isActive: true
             }
         ]);
