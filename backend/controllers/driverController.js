@@ -321,54 +321,6 @@ exports.getHoursStats = async (req, res) => {
     }
 };
 
-// On-time stats: use origin/destination expected duration (distance/avg speed) and compare to actual (updatedAt - createdAt)
-exports.getOnTimeStats = async (req, res) => {
-    try {
-        const driverId = req.user.id;
-        const now = new Date();
-        const weekly = [];
-        const AVG_SPEED_KMH = 60;
-        const TOLERANCE = 0.15; // 15% tolerance
-
-        for (let i = 6; i >= 0; i--) {
-            const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
-            const start = new Date(d.setHours(0, 0, 0, 0));
-            const end = new Date(d.setHours(23, 59, 59, 999));
-
-            const rides = await Ride.findAll({ where: { driverId, createdAt: { [Op.between]: [start, end] } }, raw: true });
-            const total = rides.length;
-            let onTimeCount = 0;
-
-            for (const r of rides) {
-                const expectedKm = lookupDistanceKm(r.origin, r.destination);
-                const expectedHours = expectedKm / AVG_SPEED_KMH;
-
-                // Calculate actual duration in hours using updatedAt - createdAt when available
-                let actualHours = 0;
-                if (r.updatedAt && r.createdAt) {
-                    actualHours = (new Date(r.updatedAt) - new Date(r.createdAt)) / (1000 * 60 * 60);
-                }
-
-                // Consider a ride on-time if completed within expectedHours*(1+TOLERANCE)
-                if (r.status === 'Completed') {
-                    if (actualHours > 0 && actualHours <= expectedHours * (1 + TOLERANCE)) onTimeCount += 1;
-                    else if (actualHours === 0) {
-                        // If no timing info, assume on-time for completed rides
-                        onTimeCount += 1;
-                    }
-                }
-            }
-
-            const onTimePercent = total > 0 ? Math.round((onTimeCount / total) * 100) : 100;
-            weekly.push({ name: start.toLocaleDateString(), value: onTimePercent, color: onTimePercent > 90 ? '#22c55e' : onTimePercent > 80 ? '#eab308' : '#ef4444' });
-        }
-
-        res.json(weekly);
-    } catch (err) {
-        console.error('On-time stats error:', err);
-        res.status(500).json({ error: err.message });
-    }
-};
 
 exports.getMarketplaceHire = async (req, res) => {
     try {

@@ -20,7 +20,6 @@ router.get('/stats/profit', authenticateToken, authorizeRole(['driver']), driver
 router.get('/stats/trips', authenticateToken, authorizeRole(['driver']), driverController.getTripHistoryStats);
 router.get('/stats/distance', authenticateToken, authorizeRole(['driver']), driverController.getDistanceStats);
 router.get('/stats/hours', authenticateToken, authorizeRole(['driver']), driverController.getHoursStats);
-router.get('/stats/ontime', authenticateToken, authorizeRole(['driver']), driverController.getOnTimeStats);
 router.get('/transactions', authenticateToken, authorizeRole(['driver']), driverController.getTransactions);
 
 // Post Management
