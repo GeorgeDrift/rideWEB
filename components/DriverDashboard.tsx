@@ -2173,7 +2173,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
 
                         {activeTab === 'overview' && (
                             <>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                                     {/* Subscription Card */}
                                     <div className="bg-[#1E1E1E] rounded-3xl p-6 border border-[#FACC15]/50 flex flex-col justify-between h-48 group hover:shadow-[0_0_30px_rgba(250,204,21,0.2)] transition-all duration-300 shadow-lg shadow-black/20 relative overflow-hidden">
                                         <div className="absolute -right-6 -top-6 w-24 h-24 bg-[#FACC15]/10 rounded-full blur-xl"></div>
