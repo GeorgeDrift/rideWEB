@@ -29,6 +29,7 @@ const User = sequelize.define('User', {
     // Email Verification
     isVerified: { type: DataTypes.BOOLEAN, defaultValue: false },
     verificationToken: { type: DataTypes.STRING },
+    verificationTokenExpiry: { type: DataTypes.DATE },
 
     // Account Status for Admin Management
     accountStatus: {
@@ -73,10 +74,13 @@ const Vehicle = sequelize.define('Vehicle', {
     name: { type: DataTypes.STRING, allowNull: false },
     plate: { type: DataTypes.STRING, allowNull: false },
     category: { type: DataTypes.STRING, allowNull: false },
-    // NOTE: make/model columns removed to match current DB schema (kept in separate RideShare/Hire tables)
+    make: { type: DataTypes.STRING },
+    model: { type: DataTypes.STRING },
     rate: { type: DataTypes.STRING, allowNull: false },
     features: { type: DataTypes.JSON }, // Store array as JSON
     imageUrl: { type: DataTypes.STRING },
+    color: { type: DataTypes.STRING },
+    seats: { type: DataTypes.INTEGER, defaultValue: 4 },
     status: { type: DataTypes.ENUM('Available', 'On-Route', 'Maintenance', 'Rented'), defaultValue: 'Available' }
 });
 
@@ -232,6 +236,7 @@ const RideSharePost = sequelize.define('RideSharePost', {
     seats: { type: DataTypes.INTEGER, allowNull: false },
     availableSeats: { type: DataTypes.INTEGER, allowNull: false },
     description: { type: DataTypes.TEXT },
+    imageUrl: { type: DataTypes.STRING },
     status: { type: DataTypes.ENUM('active', 'full', 'cancelled', 'completed'), defaultValue: 'active' },
     vehicleId: { type: DataTypes.UUID },
     driverId: { type: DataTypes.UUID }
@@ -375,13 +380,13 @@ RideSharePost.belongsTo(User, { foreignKey: 'driverId', as: 'driver' });
 User.hasMany(HirePost, { foreignKey: 'driverId', as: 'hirePosts' });
 HirePost.belongsTo(User, { foreignKey: 'driverId', as: 'driver' });
 
-// HireVehicle <-> HirePost
-HireVehicle.hasMany(HirePost, { foreignKey: 'vehicleId', as: 'posts' });
-HirePost.belongsTo(HireVehicle, { foreignKey: 'vehicleId', as: 'vehicle' });
+// Vehicle <-> HirePost
+Vehicle.hasMany(HirePost, { foreignKey: 'vehicleId', as: 'hirePosts' });
+HirePost.belongsTo(Vehicle, { foreignKey: 'vehicleId', as: 'vehicle' });
 
-// RideShareVehicle <-> RideSharePost (explicit relationship)
-RideShareVehicle.hasMany(RideSharePost, { foreignKey: 'vehicleId', as: 'posts' });
-RideSharePost.belongsTo(RideShareVehicle, { foreignKey: 'vehicleId', as: 'vehicle' });
+// Vehicle <-> RideSharePost (explicit relationship)
+Vehicle.hasMany(RideSharePost, { foreignKey: 'vehicleId', as: 'rideSharePosts' });
+RideSharePost.belongsTo(Vehicle, { foreignKey: 'vehicleId', as: 'vehicle' });
 
 // Conversation <-> Ride
 Conversation.belongsTo(Ride, { foreignKey: 'relatedRideId', as: 'ride' });

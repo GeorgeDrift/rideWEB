@@ -43,33 +43,14 @@ const requireActiveSubscription = async (req, res, next) => {
             return next();
         }
 
-        // Check 2: Within trial period (30 days from registration or trialEndDate)
-        let inTrialPeriod = false;
+        // Check 3: No active subscription
+        console.log(`[Subscription Check] User ${userId} has no active subscription`);
 
-        if (user.trialEndDate) {
-            // Use trialEndDate if available
-            inTrialPeriod = new Date(user.trialEndDate) > now;
-        } else {
-            // Fallback: calculate from registration date (30 days)
-            const registrationDate = new Date(user.createdAt);
-            const trialEndDate = new Date(registrationDate);
-            trialEndDate.setDate(trialEndDate.getDate() + 30);
-            inTrialPeriod = trialEndDate > now;
-        }
-
-        if (inTrialPeriod) {
-            console.log(`[Subscription Check] User ${userId} is within 30-day trial period`);
-            return next();
-        }
-
-        // Check 3: No active subscription and trial expired
-        console.log(`[Subscription Check] User ${userId} subscription expired and trial period ended`);
 
         return res.status(403).json({
             error: 'Subscription Required',
-            message: 'Your 30-day free trial has expired. Please purchase a subscription to continue using this feature.',
+            message: 'Please purchase a subscription to continue using this feature.',
             code: 'SUBSCRIPTION_EXPIRED',
-            trialExpired: true,
             subscriptionStatus: user.subscriptionStatus
         });
 

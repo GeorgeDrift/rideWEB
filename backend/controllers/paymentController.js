@@ -257,34 +257,14 @@ exports.requestPayout = async (req, res) => {
             return res.status(403).json({ error: 'Only drivers can request payouts' });
         }
 
-        // 2. Check Subscription Status (must have active subscription or be within trial)
+        // 2. Check Subscription Status (must have active subscription)
         const now = new Date();
-        let hasActiveAccess = false;
-
-        // Check paid subscription
-        if (user.subscriptionStatus === 'active' && user.subscriptionExpiry && new Date(user.subscriptionExpiry) > now) {
-            hasActiveAccess = true;
-        }
-
-        // Check trial period
-        if (!hasActiveAccess) {
-            if (user.trialEndDate && new Date(user.trialEndDate) > now) {
-                hasActiveAccess = true;
-            } else {
-                // Fallback: calculate from registration (30 days)
-                const registrationDate = new Date(user.createdAt);
-                const trialEndDate = new Date(registrationDate);
-                trialEndDate.setDate(trialEndDate.getDate() + 30);
-                if (trialEndDate > now) {
-                    hasActiveAccess = true;
-                }
-            }
-        }
+        const hasActiveAccess = (user.subscriptionStatus === 'active' && user.subscriptionExpiry && new Date(user.subscriptionExpiry) > now);
 
         if (!hasActiveAccess) {
             return res.status(403).json({
                 error: 'Subscription Required',
-                message: 'Your 30-day free trial has expired. Please purchase a subscription to withdraw funds.',
+                message: 'Please purchase a subscription to withdraw funds.',
                 code: 'SUBSCRIPTION_EXPIRED'
             });
         }

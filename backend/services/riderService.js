@@ -45,10 +45,22 @@ class RiderService {
             raw: true
         });
 
+        const distanceResult = await Ride.findOne({
+            where: { riderId, status: 'Completed' },
+            attributes: [[sequelize.fn('SUM', sequelize.col('distance_km')), 'totalDistance']],
+            raw: true
+        });
+
+        const totalSpent = spentResult?.total || 0;
+        const totalRides = rideCount;
+        const totalDistance = distanceResult?.totalDistance || 0;
+
         return {
-            totalSpent: spentResult?.total || 0,
-            totalRides: rideCount,
-            totalDistance: rideCount * 12.5,
+            totalSpent,
+            totalRides,
+            totalDistance: parseFloat(totalDistance.toFixed(1)), // Ensure float
+            averageCost: totalRides > 0 ? totalSpent / totalRides : 0,
+            averageDistance: totalRides > 0 ? totalDistance / totalRides : 0,
             chartData: monthlyData,
             rideTypes: rideTypes.map(t => ({
                 name: t.type === 'share' ? 'Share' : 'Hire',

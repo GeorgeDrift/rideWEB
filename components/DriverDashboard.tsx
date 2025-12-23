@@ -103,7 +103,7 @@ import { ThemeToggle } from './ThemeToggle';
 export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) => {
     // Global State
     const [sidebarOpen, setSidebarOpen] = useState(false);
-    const [activeTab, setActiveTab] = useState<'overview' | 'jobs' | 'tracking' | 'history' | 'subscription' | 'trips' | 'distance' | 'hours' | 'ontime' | 'inventory' | 'messages' | 'documents' | 'requests' | 'settings'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'jobs' | 'tracking' | 'history' | 'subscription' | 'trips' | 'distance' | 'hours' | 'inventory' | 'messages' | 'documents' | 'requests' | 'settings'>('overview');
     const [driverProfile, setDriverProfile] = useState<any>(null);
     const [pendingApprovals, setPendingApprovals] = useState<any[]>([]);
     const [driverLocation, setDriverLocation] = useState<[number, number]>([33.7741, -13.9626]);
@@ -144,8 +144,8 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                 try {
                     const driverId = driverProfile?.id || (JSON.parse(atob(localStorage.getItem('token')!.split('.')[1])).id);
                     const payoutRes = await ApiService.getDriverPayoutDetails(driverId);
-                    if (payoutRes && payoutRes.payoutMethod) {
-                        setPayoutMethod(payoutRes.payoutMethod);
+                    if (payoutRes) {
+                        if (payoutRes.payoutMethod) setPayoutMethod(payoutRes.payoutMethod);
                         setPayoutDetails({
                             bankName: payoutRes.bankName,
                             accountNumber: payoutRes.payoutAccountNumber,
@@ -154,7 +154,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                         });
                         // Auto-select destination based on configured method
                         if (payoutRes.payoutMethod === 'Bank') setWithdrawDestination('bank');
-                        else setWithdrawDestination('mobile');
+                        else if (payoutRes.payoutMethod) setWithdrawDestination('mobile');
                     }
                 } catch (e) {
                     console.warn('Refresh payout details failed', e);
@@ -370,6 +370,8 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
         rate: '',
         status: 'Available'
     });
+    const [vehicleImage, setVehicleImage] = useState<File | null>(null);
+    const [vehicleImagePreview, setVehicleImagePreview] = useState<string | null>(null);
 
     // Booking Modal State
     const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
@@ -384,7 +386,7 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
 
     // Jobs State
     const [jobType, setJobType] = useState<'share' | 'hire'>('share');
-    const [newRide, setNewRide] = useState({ origin: '', destination: '', date: '', time: '', price: '', seats: '' });
+    const [newRide, setNewRide] = useState({ origin: '', destination: '', date: '', time: '', price: '', seats: '', vehicleId: '' });
     const [editingId, setEditingId] = useState<number | null>(null); // Track which listing is being edited
 
     // Mock Requests for Driver Approval
@@ -392,7 +394,11 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
 
     // Initialized from API
     const [activePosts, setActivePosts] = useState<any[]>([]);
-    const [newHireJob, setNewHireJob] = useState({ title: '', category: 'Small Cars (Sedans & Hatchbacks)', location: '', rate: '' });
+    const [newHireJob, setNewHireJob] = useState({ title: '', category: 'Small Cars (Sedans & Hatchbacks)', location: '', rate: '', vehicleId: '' });
+    const [hireImage, setHireImage] = useState<File | null>(null);
+    const [hireImagePreview, setHireImagePreview] = useState<string | null>(null);
+    const [rideImage, setRideImage] = useState<File | null>(null);
+    const [rideImagePreview, setRideImagePreview] = useState<string | null>(null);
     const [myHirePosts, setMyHirePosts] = useState<any[]>([]);
     const [contractedJobs, setContractedJobs] = useState<any[]>([]);
     const [jobsFilter, setJobsFilter] = useState<'active' | 'history' | 'cancelled'>('active');
@@ -436,20 +442,6 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     const handlePayment = async () => {
         if (!selectedPlan) {
             alert('Please select a plan');
-            return;
-        }
-
-        // Handle Free Trial Selection
-        if (selectedPlan === 'free_trial') {
-            if (subscriptionStatus?.inTrialPeriod) {
-                alert("You are already active on the 30-Day Free Trial!");
-                return;
-            }
-            if (subscriptionStatus?.status === 'active') {
-                alert("You already have an active subscription.");
-                return;
-            }
-            alert("The 30-Day Free Trial is automatically applied for new drivers. If you are eligible, it is already active.");
             return;
         }
 
@@ -552,6 +544,9 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                 // Update local simple state too
                 if (data && data.status === 'active') {
                     setIsSubscriptionPaid(true);
+                } else if (data && data.status !== 'active') {
+                    // Auto-trigger modal if not active
+                    setIsSubscriptionModalOpen(true);
                 }
             } catch (error) {
                 console.warn('Failed to fetch subscription status:', error);
@@ -562,22 +557,10 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
             try {
                 const res = await ApiService.getSubscriptionPlans();
                 const plansArray = res.plans || (Array.isArray(res) ? res : []);
-
-                // Add Free Trial Plan manually
-                const freePlan = {
-                    id: 'free_trial',
-                    name: '30-Day Free Trial',
-                    price: 0,
-                    duration: 30,
-                    description: 'Get started with a 30-day free trial.'
-                };
-
-                setPlans([freePlan, ...plansArray]);
+                setPlans(plansArray);
 
                 if (plansArray.length > 0) {
-                    // Default to free trial if available? Or keep existing logic.
-                    // Let's default to the *actual* first plan (free trial) if they want it top of list.
-                    setSelectedPlan('free_trial');
+                    setSelectedPlan(plansArray[0].id);
                 }
             } catch (error) {
                 console.error('Failed to fetch subscription plans:', error);
@@ -798,104 +781,139 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
         e.preventDefault();
         if (!newRide.origin || !newRide.destination) return;
 
-        if (editingId) {
-            // Update existing ride locally
-            setActivePosts(activePosts.map(p => p.id === editingId ? {
-                ...p,
-                origin: newRide.origin,
-                destination: newRide.destination,
-                date: newRide.date,
-                time: newRide.time,
-                price: Number(newRide.price),
-                seats: Number(newRide.seats)
-            } : p));
-            setEditingId(null);
-        } else {
-            // Try to persist to backend, fallback to local state
-            const payload = {
-                origin: newRide.origin,
-                destination: newRide.destination,
-                date: newRide.date || new Date().toISOString().split('T')[0],
-                time: newRide.time || '12:00',
-                price: Number(newRide.price) || 0,
-                seats: Number(newRide.seats) || 1
-            };
-            try {
-                const created = await ApiService.addDriverSharePost(payload);
-                // @ts-ignore
-                setActivePosts([created, ...activePosts]);
-            } catch (err) {
-                console.warn('Add share post failed, falling back to local state', err);
-                const post = { id: Date.now(), ...payload };
-                // @ts-ignore
-                setActivePosts([post, ...activePosts]);
+        try {
+            let imageUrl = '';
+            if (rideImage) {
+                const response = await ApiService.uploadPostImage(rideImage, 'share');
+                imageUrl = response.imageUrl;
             }
+
+            if (editingId) {
+                // Update existing ride locally (Backend update could be added here later)
+                setActivePosts(activePosts.map(p => p.id === editingId ? {
+                    ...p,
+                    origin: newRide.origin,
+                    destination: newRide.destination,
+                    date: newRide.date,
+                    time: newRide.time,
+                    price: Number(newRide.price),
+                    seats: Number(newRide.seats),
+                    imageUrl: imageUrl || p.imageUrl
+                } : p));
+                setEditingId(null);
+            } else {
+                // Try to persist to backend, fallback to local state
+                const selectedVehicle = myVehicles.find(v => v.id === newRide.vehicleId);
+                const payload = {
+                    origin: newRide.origin,
+                    destination: newRide.destination,
+                    date: newRide.date || new Date().toISOString().split('T')[0],
+                    time: newRide.time || '12:00',
+                    price: Number(newRide.price) || 0,
+                    seats: Number(newRide.seats) || 1,
+                    vehicleId: newRide.vehicleId || undefined,
+                    imageUrl: imageUrl || selectedVehicle?.imageUrl // Use vehicle image if none uploaded
+                };
+                try {
+                    const created = await ApiService.addDriverSharePost(payload);
+                    // @ts-ignore
+                    setActivePosts([created, ...activePosts]);
+                } catch (err) {
+                    console.warn('Add share post failed, falling back to local state', err);
+                    const post = { id: Date.now(), ...payload };
+                    setActivePosts([post, ...activePosts]);
+                }
+            }
+            setNewRide({ origin: '', destination: '', date: '', time: '', price: '', seats: '', vehicleId: '' });
+            setRideImage(null);
+            setRideImagePreview(null);
+        } catch (err) {
+            console.error('Failed to post ride:', err);
+            alert('Failed to post ride. Please try again.');
         }
-        setNewRide({ origin: '', destination: '', date: '', time: '', price: '', seats: '' });
     };
 
     const handlePostHireJob = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!newHireJob.title || !newHireJob.location) return;
 
-        if (editingId) {
-            // Update existing listing locally
-            setMyHirePosts(myHirePosts.map(p => p.id === editingId ? {
-                ...p,
-                title: newHireJob.title,
-                category: newHireJob.category,
-                location: newHireJob.location,
-                rate: newHireJob.rate
-            } : p));
-            setEditingId(null);
-        } else {
-            const payload = {
-                title: newHireJob.title,
-                category: newHireJob.category,
-                location: newHireJob.location,
-                rate: newHireJob.rate,
-                rateAmount: parseFloat(newHireJob.rate) || 0, // Parse rate to float
-                rateUnit: 'day',
-                status: 'available' // Lowercase status to match enum
-            };
-            try {
-                const created = await ApiService.addDriverHirePost(payload);
-                setMyHirePosts([created, ...myHirePosts]);
-            } catch (err) {
-                console.warn('Add hire post failed, falling back to local state', err);
-                const post = { id: Date.now(), ...payload };
-                setMyHirePosts([post, ...myHirePosts]);
+        try {
+            let imageUrl = '';
+            if (hireImage) {
+                const response = await ApiService.uploadPostImage(hireImage, 'hire');
+                imageUrl = response.imageUrl;
             }
+
+            if (editingId) {
+                // Update existing listing locally
+                setMyHirePosts(myHirePosts.map(p => p.id === editingId ? {
+                    ...p,
+                    title: newHireJob.title,
+                    category: newHireJob.category,
+                    location: newHireJob.location,
+                    rate: newHireJob.rate,
+                    imageUrl: imageUrl || p.imageUrl
+                } : p));
+                setEditingId(null);
+            } else {
+                const selectedVehicle = myVehicles.find(v => v.id === newHireJob.vehicleId);
+                const payload = {
+                    title: newHireJob.title,
+                    category: newHireJob.category,
+                    location: newHireJob.location,
+                    rate: newHireJob.rate,
+                    rateAmount: parseFloat(newHireJob.rate) || 0, // Parse rate to float
+                    rateUnit: 'day',
+                    status: 'available', // Lowercase status to match enum
+                    vehicleId: newHireJob.vehicleId || undefined,
+                    imageUrl: imageUrl || selectedVehicle?.imageUrl // Use vehicle image if none uploaded
+                };
+                try {
+                    const created = await ApiService.addDriverHirePost(payload);
+                    setMyHirePosts([created, ...myHirePosts]);
+                } catch (err) {
+                    console.warn('Add hire post failed, falling back to local state', err);
+                    const post = { id: Date.now(), ...payload };
+                    setMyHirePosts([post, ...myHirePosts]);
+                }
+            }
+            setNewHireJob({ title: '', category: hireCategories[0], location: '', rate: '', vehicleId: '' });
+            setHireImage(null);
+            setHireImagePreview(null);
+        } catch (err) {
+            console.error('Failed to post hire job:', err);
+            alert('Failed to post hire job. Please try again.');
         }
-        setNewHireJob({ title: '', category: hireCategories[0], location: '', rate: '' });
-    }
+    };
 
     const cancelEdit = () => {
         setEditingId(null);
-        setNewRide({ origin: '', destination: '', date: '', time: '', price: '', seats: '' });
-        setNewHireJob({ title: '', category: hireCategories[0], location: '', rate: '' });
+        setNewRide({ origin: '', destination: '', date: '', time: '', price: '', seats: '', vehicleId: '' });
+        setNewHireJob({ title: '', category: hireCategories[0], location: '', rate: '', vehicleId: '' });
     };
 
-    const startEditRide = (post: any) => {
-        setEditingId(post.id);
+    const startEditRide = (ride: any) => {
+        setEditingId(ride.id);
         setNewRide({
-            origin: post.origin,
-            destination: post.destination,
-            date: post.date,
-            time: post.time,
-            price: post.price.toString(),
-            seats: post.seats.toString()
+            origin: ride.origin,
+            destination: ride.destination,
+            date: ride.date,
+            time: ride.time,
+            price: ride.price.toString(),
+            seats: ride.seats.toString(),
+            vehicleId: ride.vehicleId || ''
         });
         setJobType('share');
     };
 
-    const startEditHire = (post: any) => {
-        setEditingId(post.id);
+    const startEditHire = (job: any) => {
+        setEditingId(job.id);
         setNewHireJob({
-            title: post.title,
-            category: post.category,
-            location: post.location,
-            rate: post.rate
+            title: job.title,
+            category: job.category,
+            location: job.location,
+            rate: job.rate.toString(),
+            vehicleId: job.vehicleId || ''
         });
         setJobType('hire');
     };
@@ -1115,16 +1133,38 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     };
 
     const handleSelectInventory = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const vehicleId = Number(e.target.value);
+        const vehicleId = e.target.value;
         const vehicle = myVehicles.find(v => v.id === vehicleId);
 
         if (vehicle) {
-            setNewHireJob({
-                ...newHireJob,
-                title: `${vehicle.name} Available`,
-                category: vehicle.category,
-                rate: vehicle.rate || ''
-            });
+            if (jobType === 'hire') {
+                setNewHireJob({
+                    ...newHireJob,
+                    vehicleId: vehicleId,
+                    title: `${vehicle.name} Available`,
+                    category: vehicle.category,
+                    rate: vehicle.rate || ''
+                });
+                if (vehicle.imageUrl) {
+                    setHireImagePreview(vehicle.imageUrl);
+                }
+            } else {
+                setNewRide({
+                    ...newRide,
+                    vehicleId: vehicleId,
+                    seats: vehicle.seats?.toString() || '4'
+                });
+                if (vehicle.imageUrl) {
+                    setRideImagePreview(vehicle.imageUrl);
+                }
+            }
+        } else {
+            // Reset vehicle selection if empty option selected
+            if (jobType === 'hire') {
+                setNewHireJob({ ...newHireJob, vehicleId: '' });
+            } else {
+                setNewRide({ ...newRide, vehicleId: '' });
+            }
         }
     };
 
@@ -1132,21 +1172,30 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
         e.preventDefault();
         if (!newVehicle.name || !newVehicle.plate) return;
 
-        // Build payload matching backend allowed fields (backend sanitizes extras)
-        const payload: any = {
-            name: newVehicle.name,
-            plate: newVehicle.plate,
-            category: newVehicle.category,
-            rate: newVehicle.rate,
-            status: newVehicle.status
-        };
-
         try {
+            let imageUrl = '';
+            if (vehicleImage) {
+                const response = await ApiService.uploadVehicleImage(vehicleImage);
+                imageUrl = response.imageUrl;
+            }
+
+            // Build payload matching backend allowed fields
+            const payload: any = {
+                name: newVehicle.name,
+                plate: newVehicle.plate,
+                category: newVehicle.category,
+                rate: newVehicle.rate,
+                status: newVehicle.status,
+                imageUrl: imageUrl // Add imageUrl to payload
+            };
+
             // Use ApiService addVehicle to persist to backend
             const created = await ApiService.addVehicle(payload as any);
             // Prepend to vehicles list
             setMyVehicles(prev => [created, ...prev]);
             setNewVehicle({ name: '', plate: '', make: '', model: '', customMake: '', customModel: '', category: hireCategories[0], rate: '', status: 'Available' });
+            setVehicleImage(null);
+            setVehicleImagePreview(null);
             setIsAddVehicleOpen(false);
         } catch (err) {
             console.error('Failed to add vehicle:', err);
@@ -1250,6 +1299,36 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
         }
     };
 
+    const handleVehicleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setVehicleImage(file);
+            const reader = new FileReader();
+            reader.onloadend = () => setVehicleImagePreview(reader.result as string);
+            reader.readAsDataURL(file);
+        }
+    };
+
+    const handleRideImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setRideImage(file);
+            const reader = new FileReader();
+            reader.onloadend = () => setRideImagePreview(reader.result as string);
+            reader.readAsDataURL(file);
+        }
+    };
+
+    const handleHireImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setHireImage(file);
+            const reader = new FileReader();
+            reader.onloadend = () => setHireImagePreview(reader.result as string);
+            reader.readAsDataURL(file);
+        }
+    };
+
     const handleDocumentsSave = async (e: React.FormEvent) => {
         e.preventDefault();
         setDocumentsSaving(true);
@@ -1291,7 +1370,6 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     const [tripHistoryData, setTripHistoryData] = useState<any[]>([]);
     const [distanceData, setDistanceData] = useState<any[]>([]);
     const [drivingHoursData, setDrivingHoursData] = useState<any[]>([]);
-    const [onTimeData, setOnTimeData] = useState<any[]>([]);
 
     // Summary stats fetched from backend (/api/driver/stats)
     const [summaryStats, setSummaryStats] = useState<{ totalEarnings: number; count: number; avgRating: number; walletBalance?: number }>({ totalEarnings: 0, count: 0, avgRating: 5, walletBalance: 0 });
@@ -1340,18 +1418,16 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
 
     useEffect(() => {
         const fetchAnalytics = async () => {
-            const [profit, trips, distance, hours, onTime] = await Promise.all([
+            const [profit, trips, distance, hours] = await Promise.all([
                 ApiService.getDriverProfitStats(),
                 ApiService.getDriverTripHistoryStats(),
                 ApiService.getDriverDistanceStats(),
-                ApiService.getDriverHoursStats(),
-                ApiService.getDriverOnTimeStats()
+                ApiService.getDriverHoursStats()
             ]);
             setProfitChartData(profit);
             setTripHistoryData(trips);
             setDistanceData(distance);
             setDrivingHoursData(hours);
-            setOnTimeData(onTime);
             // also load summary counts
             try {
                 const stats = await ApiService.getDriverStats();
@@ -1463,18 +1539,16 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
             interval: 20000,
             onPoll: async () => {
                 try {
-                    const [profit, trips, distance, hours, onTime] = await Promise.all([
+                    const [profit, trips, distance, hours] = await Promise.all([
                         ApiService.getDriverProfitStats(),
                         ApiService.getDriverTripHistoryStats(),
                         ApiService.getDriverDistanceStats(),
-                        ApiService.getDriverHoursStats(),
-                        ApiService.getDriverOnTimeStats()
+                        ApiService.getDriverHoursStats()
                     ]);
                     setProfitChartData(profit);
                     setTripHistoryData(trips);
                     setDistanceData(distance);
                     setDrivingHoursData(hours);
-                    setOnTimeData(onTime);
                 } catch (e) { console.warn('Polling analytics failed', e); }
             }
         });
@@ -1642,6 +1716,15 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
     };
 
 
+    const getInitials = (name: string) => {
+        if (!name) return '??';
+        const parts = name.trim().split(/\s+/);
+        if (parts.length >= 2) {
+            return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+        }
+        return name.substring(0, 2).toUpperCase();
+    };
+
     const weekDays = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
     const today = new Date();
     const currentYear = today.getFullYear();
@@ -1739,7 +1822,6 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
 
             <aside className={`fixed lg:relative z-50 w-64 h-full bg-[#1E1E1E] border-r border-[#2A2A2A] flex flex-col transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
                 <div className="h-20 flex items-center px-8 border-b border-[#2A2A2A]">
-                    <SteeringWheelIcon className="w-8 h-8 text-[#FACC15] mr-3" />
                     <span className="text-xl font-bold tracking-wide">Ridex</span>
                     <button className="ml-auto lg:hidden text-gray-400" onClick={() => setSidebarOpen(false)}>
                         <CloseIcon className="w-6 h-6" />
@@ -1907,7 +1989,13 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
 
                         <div className="h-8 w-[1px] bg-gray-200 dark:bg-[#2A2A2A]"></div>
                         <div className="flex items-center gap-3">
-                            <img src={driverProfile?.avatar || '/default-avatar.png'} alt="Driver" className="w-9 h-9 rounded-full border border-primary-500" />
+                            {driverProfile?.avatar ? (
+                                <img src={ApiService.getAssetUrl(driverProfile.avatar)} alt="Driver" className="w-9 h-9 rounded-full border border-primary-500" />
+                            ) : (
+                                <div className="w-9 h-9 rounded-full border border-primary-500 bg-[#FACC15] text-black flex items-center justify-center text-xs font-bold">
+                                    {getInitials(driverProfile?.name || 'Driver')}
+                                </div>
+                            )}
                             <div className="hidden lg:block text-right">
                                 <div className="text-sm font-bold text-gray-900 dark:text-white">{driverProfile?.name || 'Driver'}</div>
                                 {/* DRIVER RATING IMPLEMENTATION */}
@@ -1922,10 +2010,10 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                 </header>
 
                 <div className="flex-1 overflow-y-auto p-6 lg:p-10 scroll-smooth">
-                    <div className="max-w-8xl mx-auto space-y-8">
+                    <div className="w-full space-y-8 px-4 sm:px-6 md:px-8">
 
                         {/* Header Section (hidden on specific pages to avoid clutter) */}
-                        {!['subscription', 'trips', 'distance', 'hours', 'ontime', 'inventory', 'messages', 'documents', 'requests'].includes(activeTab) && (
+                        {!['subscription', 'trips', 'distance', 'hours', 'inventory', 'messages', 'documents', 'requests'].includes(activeTab) && (
                             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                                 <div>
                                     <p className="text-gray-400 text-sm font-medium">Good morning,</p>
@@ -1994,7 +2082,13 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                             >
                                                 <div className="flex items-center gap-3">
                                                     <div className="relative">
-                                                        <img src={chat.avatar} alt={chat.name} className="w-10 h-10 rounded-full object-cover" />
+                                                        {chat.avatar ? (
+                                                            <img src={chat.avatar} alt={chat.name} className="w-10 h-10 rounded-full object-cover" />
+                                                        ) : (
+                                                            <div className="w-10 h-10 rounded-full bg-[#252525] border border-[#333] flex items-center justify-center text-xs font-bold text-[#FACC15]">
+                                                                {getInitials(chat.name)}
+                                                            </div>
+                                                        )}
                                                         {chat.status === 'online' && <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-[#1E1E1E]"></span>}
                                                     </div>
                                                     <div className="flex-1 min-w-0">
@@ -2019,7 +2113,13 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                         <>
                                             <div className="p-4 border-b border-[#333] flex justify-between items-center bg-[#252525]">
                                                 <div className="flex items-center gap-3">
-                                                    <img src={activeChat.avatar} alt={activeChat.name} className="w-10 h-10 rounded-full" />
+                                                    {activeChat.avatar ? (
+                                                        <img src={activeChat.avatar} alt={activeChat.name} className="w-10 h-10 rounded-full" />
+                                                    ) : (
+                                                        <div className="w-10 h-10 rounded-full bg-[#1E1E1E] border border-[#333] flex items-center justify-center text-xs font-bold text-[#FACC15]">
+                                                            {getInitials(activeChat.name)}
+                                                        </div>
+                                                    )}
                                                     <div>
                                                         <h3 className="text-white font-bold text-sm">{activeChat.name}</h3>
                                                         <div className="flex items-center gap-1 text-xs text-gray-400">
@@ -2187,40 +2287,6 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                         </div>
                                     </div>
 
-                                    {/* On-time Rate Card (Clickable) */}
-                                    <div
-                                        onClick={() => setActiveTab('ontime')}
-                                        className="cursor-pointer bg-[#1E1E1E] rounded-3xl p-6 border border-[#2A2A2A] flex flex-col justify-between h-48 group hover:border-[#FACC15]/50 transition-all duration-300 shadow-lg shadow-black/20 hover:shadow-[0_0_30px_rgba(250,204,21,0.1)]"
-                                    >
-                                        <div className="flex items-center gap-2 text-gray-400 text-sm font-medium">
-                                            <div className="p-1.5 bg-[#2A2A2A] rounded-lg text-[#FACC15]">
-                                                <DashboardIcon className="w-4 h-4" />
-                                            </div>
-                                            On-time rate
-                                        </div>
-                                        <div className="flex items-end justify-between mt-auto">
-                                            <div className="text-4xl font-bold text-white">{(() => {
-                                                try {
-                                                    const data = onTimeData || [];
-                                                    if (!data.length) return `${summaryStats.count ? Math.round(summaryStats.count ? summaryStats.count : 0) : 100}%`;
-                                                    const avg = Math.round(data.reduce((s: number, r: any) => s + (r.value || 0), 0) / data.length);
-                                                    return `${avg}%`;
-                                                } catch (e) { return '100%'; }
-                                            })()}</div>
-                                            <div className="w-24 h-12">
-                                                <svg className="w-full h-full overflow-visible" viewBox="0 0 100 50">
-                                                    <defs>
-                                                        <linearGradient id="gradientGold" x1="0" x2="0" y1="0" y2="1">
-                                                            <stop offset="0%" stopColor="#FACC15" stopOpacity="0.5" />
-                                                            <stop offset="100%" stopColor="#FACC15" stopOpacity="0" />
-                                                        </linearGradient>
-                                                    </defs>
-                                                    <path d="M0 50 C 20 40, 40 45, 60 20 S 80 30, 100 5" fill="url(#gradientGold)" stroke="#FACC15" strokeWidth="2" strokeLinecap="round" />
-                                                    <circle cx="100" cy="5" r="3" fill="#FACC15" />
-                                                </svg>
-                                            </div>
-                                        </div>
-                                    </div>
                                 </div>
 
                                 {/* Standard Overview Widgets */}
@@ -2389,8 +2455,12 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                             </div>
 
                                             <div className="flex items-center gap-3 mb-4">
-                                                <div className="w-12 h-12 bg-[#252525] rounded-xl flex items-center justify-center text-[#FACC15] border border-[#333]">
-                                                    <TruckIcon className="w-6 h-6" />
+                                                <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center text-gray-400 border-2 border-[#333] overflow-hidden flex-shrink-0">
+                                                    {vehicle.imageUrl ? (
+                                                        <img src={ApiService.getAssetUrl(vehicle.imageUrl)} alt={vehicle.name} className="w-full h-full object-cover" />
+                                                    ) : (
+                                                        <span className="text-sm font-bold uppercase">Car</span>
+                                                    )}
                                                 </div>
                                                 <div>
                                                     <h3 className="font-bold text-white text-lg leading-tight">{vehicle.name}</h3>
@@ -2432,13 +2502,33 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                 {/* Add Vehicle Modal */}
                                 {isAddVehicleOpen && (
                                     <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setIsAddVehicleOpen(false)}>
-                                        <div className="bg-[#1E1E1E] rounded-3xl p-8 max-w-md w-full border border-[#333] shadow-2xl" onClick={e => e.stopPropagation()}>
+                                        <div className="bg-[#1E1E1E] rounded-3xl p-8 max-w-md w-full border border-[#333] shadow-2xl overflow-y-auto max-h-[90vh]" onClick={e => e.stopPropagation()}>
                                             <div className="flex justify-between items-center mb-6">
                                                 <h3 className="text-xl font-bold text-white">Add Vehicle to Fleet</h3>
                                                 <button onClick={() => setIsAddVehicleOpen(false)} className="text-gray-400 hover:text-white"><CloseIcon className="w-6 h-6" /></button>
                                             </div>
 
                                             <form onSubmit={handleAddVehicle} className="space-y-4">
+                                                {/* Vehicle Image Upload */}
+                                                <div className="mb-4">
+                                                    <label className="text-xs text-gray-500 mb-2 block">Vehicle image (Optional)</label>
+                                                    <div className="flex items-center gap-4">
+                                                        <div className="w-20 h-20 bg-[#252525] rounded-2xl border-2 border-dashed border-[#333] flex items-center justify-center overflow-hidden">
+                                                            {vehicleImagePreview ? (
+                                                                <img src={vehicleImagePreview} alt="Preview" className="w-full h-full object-cover" />
+                                                            ) : (
+                                                                <CarIcon className="w-8 h-8 text-gray-600" />
+                                                            )}
+                                                        </div>
+                                                        <label className="flex-1">
+                                                            <div className="px-4 py-2 bg-[#252525] hover:bg-[#333] text-white text-xs font-bold rounded-lg cursor-pointer text-center transition-colors">
+                                                                Choose Photo
+                                                            </div>
+                                                            <input type="file" accept="image/*" className="hidden" onChange={handleVehicleImageChange} />
+                                                        </label>
+                                                    </div>
+                                                </div>
+
                                                 <div>
                                                     <label className="text-xs text-gray-500 mb-1 block">Vehicle Name</label>
                                                     <input type="text" required value={newVehicle.name} onChange={e => setNewVehicle({ ...newVehicle, name: e.target.value })} className="w-full bg-[#252525] border border-[#333] rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-[#FACC15]" placeholder="e.g. 5-Ton Truck" />
@@ -2721,12 +2811,15 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                                 </div>
                                             </div>
                                         </div>
-                                        {((withdrawDestination === 'mobile' && !payoutDetails.mobileNumber) || (withdrawDestination === 'bank' && !payoutDetails.bankName)) && (
-                                            <div className="mt-2 text-xs text-red-500 flex items-center gap-1">
-                                                <ExclamationTriangleIcon className="w-4 h-4" />
-                                                Selected method is not configured. Please go to Payout Details tab.
-                                            </div>
-                                        )}
+                                        <div className="mt-3 flex justify-end">
+                                            <button
+                                                onClick={() => setActiveTab('documents')}
+                                                className="text-xs text-[#FACC15] hover:underline flex items-center gap-1 font-medium"
+                                            >
+                                                <PlusIcon className="w-3.5 h-3.5" />
+                                                Add New Details
+                                            </button>
+                                        </div>
                                     </div>
 
                                     <button
@@ -2972,77 +3065,6 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                             </div>
                         )}
 
-                        {/* --- New: On-Time Rate Page --- */}
-                        {activeTab === 'ontime' && (
-                            <div className="space-y-6 animate-fadeIn">
-                                <div className="flex items-center gap-4 mb-4">
-                                    <button
-                                        onClick={() => setActiveTab('overview')}
-                                        className="p-2 rounded-xl bg-[#252525] hover:bg-[#333] text-gray-400 hover:text-white transition-colors"
-                                    >
-                                        <ArrowLeftIcon className="w-5 h-5" />
-                                    </button>
-                                    <div>
-                                        <h2 className="text-2xl font-bold text-white">Performance & Punctuality</h2>
-                                        <p className="text-sm text-gray-400">Track your arrival times and customer satisfaction.</p>
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div className="bg-[#1E1E1E] rounded-3xl p-6 border border-[#2A2A2A] flex flex-col items-center justify-center">
-                                        <h3 className="text-lg font-bold text-white mb-2 self-start">On-Time Rate</h3>
-                                        <div className="h-64 w-full">
-                                            <ResponsiveContainer width="100%" height="100%">
-                                                <PieChart>
-                                                    <Pie
-                                                        data={onTimeData}
-                                                        cx="50%"
-                                                        cy="50%"
-                                                        innerRadius={60}
-                                                        outerRadius={80}
-                                                        paddingAngle={5}
-                                                        dataKey="value"
-                                                    >
-                                                        {onTimeData.map((entry, index) => (
-                                                            <Cell key={`cell-${index}`} fill={entry.color} strokeWidth={0} />
-                                                        ))}
-                                                    </Pie>
-                                                    <Tooltip contentStyle={{ backgroundColor: '#1E1E1E', borderColor: '#333', borderRadius: '8px', color: '#fff' }} />
-                                                    <Legend verticalAlign="bottom" height={36} />
-                                                </PieChart>
-                                            </ResponsiveContainer>
-                                        </div>
-                                        <div className="text-center mt-[-140px] mb-[80px] pointer-events-none">
-                                            <div className="text-3xl font-bold text-white">85%</div>
-                                            <div className="text-xs text-gray-500">Punctual</div>
-                                        </div>
-                                    </div>
-
-                                    <div className="bg-[#1E1E1E] rounded-3xl p-6 border border-[#2A2A2A]">
-                                        <h3 className="text-lg font-bold text-white mb-4">Recent Feedback</h3>
-                                        <div className="space-y-4 max-h-80 overflow-y-auto no-scrollbar">
-                                            {[
-                                                { user: 'Alice', rating: 5, comment: 'Arrived exactly on time!', time: '2h ago' },
-                                                { user: 'Bob', rating: 4, comment: 'Slightly late but communicated well.', time: '5h ago' },
-                                                { user: 'Charlie', rating: 5, comment: 'Perfect timing for the airport run.', time: '1d ago' },
-                                                { user: 'David', rating: 3, comment: '10 mins late pickup.', time: '2d ago' },
-                                            ].map((fb, i) => (
-                                                <div key={i} className="bg-[#252525] p-4 rounded-xl border border-[#333]">
-                                                    <div className="flex justify-between items-start mb-1">
-                                                        <span className="font-bold text-white text-sm">{fb.user}</span>
-                                                        <span className="text-[10px] text-gray-500">{fb.time}</span>
-                                                    </div>
-                                                    <div className="flex items-center gap-1 text-[#FACC15] text-xs mb-1">
-                                                        {Array.from({ length: fb.rating }).map((_, j) => <span key={j}>★</span>)}
-                                                    </div>
-                                                    <p className="text-xs text-gray-400">{fb.comment}</p>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
 
                         {activeTab === 'subscription' && (
                             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-fadeIn h-[calc(100vh-140px)]">
@@ -3052,15 +3074,15 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                         <div className="absolute -right-10 -top-10 w-32 h-32 bg-[#FACC15]/10 rounded-full blur-2xl"></div>
 
                                         <div className="flex items-center gap-4 mb-6 relative z-10">
-                                            <div className={`w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 border ${isSubscriptionPaid || subscriptionStatus?.inTrialPeriod ? 'bg-green-500/20 border-green-500 text-green-500' : 'bg-red-500/20 border-red-500 text-red-500'}`}>
-                                                {isSubscriptionPaid || subscriptionStatus?.inTrialPeriod ? <CheckBadgeIcon className="w-6 h-6" /> : <CreditCardIcon className="w-6 h-6" />}
+                                            <div className={`w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 border ${isSubscriptionPaid ? 'bg-green-500/20 border-green-500 text-green-500' : 'bg-red-500/20 border-red-500 text-red-500'}`}>
+                                                {isSubscriptionPaid ? <CheckBadgeIcon className="w-6 h-6" /> : <CreditCardIcon className="w-6 h-6" />}
                                             </div>
                                             <div className="flex-1">
                                                 <h2 className="text-base font-bold text-white whitespace-nowrap">
-                                                    {subscriptionStatus?.inTrialPeriod && !isSubscriptionPaid ? '30-Day Free Trial' : 'Professional Plan'}
+                                                    Professional Plan
                                                 </h2>
-                                                <p className={`text-sm font-medium whitespace-nowrap ${isSubscriptionPaid || subscriptionStatus?.inTrialPeriod ? 'text-green-400' : 'text-red-400'}`}>
-                                                    {isSubscriptionPaid ? 'Active Subscription' : (subscriptionStatus?.inTrialPeriod ? `${subscriptionStatus.trialDaysRemaining} Days Remaining` : 'Payment Pending')}
+                                                <p className={`text-sm font-medium whitespace-nowrap ${isSubscriptionPaid ? 'text-green-400' : 'text-red-400'}`}>
+                                                    {isSubscriptionPaid ? 'Active Subscription' : 'Payment Pending'}
                                                 </p>
                                             </div>
                                         </div>
@@ -3608,6 +3630,42 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
 
                                     {jobType === 'share' ? (
                                         <form onSubmit={handlePostRide} className="space-y-4">
+                                            {/* Ride Image Upload */}
+                                            <div className="mb-4">
+                                                <label className="text-xs text-gray-500 mb-2 block">Ride/Vehicle Image (Optional)</label>
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-16 h-16 bg-[#252525] rounded-xl border-2 border-dashed border-[#333] flex items-center justify-center overflow-hidden">
+                                                        {rideImagePreview ? (
+                                                            <img src={rideImagePreview} alt="Preview" className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            <CarIcon className="w-6 h-6 text-gray-600" />
+                                                        )}
+                                                    </div>
+                                                    <label className="flex-1">
+                                                        <div className="px-4 py-2 bg-[#252525] hover:bg-[#333] text-white text-xs font-bold rounded-lg cursor-pointer text-center transition-colors">
+                                                            {rideImage ? 'Change Image' : 'Add Image'}
+                                                        </div>
+                                                        <input type="file" accept="image/*" className="hidden" onChange={handleRideImageChange} />
+                                                    </label>
+                                                </div>
+                                            </div>
+
+                                            {!editingId && (
+                                                <div className="bg-[#252525] p-3 rounded-xl border border-[#333] mb-4">
+                                                    <label className="text-xs text-gray-500 mb-1 block">Select from Inventory (Optional)</label>
+                                                    <select
+                                                        value={newRide.vehicleId}
+                                                        onChange={handleSelectInventory}
+                                                        className="w-full bg-[#1E1E1E] border border-[#333] rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-[#FACC15]"
+                                                    >
+                                                        <option value="">-- Select Vehicle --</option>
+                                                        {myVehicles.map(v => (
+                                                            <option key={v.id} value={v.id}>{v.name} ({v.plate})</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                            )}
+
                                             <div className="grid grid-cols-2 gap-4">
                                                 <div>
                                                     <label className="text-xs text-gray-500 mb-1 block">Origin</label>
@@ -3659,10 +3717,34 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                                         </form>
                                     ) : (
                                         <form onSubmit={handlePostHireJob} className="space-y-4">
+                                            {/* Hire Image Upload */}
+                                            <div className="mb-4">
+                                                <label className="text-xs text-gray-500 mb-2 block">Service/Vehicle Image (Optional)</label>
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-16 h-16 bg-[#252525] rounded-xl border-2 border-dashed border-[#333] flex items-center justify-center overflow-hidden">
+                                                        {hireImagePreview ? (
+                                                            <img src={hireImagePreview} alt="Preview" className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            <BriefcaseIcon className="w-6 h-6 text-gray-600" />
+                                                        )}
+                                                    </div>
+                                                    <label className="flex-1">
+                                                        <div className="px-4 py-2 bg-[#252525] hover:bg-[#333] text-white text-xs font-bold rounded-lg cursor-pointer text-center transition-colors">
+                                                            {hireImage ? 'Change Image' : 'Add Image'}
+                                                        </div>
+                                                        <input type="file" accept="image/*" className="hidden" onChange={handleHireImageChange} />
+                                                    </label>
+                                                </div>
+                                            </div>
+
                                             {!editingId && (
                                                 <div className="bg-[#252525] p-3 rounded-xl border border-[#333] mb-4">
                                                     <label className="text-xs text-gray-500 mb-1 block">Select from Inventory (Optional)</label>
-                                                    <select onChange={handleSelectInventory} className="w-full bg-[#1E1E1E] border border-[#333] rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-[#FACC15]">
+                                                    <select
+                                                        value={newHireJob.vehicleId}
+                                                        onChange={handleSelectInventory}
+                                                        className="w-full bg-[#1E1E1E] border border-[#333] rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-[#FACC15]"
+                                                    >
                                                         <option value="">-- Select Vehicle --</option>
                                                         {myVehicles.map(v => (
                                                             <option key={v.id} value={v.id}>{v.name} ({v.plate})</option>
@@ -3991,6 +4073,14 @@ export const DriverDashboard: React.FC<DriverDashboardProps> = ({ onLogout }) =>
                     </div>
                 )
             }
+
+            {/* Subscription Modal */}
+            <SubscriptionModal
+                isOpen={isSubscriptionModalOpen}
+                onClose={() => setIsSubscriptionModalOpen(false)}
+                onSuccess={handleSubscriptionSuccess}
+                canClose={isSubscriptionPaid}
+            />
         </div >
     );
 };

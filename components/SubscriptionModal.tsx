@@ -7,6 +7,7 @@ interface SubscriptionModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSuccess: () => void;
+    canClose?: boolean;
 }
 
 interface SubscriptionPlan {
@@ -17,7 +18,7 @@ interface SubscriptionPlan {
     description: string;
 }
 
-export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, onClose, onSuccess }) => {
+export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, onClose, onSuccess, canClose = true }) => {
     const [step, setStep] = useState<'plan' | 'payment' | 'processing' | 'success'>('plan');
     const [selectedPlan, setSelectedPlan] = useState<number | null>(null);
     const [mobileProvider, setMobileProvider] = useState<'airtel' | 'mpamba'>('airtel');
@@ -27,7 +28,6 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
 
     const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
     const [operators, setOperators] = useState<MobileMoneyOperator[]>([]);
-    const [trialDays, setTrialDays] = useState(0);
 
     // Load plans and operators
     useEffect(() => {
@@ -66,10 +66,8 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
             // Handle response format
             if (plansData.plans && Array.isArray(plansData.plans)) {
                 setPlans(plansData.plans);
-                setTrialDays(plansData.trialDays || 30);
             } else if (Array.isArray(plansData)) {
                 setPlans(plansData);
-                setTrialDays(30);
             } else {
                 setPlans([]);
             }
@@ -119,7 +117,7 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
 
     const pollPaymentStatus = async (chargeId: string) => {
         let attempts = 0;
-        const maxAttempts = 20; // 60 seconds
+        const maxAttempts = 15; // 45 seconds (15 attempts * 3s)
 
         const poll = setInterval(async () => {
             attempts++;
@@ -182,9 +180,11 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
                 {/* Header */}
                 <div className="p-6 border-b border-[#2A2A2A] flex justify-between items-center sticky top-0 bg-[#1E1E1E] z-10">
                     <h2 className="text-2xl font-bold text-white">Subscribe to RideX</h2>
-                    <button onClick={handleClose} className="text-gray-400 hover:text-white transition-colors">
-                        <CloseIcon className="w-6 h-6" />
-                    </button>
+                    {canClose && (
+                        <button onClick={handleClose} className="text-gray-400 hover:text-white transition-colors">
+                            <CloseIcon className="w-6 h-6" />
+                        </button>
+                    )}
                 </div>
 
                 {/* Content */}
@@ -192,13 +192,6 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, on
                     {/* Step 1: Plan Selection */}
                     {step === 'plan' && (
                         <div className="space-y-4">
-                            {trialDays > 0 && (
-                                <div className="bg-[#FACC15]/10 border border-[#FACC15]/30 rounded-lg p-3 text-center">
-                                    <p className="text-[#FACC15] font-bold text-sm">🎉 {trialDays} Days Free Trial Available!</p>
-                                    <p className="text-gray-400 text-xs mt-0.5">Start accepting rides immediately</p>
-                                </div>
-                            )}
-
                             {plans.length === 0 ? (
                                 <div className="text-center text-gray-400 py-8">Loading plans...</div>
                             ) : (

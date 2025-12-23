@@ -10,8 +10,7 @@ exports.getPlans = async (req, res) => {
             order: [['price', 'ASC']]
         });
         res.json({
-            plans: plans, // Returns array of plan objects
-            trialDays: 30
+            plans: plans
         });
     } catch (error) {
         console.error('Error fetching plans:', error);
@@ -244,8 +243,46 @@ exports.verifyPayment = async (req, res) => {
             return res.status(404).json({ error: 'Transaction not found' });
         }
 
+        // 2. Call PayChangu to verify
+        const verification = await payChanguService.verifyPayment(chargeId);
+
+        console.log(`🔍 [VERIFY] Response for ${chargeId}:`, verification.status);
+
         if (verification.status === 'success' || verification.status === 'successful') {
             await transaction.update({ status: 'completed' });
+
+            // ACTIVATE SUBSCRIPTION
+            const user = await User.findByPk(userId);
+            if (user) {
+                // Find plan by amount or description
+                let plan = await SubscriptionPlans.findOne({ where: { price: transaction.amount } });
+                const duration = plan ? plan.duration : 30;
+                const planName = plan ? plan.name : 'Standard Plan';
+
+                const now = new Date();
+                const newExpiry = new Date(now);
+                newExpiry.setDate(newExpiry.getDate() + duration);
+
+                // Create or Update Subscription
+                await Subscription.create({
+                    userId: user.id,
+                    plan: planName,
+                    amount: transaction.amount,
+                    status: 'active',
+                    startDate: now,
+                    endDate: newExpiry,
+                    paymentMethod: 'PayChangu',
+                    transactionId: transaction.id
+                });
+
+                await user.update({
+                    subscriptionStatus: 'active',
+                    subscriptionExpiry: newExpiry
+                });
+
+                console.log(`✅ [VERIFY] Subscription activated for ${user.email} until ${newExpiry}`);
+            }
+
             res.json({ status: 'success', message: 'Payment verified successfully' });
 
         } else if (verification.status === 'failed' || verification.status === 'cancelled') {
@@ -312,13 +349,13 @@ exports.getSubscriptionStatus = async (req, res) => {
         }
 
         res.json({
-            status: isActive || inTrialPeriod ? 'active' : 'inactive',
+            status: isActive ? 'active' : 'inactive',
             plan: activeSub ? activeSub.plan : null,
             startDate: activeSub ? activeSub.startDate : null,
             expiryDate: expiry,
             daysRemaining: isActive ? daysRemaining : 0,
-            inTrialPeriod,
-            trialDaysRemaining,
+            inTrialPeriod: false,
+            trialDaysRemaining: 0,
             needsRenewal: daysRemaining > 0 && daysRemaining <= 7
         });
 

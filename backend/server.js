@@ -15,6 +15,7 @@ const adminRoutes = require('./routes/adminRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const subscriptionRoutes = require('./routes/subscriptionRoutes');
 const vehicleRoutes = require('./routes/vehicleRoutes');
+const marketplaceRoutes = require('./routes/marketplaceRoutes');
 
 const { sequelize, User, Message } = require('./models');
 
@@ -53,6 +54,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/vehicles', vehicleRoutes);
+app.use('/api/marketplace', marketplaceRoutes); // Public marketplace routes
 app.use('/api/chat', require('./routes/chatRoutes'));
 
 // --- Database Connection & Server Start ---
@@ -72,6 +74,20 @@ sequelize.sync({ force: false })
             console.warn('⚠️ Schema patch warning (conversationId):', e.message);
         }
 
+        // Manual Migration: Add make, model, color, seats to Vehicles if missing
+        try {
+            await sequelize.query(`
+                ALTER TABLE "Vehicles" 
+                ADD COLUMN IF NOT EXISTS "make" VARCHAR(255),
+                ADD COLUMN IF NOT EXISTS "model" VARCHAR(255),
+                ADD COLUMN IF NOT EXISTS "color" VARCHAR(255),
+                ADD COLUMN IF NOT EXISTS "seats" INTEGER DEFAULT 4;
+            `);
+            console.log('✅ Schema patch applied: make/model/color/seats added to Vehicles');
+        } catch (e) {
+            console.warn('⚠️ Schema patch warning (Vehicles):', e.message);
+        }
+
         // Manual Migration 2: Fix Enum/Check Constraint for Ride Status
         // The outdated check constraint prevents new statuses like 'Awaiting Payment Selection'
         try {
@@ -81,6 +97,34 @@ sequelize.sync({ force: false })
             console.log('✅ Schema patch applied: Dropped restrictive Rides_status_check');
         } catch (e) {
             console.warn('⚠️ Schema patch warning (Rides_status_check):', e.message);
+        }
+
+        // Manual Migration 3: Fix Foreign Key constraints for Marketplace posts
+        // Redirect HirePosts.vehicleId and RideSharePosts.vehicleId to point to the main Vehicles table
+        try {
+            await sequelize.query(`
+                ALTER TABLE "HirePosts" DROP CONSTRAINT IF EXISTS "HirePosts_vehicleId_fkey";
+                ALTER TABLE "HirePosts" ADD CONSTRAINT "HirePosts_vehicleId_fkey" 
+                FOREIGN KEY ("vehicleId") REFERENCES "Vehicles"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+                ALTER TABLE "RideSharePosts" DROP CONSTRAINT IF EXISTS "RideSharePosts_vehicleId_fkey";
+                ALTER TABLE "RideSharePosts" ADD CONSTRAINT "RideSharePosts_vehicleId_fkey" 
+                FOREIGN KEY ("vehicleId") REFERENCES "Vehicles"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+            `);
+            console.log('✅ Schema patch applied: Re-routed Marketplace Post Foreign Keys to Vehicles table');
+        } catch (e) {
+            console.warn('⚠️ Schema patch warning (Marketplace FKs):', e.message);
+        }
+
+        // Manual Migration 4: Add verificationTokenExpiry for email verification
+        try {
+            await sequelize.query(`
+                ALTER TABLE "Users" 
+                ADD COLUMN IF NOT EXISTS "verificationTokenExpiry" TIMESTAMP WITH TIME ZONE;
+            `);
+            console.log('✅ Schema patch applied: verificationTokenExpiry added to Users');
+        } catch (e) {
+            console.warn('⚠️ Schema patch warning (verificationTokenExpiry):', e.message);
         }
 
         // Manual Migration 3: Attempt to add enum value if it is a native enum (fail safe)

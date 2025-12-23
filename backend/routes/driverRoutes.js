@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const driverController = require('../controllers/driverController');
 const { authenticateToken, authorizeRole } = require('../middleware/auth');
+const { uploadVehicleImage } = require('../middleware/upload');
 
 // Public marketplace route for riders to see hire vehicles
 router.get('/marketplace/hire', driverController.getMarketplaceHire);
@@ -12,6 +13,7 @@ router.get('/locations', driverController.getLocationSuggestions);
 // Protected driver routes
 router.get('/vehicles', authenticateToken, authorizeRole(['driver']), driverController.getVehicles);
 router.post('/vehicles', authenticateToken, authorizeRole(['driver']), driverController.addVehicle);
+router.post('/vehicles/upload-image', authenticateToken, authorizeRole(['driver']), uploadVehicleImage.single('image'), driverController.uploadVehicleImage);
 router.get('/stats', authenticateToken, authorizeRole(['driver']), driverController.getStats);
 // Add more granular driver stats endpoints used by the frontend
 router.get('/stats/profit', authenticateToken, authorizeRole(['driver']), driverController.getProfitStats);
@@ -24,6 +26,8 @@ router.get('/transactions', authenticateToken, authorizeRole(['driver']), driver
 // Post Management
 router.post('/posts/share', authenticateToken, authorizeRole(['driver']), driverController.addSharePost);
 router.post('/posts/hire', authenticateToken, authorizeRole(['driver']), driverController.addHirePost);
+router.post('/posts/share/upload-image', authenticateToken, authorizeRole(['driver']), uploadVehicleImage.single('image'), driverController.uploadPostImage);
+router.post('/posts/hire/upload-image', authenticateToken, authorizeRole(['driver']), uploadVehicleImage.single('image'), driverController.uploadPostImage);
 router.get('/posts/share', authenticateToken, authorizeRole(['driver']), driverController.getMySharePosts);
 router.get('/posts/hire', authenticateToken, authorizeRole(['driver']), driverController.getMyHirePosts);
 

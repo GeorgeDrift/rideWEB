@@ -28,11 +28,11 @@ exports.register = async (req, res) => {
 
         // Validate driver-specific requirements
         if (role === 'driver') {
-            // At least one payment method is required for drivers
-            const hasPaymentMethod = airtelMoneyNumber || mpambaNumber || (bankName && bankAccountNumber);
-            if (!hasPaymentMethod) {
+            // At least one contact method is required for drivers (WhatsApp or Mobile Money)
+            const hasContactMethod = phone || airtelMoneyNumber || mpambaNumber;
+            if (!hasContactMethod) {
                 return res.status(400).json({
-                    error: 'Drivers must provide at least one payment method (Airtel Money, Mpamba, or Bank details)'
+                    error: 'Drivers must provide at least one contact method (WhatsApp number, Airtel Money, or Mpamba)'
                 });
             }
         }
@@ -48,6 +48,14 @@ exports.register = async (req, res) => {
         trialEnd.setDate(trialEnd.getDate() + 30); // 30 days from now
 
         const verificationToken = require('crypto').randomBytes(32).toString('hex');
+        const tokenExpiry = new Date();
+        tokenExpiry.setHours(tokenExpiry.getHours() + 4); // 4 hours from now
+
+        // Determine payout method automatically if provided
+        let determinedPayoutMethod = null;
+        if (bankName) determinedPayoutMethod = 'Bank';
+        else if (airtelMoneyNumber) determinedPayoutMethod = 'Airtel Money';
+        else if (mpambaNumber) determinedPayoutMethod = 'Mpamba';
 
         const user = await User.create({
             name,
@@ -64,27 +72,22 @@ exports.register = async (req, res) => {
             bankName,
             bankAccountNumber,
             bankAccountName,
-            // Trial dates for subscription safeback
+            payoutMethod: determinedPayoutMethod,
+            // Trial dates for subscription
             trialStartDate: now,
             trialEndDate: trialEnd,
             subscriptionStatus: 'active', // Active during trial period
 
             // Verification
-            isVerified: true, // Optimistic verification, confirmed if email sends below
-            verificationToken: null // No token needed for this flow
+            isVerified: false, // Require email verification
+            verificationToken: verificationToken,
+            verificationTokenExpiry: tokenExpiry
         });
 
-        // Send Welcome Email (Wait for success)
-        const emailSent = await emailService.sendWelcomeEmail(email, name, password);
+        // Send Verification Email (instead of welcome email)
+        emailService.sendVerificationEmail(email, verificationToken).catch(err => console.error('Background Email Error:', err));
 
-        if (!emailSent) {
-            // Rollback: Delete the user we just created
-            await User.destroy({ where: { id: user.id } });
-            return res.status(400).json({
-                error: 'Registration failed: Unable to send email to this address. Please ensure your email is valid.'
-            });
-        }
-
+        // Proceed immediately without waiting for email
         const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
 
         res.status(201).json({
@@ -96,7 +99,7 @@ exports.register = async (req, res) => {
                 avatar: user.avatar,
                 accountStatus: user.accountStatus
             },
-            message: 'Registration successful! Credentials have been sent to your email.'
+            message: 'Registration successful! Please check your email to verify your account.'
         });
     } catch (err) {
         console.error(err);
@@ -146,11 +149,23 @@ exports.verifyEmail = async (req, res) => {
         const user = await User.findOne({ where: { verificationToken: token } });
 
         if (!user) {
-            return res.status(400).json({ error: 'Invalid or expired verification token' });
+            return res.status(400).json({ error: 'Invalid verification token' });
+        }
+
+        // Check if token is expired
+        if (user.verificationTokenExpiry && new Date() > user.verificationTokenExpiry) {
+            return res.status(400).json({
+                error: 'Verification token has expired. Please request a new verification email.',
+                expired: true
+            });
         }
 
         // Verify User
-        await user.update({ isVerified: true, verificationToken: null });
+        await user.update({
+            isVerified: true,
+            verificationToken: null,
+            verificationTokenExpiry: null
+        });
 
         // Auto-login? Or just success message.
         // Let's return success and let user login manually for security or return token.
@@ -164,6 +179,39 @@ exports.verifyEmail = async (req, res) => {
         });
     } catch (err) {
         console.error('Verification error:', err);
+        res.status(500).json({ error: err.message });
+    }
+};
+
+exports.resendVerificationEmail = async (req, res) => {
+    try {
+        const { email } = req.body;
+        const user = await User.findOne({ where: { email } });
+
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        if (user.isVerified) {
+            return res.status(400).json({ error: 'Email is already verified' });
+        }
+
+        // Generate new token with 4-hour expiry
+        const verificationToken = require('crypto').randomBytes(32).toString('hex');
+        const tokenExpiry = new Date();
+        tokenExpiry.setHours(tokenExpiry.getHours() + 4);
+
+        await user.update({
+            verificationToken,
+            verificationTokenExpiry: tokenExpiry
+        });
+
+        // Send new verification email
+        await emailService.sendVerificationEmail(email, verificationToken);
+
+        res.json({ message: 'Verification email sent successfully. Please check your inbox.' });
+    } catch (err) {
+        console.error('Resend verification error:', err);
         res.status(500).json({ error: err.message });
     }
 };

@@ -207,7 +207,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
 
     // Data States
     const [profile, setProfile] = useState<any>({ name: '', avatar: '', rating: 0 });
-    const [stats, setStats] = useState<any>({ totalSpend: 0, totalRides: 0, totalDistance: 0, chartData: [], rideTypes: [] });
+    const [stats, setStats] = useState<any>({ totalSpend: 0, totalRides: 0, totalDistance: 0, averageCost: 0, averageDistance: 0, chartData: [], rideTypes: [] });
     const [history, setHistory] = useState<any[]>([]);
     const [rideShareListings, setRideShareListings] = useState<DriverRidePost[]>([]);
     const [forHireListings, setForHireListings] = useState<DriverHirePost[]>([]);
@@ -742,7 +742,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                 // Fetch stats
                 setIsLoadingStats(true);
                 const statsData = await ApiService.getRiderStats();
-                setStats(statsData || { totalSpend: 0, totalRides: 0, totalDistance: 0, chartData: [], rideTypes: [] });
+                setStats(statsData || { totalSpend: 0, totalRides: 0, totalDistance: 0, averageCost: 0, averageDistance: 0, chartData: [], rideTypes: [] });
                 setIsLoadingStats(false);
 
                 // Fetch marketplace listings
@@ -832,7 +832,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
             onPoll: async () => {
                 try {
                     const statsData = await ApiService.getRiderStats();
-                    setStats(statsData || { totalSpend: 0, totalRides: 0, totalDistance: 0, chartData: [], rideTypes: [] });
+                    setStats(statsData || { totalSpend: 0, totalRides: 0, totalDistance: 0, averageCost: 0, averageDistance: 0, chartData: [], rideTypes: [] });
                 } catch (e) { console.warn('Polling stats failed', e); }
             }
         });
@@ -2718,7 +2718,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                     {/* --- FINANCIALS TAB (REVENUE/SPENDING) --- */}
                     {
                         activeTab === 'financials' && (
-                            <div className="max-w-6xl mx-auto animate-fadeIn space-y-8">
+                            <div className="w-full animate-fadeIn space-y-8 px-4 sm:px-6 lg:px-12">
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                     <div className="bg-[#1E1E1E] p-6 rounded-3xl border border-[#2A2A2A] flex flex-col justify-between h-40">
                                         <h3 className="text-gray-400 text-sm font-medium">Total Spent</h3>
@@ -2727,16 +2727,35 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                     </div>
                                     <div className="bg-[#1E1E1E] p-6 rounded-3xl border border-[#2A2A2A] flex flex-col justify-between h-40">
                                         <h3 className="text-gray-400 text-sm font-medium">Avg. Ride Cost</h3>
-                                        <div className="text-3xl font-bold text-white">MWK 18,350</div>
-                                        <div className="text-xs text-gray-500">Based on 24 rides</div>
+                                        <div className="text-3xl font-bold text-white">MWK {(Math.round(stats?.averageCost || 0)).toLocaleString()}</div>
+                                        <div className="text-xs text-gray-500">Based on {stats?.totalRides || 0} rides</div>
                                     </div>
                                     <div className="bg-[#1E1E1E] p-6 rounded-3xl border border-[#2A2A2A] flex flex-col justify-between h-40">
                                         <h3 className="text-gray-400 text-sm font-medium">Payment Methods</h3>
-                                        <div className="flex gap-2 mt-2">
-                                            <div className="w-10 h-6 bg-white rounded flex items-center justify-center"><span className="text-blue-600 font-bold text-[8px]">VISA</span></div>
-                                            <div className="w-10 h-6 bg-red-600 rounded flex items-center justify-center"><span className="text-white font-bold text-[8px]">AIRTEL</span></div>
+                                        <div className="flex gap-2 mt-2 flex-wrap">
+                                            {/* Dynamic Payment Methods */}
+                                            {profile?.airtelMoneyNumber && (
+                                                <div className="w-10 h-6 bg-red-600 rounded flex items-center justify-center" title="Airtel Money">
+                                                    <span className="text-white font-bold text-[8px]">AIRTEL</span>
+                                                </div>
+                                            )}
+                                            {profile?.mpambaNumber && (
+                                                <div className="w-10 h-6 bg-green-600 rounded flex items-center justify-center" title="Mpamba (TNM)">
+                                                    <span className="text-white font-bold text-[8px]">TNM</span>
+                                                </div>
+                                            )}
+                                            {profile?.bankAccountNumber && (
+                                                <div className="w-10 h-6 bg-blue-600 rounded flex items-center justify-center" title={profile.bankName || 'Bank'}>
+                                                    <span className="text-white font-bold text-[8px]">BANK</span>
+                                                </div>
+                                            )}
+                                            {!profile?.airtelMoneyNumber && !profile?.mpambaNumber && !profile?.bankAccountNumber && (
+                                                <div className="text-xs text-gray-500 italic">No methods saved</div>
+                                            )}
                                         </div>
-                                        <div className="text-xs text-gray-500 mt-auto">2 Active Methods</div>
+                                        <div className="text-xs text-gray-500 mt-auto">
+                                            {[profile?.airtelMoneyNumber, profile?.mpambaNumber, profile?.bankAccountNumber].filter(Boolean).length} Active Methods
+                                        </div>
                                     </div>
                                 </div>
 
@@ -2754,31 +2773,32 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-[#333]">
-                                                {[
-                                                    { date: 'Oct 26, 2023', desc: 'Ride Share to Lilongwe', method: 'Airtel Money', amount: 25000, status: 'Completed' },
-                                                    { date: 'Oct 24, 2023', desc: 'City Commute', method: 'Cash (Physical)', amount: 5000, status: 'Completed' },
-                                                    { date: 'Oct 20, 2023', desc: 'Cancelled Ride Fee', method: 'Mpamba', amount: 2500, status: 'Refunded' },
-                                                    { date: 'Oct 18, 2023', desc: 'Vehicle Hire Deposit', method: 'Bank Transfer', amount: 150000, status: 'Pending' },
-                                                ].map((tx, i) => (
-                                                    <tr key={i} className="hover:bg-[#252525] transition-colors">
-                                                        <td className="px-6 py-4 whitespace-nowrap">{tx.date}</td>
-                                                        <td className="px-6 py-4 font-medium text-white">{tx.desc}</td>
-                                                        <td className="px-6 py-4 flex items-center gap-2">
-                                                            {tx.method.includes('Airtel') && <div className="w-2 h-2 rounded-full bg-red-500"></div>}
-                                                            {tx.method.includes('Mpamba') && <div className="w-2 h-2 rounded-full bg-green-500"></div>}
-                                                            {tx.method.includes('Bank') && <div className="w-2 h-2 rounded-full bg-blue-500"></div>}
-                                                            {tx.method.includes('Cash') && <div className="w-2 h-2 rounded-full bg-yellow-500"></div>}
-                                                            {tx.method}
-                                                        </td>
-                                                        <td className="px-6 py-4 text-right font-bold text-white">MWK {(tx.amount ?? 0).toLocaleString()}</td>
-                                                        <td className="px-6 py-4 text-center">
-                                                            <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${tx.status === 'Completed' ? 'bg-green-500/20 text-green-400' :
-                                                                tx.status === 'Pending' ? 'bg-yellow-500/20 text-yellow-400' :
-                                                                    'bg-gray-500/20 text-gray-400'
-                                                                }`}>{tx.status}</span>
-                                                        </td>
+                                                {transactions.length === 0 ? (
+                                                    <tr>
+                                                        <td colSpan={5} className="px-6 py-8 text-center text-gray-500">No transactions found</td>
                                                     </tr>
-                                                ))}
+                                                ) : (
+                                                    transactions.map((tx: any, i: number) => (
+                                                        <tr key={i} className="hover:bg-[#252525] transition-colors">
+                                                            <td className="px-6 py-4 whitespace-nowrap">{new Date(tx.createdAt).toLocaleDateString()}</td>
+                                                            <td className="px-6 py-4 font-medium text-white">{tx.description || tx.type}</td>
+                                                            <td className="px-6 py-4 flex items-center gap-2">
+                                                                {/* Heuristic for icon based on description or type */}
+                                                                {(tx.description?.includes('Airtel') || tx.reference?.includes('AIRTEL')) && <div className="w-2 h-2 rounded-full bg-red-500"></div>}
+                                                                {(tx.description?.includes('Mpamba') || tx.reference?.includes('TNM')) && <div className="w-2 h-2 rounded-full bg-green-500"></div>}
+                                                                {(!tx.description?.includes('Airtel') && !tx.description?.includes('Mpamba')) && <div className="w-2 h-2 rounded-full bg-blue-500"></div>}
+                                                                {tx.type === 'Ride Payment' ? 'Ride Payment' : tx.type}
+                                                            </td>
+                                                            <td className="px-6 py-4 text-right font-bold text-white">MWK {(tx.amount ?? 0).toLocaleString()}</td>
+                                                            <td className="px-6 py-4 text-center">
+                                                                <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${tx.status === 'completed' ? 'bg-green-500/20 text-green-400' :
+                                                                    tx.status === 'pending' ? 'bg-yellow-500/20 text-yellow-400' :
+                                                                        'bg-gray-500/20 text-gray-400'
+                                                                    }`}>{tx.status}</span>
+                                                            </td>
+                                                        </tr>
+                                                    ))
+                                                )}
                                             </tbody>
                                         </table>
                                     </div>
@@ -2790,7 +2810,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                     {/* --- TRIPS TAB (HISTORY) --- */}
                     {
                         activeTab === 'trips' && (
-                            <div className="max-w-4xl mx-auto animate-fadeIn">
+                            <div className="w-full animate-fadeIn px-4 sm:px-6 lg:px-12">
 
                                 {/* Active Trips List */}
                                 <h2 className="text-xl font-bold text-white mb-6">Active & Pending Trips</h2>
@@ -2935,7 +2955,7 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                     {/* --- DISTANCE TAB --- */}
                     {
                         activeTab === 'distance' && (
-                            <div className="max-w-6xl mx-auto animate-fadeIn space-y-8">
+                            <div className="w-full animate-fadeIn space-y-8 px-4 sm:px-6 lg:px-12">
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                     <div className="bg-[#1E1E1E] p-6 rounded-3xl border border-[#2A2A2A] flex flex-col items-start">
                                         <h3 className="text-gray-400 text-sm font-medium mb-2">Total Distance</h3>
@@ -2943,11 +2963,18 @@ export const RiderDashboard: React.FC<RiderDashboardProps> = ({ onLogout }) => {
                                     </div>
                                     <div className="bg-[#1E1E1E] p-6 rounded-3xl border border-[#2A2A2A] flex flex-col items-start">
                                         <h3 className="text-gray-400 text-sm font-medium mb-2">This Month</h3>
-                                        <div className="text-4xl font-bold text-white">124 <span className="text-lg text-gray-500">km</span></div>
+                                        <div className="text-4xl font-bold text-white">
+                                            {/* Calculate This Month's Distance (Mock/Client-Side) */}
+                                            {pastTrips
+                                                .filter(t => new Date(t.createdAt || Date.now()).getMonth() === new Date().getMonth())
+                                                .reduce((sum, t) => sum + (t.distance_km || 0), 0)
+                                                .toFixed(0)
+                                            } <span className="text-lg text-gray-500">km</span>
+                                        </div>
                                     </div>
                                     <div className="bg-[#1E1E1E] p-6 rounded-3xl border border-[#2A2A2A] flex flex-col items-start">
                                         <h3 className="text-gray-400 text-sm font-medium mb-2">Avg. Trip</h3>
-                                        <div className="text-4xl font-bold text-white">14.2 <span className="text-lg text-gray-500">km</span></div>
+                                        <div className="text-4xl font-bold text-white">{(stats?.averageDistance || 0).toFixed(1)} <span className="text-lg text-gray-500">km</span></div>
                                     </div>
                                 </div>
 

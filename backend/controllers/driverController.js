@@ -853,7 +853,7 @@ exports.createManualJob = async (req, res) => {
 exports.addSharePost = async (req, res) => {
     try {
         const { RideSharePost } = require('../models');
-        const allowed = ['origin', 'destination', 'date', 'time', 'price', 'seats', 'availableSeats', 'description', 'status', 'vehicleId'];
+        const allowed = ['origin', 'destination', 'date', 'time', 'price', 'seats', 'availableSeats', 'description', 'status', 'vehicleId', 'imageUrl'];
         const payload = {};
         for (const k of allowed) if (Object.prototype.hasOwnProperty.call(req.body, k)) payload[k] = req.body[k];
         payload.driverId = req.user.id;
@@ -1039,6 +1039,46 @@ exports.confirmHandover = async (req, res) => {
         res.json({ message: 'Handover processed', ride });
     } catch (err) {
         console.error('Confirm handover error:', err);
+        res.status(500).json({ error: err.message });
+    }
+};
+
+/**
+ * Upload vehicle image
+ */
+exports.uploadVehicleImage = async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No image file provided' });
+        }
+
+        // Return the relative URL path to the uploaded image
+        const imageUrl = `/uploads/vehicles/${req.file.filename}`;
+
+        console.log(`✅ Vehicle image uploaded: ${imageUrl}`);
+        res.json({ imageUrl });
+    } catch (err) {
+        console.error('Upload vehicle image error:', err);
+        res.status(500).json({ error: err.message });
+    }
+};
+
+/**
+ * Upload post image (for ride share or hire posts)
+ */
+exports.uploadPostImage = async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No image file provided' });
+        }
+
+        // Return the relative URL path to the uploaded image
+        const imageUrl = `/uploads/vehicles/${req.file.filename}`;
+
+        console.log(`✅ Post image uploaded: ${imageUrl}`);
+        res.json({ imageUrl });
+    } catch (err) {
+        console.error('Upload post image error:', err);
         res.status(500).json({ error: err.message });
     }
 };

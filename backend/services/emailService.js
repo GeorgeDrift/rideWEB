@@ -3,8 +3,8 @@ require('dotenv').config();
 
 const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
-    port: 465,
-    secure: true, // Use SSL
+    port: 587,
+    secure: false, // Use STARTTLS
     auth: {
         user: process.env.MAIL_USER,
         pass: process.env.MAIL_PASS
@@ -63,7 +63,13 @@ exports.sendVerificationEmail = async (toEmail, token) => {
                     <div style="text-align: center; margin: 30px 0;">
                         <a href="${verificationLink}" style="background-color: #FACC15; color: #000; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold;">Verify Email</a>
                     </div>
-                     <p>Or click this link: <a href="${verificationLink}">${verificationLink}</a></p>
+                    <p>Or click this link: <a href="${verificationLink}">${verificationLink}</a></p>
+                    
+                    <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; margin: 20px 0;">
+                        <p style="margin: 0; font-weight: bold; color: #856404;">⏰ This link expires in 4 hours</p>
+                        <p style="margin: 5px 0 0 0; font-size: 14px; color: #856404;">If the link expires, you can request a new verification email from the login page.</p>
+                    </div>
+                    
                     <p>If you didn't create an account, please ignore this email.</p>
                 </div>
             `

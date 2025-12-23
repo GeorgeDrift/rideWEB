@@ -392,6 +392,41 @@ export const ApiService = {
             return { weekly: [], monthly: [], categories: [] };
         }
     },
+
+    // --- Public Marketplace API (No Auth Required) ---
+    getPublicRideSharePosts: async (): Promise<any[]> => {
+        try {
+            const response = await fetch('/api/marketplace/rideshare');
+            if (!response.ok) throw new Error('Failed to fetch ride share posts');
+            return await response.json();
+        } catch (error) {
+            console.error('API Error:', error);
+            return [];
+        }
+    },
+
+    getPublicHirePosts: async (): Promise<any[]> => {
+        try {
+            const response = await fetch('/api/marketplace/hire');
+            if (!response.ok) throw new Error('Failed to fetch hire posts');
+            return await response.json();
+        } catch (error) {
+            console.error('API Error:', error);
+            return [];
+        }
+    },
+
+    getPublicMarketplace: async (): Promise<any> => {
+        try {
+            const response = await fetch('/api/marketplace/all');
+            if (!response.ok) throw new Error('Failed to fetch marketplace');
+            return await response.json();
+        } catch (error) {
+            console.error('API Error:', error);
+            return { rideShare: [], hire: [], total: 0 };
+        }
+    },
+
     // --- Conversation API ---
     createConversation: async (recipientId: string): Promise<Conversation> => {
         try {
@@ -634,18 +669,6 @@ export const ApiService = {
         }
     },
 
-    getDriverOnTimeStats: async () => {
-        try {
-            const response = await fetch('/api/driver/stats/ontime', {
-                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-            });
-            if (!response.ok) throw new Error('Failed to fetch on-time stats');
-            return await response.json();
-        } catch (error) {
-            console.error('API Error:', error);
-            return [];
-        }
-    },
 
     getDriverStats: async () => {
         try {
@@ -1173,5 +1196,37 @@ export const ApiService = {
             body: JSON.stringify({ planId, mobileNumber, providerRefId }) // Send planId as expected by backend
         });
         return await response.json();
+    },
+
+    uploadVehicleImage: async (file: File) => {
+        const formData = new FormData();
+        formData.append('image', file);
+        const response = await fetch('/api/driver/vehicles/upload-image', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+            body: formData
+        });
+        if (!response.ok) throw new Error('Failed to upload vehicle image');
+        return await response.json();
+    },
+
+    uploadPostImage: async (file: File, type: 'share' | 'hire') => {
+        const formData = new FormData();
+        formData.append('image', file);
+        const response = await fetch(`/api/driver/posts/${type}/upload-image`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+            body: formData
+        });
+        if (!response.ok) throw new Error('Failed to upload post image');
+        return await response.json();
+    },
+
+    getAssetUrl: (path: string | null | undefined): string => {
+        if (!path) return '';
+        if (path.startsWith('http') || path.startsWith('data:')) return path;
+
+        // Ensure relative paths start with /
+        return path.startsWith('/') ? path : `/${path}`;
     }
 };

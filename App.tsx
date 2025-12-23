@@ -18,6 +18,7 @@ import { SubscriptionManagement } from './components/SubscriptionManagement';
 import { VehiclesList } from './components/VehiclesList';
 import { DriverDashboard } from './components/DriverDashboard';
 import { RiderDashboard } from './components/RiderDashboard';
+import { ClientMarketplace } from './components/ClientMarketplace';
 import { View, UserRole } from './types';
 
 import { ApiService } from './services/api';
@@ -29,12 +30,14 @@ const App: React.FC = () => {
         return <VerifyEmail />;
     }
 
+
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [userRole, setUserRole] = useState<UserRole>('admin');
     const [profile, setProfile] = useState<any | null>(null);
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [activeView, setActiveView] = useState<View>('dashboard');
     const [initialChatId, setInitialChatId] = useState<string>('');
+    const [showLogin, setShowLogin] = useState(false); // For marketplace -> login navigation
 
     // Socket Connection Management
     useEffect(() => {
@@ -154,14 +157,29 @@ const App: React.FC = () => {
         setIsAuthenticated(false);
         setUserRole('admin'); // Reset to default
         setProfile(null);
+        setShowLogin(false); // Return to marketplace
         socketService.disconnect(); // Ensure socket is closed
         localStorage.removeItem('token');
     };
 
+    const handleLoginClick = () => {
+        setShowLogin(true);
+    };
+
+    const handleBackToMarketplace = () => {
+        setShowLogin(false);
+    };
+
     // Theme handled by ThemeProvider/ThemeToggle
 
-    if (!isAuthenticated) {
+    // Show login page if user clicked login icon
+    if (!isAuthenticated && showLogin) {
         return <LoginPage onLogin={handleLogin} />;
+    }
+
+    // Show marketplace as landing page for non-authenticated users
+    if (!isAuthenticated) {
+        return <ClientMarketplace onLoginClick={handleLoginClick} />;
     }
 
     // If authenticated as driver, show the specific driver dashboard

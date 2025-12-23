@@ -73,7 +73,7 @@ export const SubscriptionManagement: React.FC = () => {
     const handleCreate = () => {
         setFormData({
             name: '',
-            price: '',
+            price: '5000',
             duration: '30',
             description: ''
         });
@@ -138,7 +138,7 @@ export const SubscriptionManagement: React.FC = () => {
                             </div>
 
                             <p className="text-gray-600 dark:text-gray-300 text-sm mb-6 min-h-[40px]">
-                                30 days free trial · {plan.description || 'Full access to all features'}
+                                {plan.description || 'Full access to all features'}
                             </p>
 
                             <button
