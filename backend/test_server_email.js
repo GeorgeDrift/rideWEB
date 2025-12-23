@@ -34,7 +34,7 @@ async function testConnection() {
             from: `"Test Script" <${process.env.MAIL_USER}>`,
             to: 'vvibe4985@gmail.com', // Target email requested by user
             subject: 'Test Email from Server (Explicit Config)',
-            text: 'If you see this, the SMTP configuration on port 465 is working correctly.'
+            text: 'If you see this, the SMTP configuration on port 587 (STARTTLS) is working correctly on DigitalOcean.'
         });
 
         console.log('✅ Email sent successfully!');
@@ -45,7 +45,7 @@ async function testConnection() {
         if (error.code === 'EAUTH') {
             console.error('👉 Check your email and password. Ensure "Less secure apps" is on OR use an App Password.');
         } else if (error.code === 'ECONNREFUSED') {
-            console.error('👉 Connection blocked. Check firewall or port 465 availability.');
+            console.error('👉 Connection blocked. Check firewall or port 587 availability on DigitalOcean.');
         }
     }
 }
